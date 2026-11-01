@@ -53,7 +53,8 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := OpenDB(dir+"/meta.db", true)
+	os.MkdirAll(dir+"/"+VarDir, 0o755)
+	db, err := OpenDB(dir+"/"+VarDir+"/meta.db", true)
 	if err != nil {
 		t.Fatal(err)
 	}

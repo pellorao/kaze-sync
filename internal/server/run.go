@@ -20,7 +20,7 @@ func Run(ctx context.Context, data string) error {
 	var cert tls.Certificate
 	if certFile, keyFile := MetaString(s.db, "cert"), MetaString(s.db, "key"); certFile != "" {
 		cert, err = tls.LoadX509KeyPair(certFile, keyFile)
-	} else if cert, err = EnsureSelfSigned(filepath.Join(data, TLSDir)); err == nil {
+	} else if cert, err = EnsureSelfSigned(filepath.Join(data, VarDir, TLSDir)); err == nil {
 		s.Fingerprint = Fingerprint(cert)
 	}
 	if err != nil {

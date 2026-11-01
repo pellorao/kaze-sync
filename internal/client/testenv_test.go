@@ -45,7 +45,8 @@ type cenv struct {
 func newCEnv(t *testing.T) *cenv {
 	t.Helper()
 	data := t.TempDir()
-	db, err := server.OpenDB(filepath.Join(data, "meta.db"), true)
+	os.MkdirAll(filepath.Join(data, server.VarDir), 0o755)
+	db, err := server.OpenDB(filepath.Join(data, server.VarDir, "meta.db"), true)
 	if err != nil || server.Migrate(db) != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,7 @@ func newCEnv(t *testing.T) *cenv {
 	admin.Jar = jar
 	admin.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	sum := sha256.Sum256(ts.Certificate().Raw)
-	sdb, err := server.OpenDB(filepath.Join(data, "meta.db"), false)
+	sdb, err := server.OpenDB(filepath.Join(data, server.VarDir, "meta.db"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func (e *cenv) serverFile(folder int64, p string) (content []byte, ok bool) {
 	}
 	for i := 0; i < len(blocks); i += 32 {
 		x := hex.EncodeToString(blocks[i : i+32])
-		b, err := os.ReadFile(filepath.Join(e.data, "blobs", x[:2], x[2:4], x))
+		b, err := os.ReadFile(filepath.Join(e.data, server.VarDir, "blobs", x[:2], x[2:4], x))
 		if err != nil {
 			e.t.Fatalf("block %s of %s missing: %v", x, p, err)
 		}

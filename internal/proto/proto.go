@@ -2,4 +2,4 @@
 package proto
 
 // BlockSize is the fixed size of file blocks.
-const BlockSize = 1 << 20
+const BlockSize = 256 << 10

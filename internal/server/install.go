@@ -42,6 +42,7 @@ type InstallOptions struct {
 const (
 	serviceName = "kaze-sync" // service user, init script, firewall rule
 	binName     = "kaze-syncd"
+	VarDir      = "var" // everything the service writes; <data> and the binary stay root's (0755)
 	DBFile      = "meta.db"
 	TLSDir      = "tls"
 	initPath    = "/etc/init.d/" + serviceName
@@ -49,7 +50,7 @@ const (
 	fwSection   = "firewall.kaze_sync"
 )
 
-// serviceOwned lists what the service user must own, relative to the data directory (blobs are created by the service itself).
+// serviceOwned lists what the service user must own, relative to <data>/var (blobs are created by the service itself).
 var serviceOwned = []string{"", "blobs", "tmp", TLSDir, TLSDir + "/cert.pem", TLSDir + "/key.pem", DBFile, DBFile + "-wal", DBFile + "-shm"}
 
 func NewInstaller() *Installer {
@@ -123,12 +124,15 @@ func (in *Installer) Install(o InstallOptions) error {
 	if err := in.createUser(); err != nil {
 		return err
 	}
-
-	db, err := OpenDB(filepath.Join(data, DBFile), true)
+	state := filepath.Join(data, VarDir)
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		return err
+	}
+	db, err := OpenDB(filepath.Join(state, DBFile), true)
 	if err != nil {
 		return err
 	}
-	listen, fp, err := in.initState(db, data, o)
+	listen, fp, err := in.initState(db, state, o)
 	db.Close()
 	if err != nil {
 		return err
@@ -237,18 +241,32 @@ func (in *Installer) initState(db *sql.DB, data string, o InstallOptions) (liste
 	return listen, Fingerprint(cert), nil
 }
 
-// chownData hands the files the service writes to the service user. It
-// creates the block store directories first, which the service could not.
+// chownData makes <data> and the binary root's and hands <data>/var, which
+// the service writes to, to the service user, so that the service has no way
+// to replace what root executes. It creates the block store directories
+// first, which the service could not.
 func (in *Installer) chownData(data string) error {
-	if _, err := blobstore.Open(data); err != nil {
+	state := filepath.Join(data, VarDir)
+	if _, err := blobstore.Open(state); err != nil {
 		return err
 	}
 	uid, gid, err := in.Lookup(serviceName)
 	if err != nil {
 		return err
 	}
+	for _, p := range []string{data, filepath.Join(data, binName)} {
+		if err := in.Chown(p, 0, 0); err != nil {
+			return err
+		}
+	}
+	if err := os.Chmod(data, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(state, 0o700); err != nil {
+		return err
+	}
 	for _, p := range serviceOwned {
-		if err := in.Chown(filepath.Join(data, p), uid, gid); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := in.Chown(filepath.Join(state, p), uid, gid); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
@@ -328,7 +346,7 @@ func (in *Installer) reloadFirewall() error {
 // AdminPassword replaces the administrator password, prints the new one once
 // and restarts the service, which drops all sessions and lockouts.
 func (in *Installer) AdminPassword(data string) error {
-	db, err := OpenDB(filepath.Join(data, DBFile), false)
+	db, err := OpenDB(filepath.Join(data, VarDir, DBFile), false)
 	if err != nil {
 		return err
 	}

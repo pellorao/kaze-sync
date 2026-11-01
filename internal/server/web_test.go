@@ -366,3 +366,10 @@ func TestOverviewAndKeepDays(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestHealthzNeedsNoLogin(t *testing.T) {
+	e := newEnv(t)
+	if status, body := e.get(e.webClient(), "/healthz"); status != 200 || body != "ok\n" {
+		t.Fatalf("%d %q", status, body)
+	}
+}

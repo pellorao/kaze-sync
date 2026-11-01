@@ -27,13 +27,14 @@ type fakeSystem struct {
 	cmds    []string
 	overlay bool
 	chowned []string
+	owners  map[string]int // path -> last uid given
 	failCmd string
 }
 
 func newFakeSystem(t *testing.T) *fakeSystem {
 	t.Helper()
 	dir := t.TempDir()
-	f := &fakeSystem{t: t, root: filepath.Join(dir, "root"), data: filepath.Join(dir, "mnt", "kaze-sync")}
+	f := &fakeSystem{t: t, owners: map[string]int{}, root: filepath.Join(dir, "root"), data: filepath.Join(dir, "mnt", "kaze-sync")}
 	self := filepath.Join(dir, "self-binary")
 	os.WriteFile(self, []byte("binary v1"), 0o755)
 	f.in = &Installer{
@@ -48,7 +49,7 @@ func newFakeSystem(t *testing.T) *fakeSystem {
 		},
 		SameDevice: func(string) (bool, error) { return f.overlay, nil },
 		Lookup:     func(string) (int, int, error) { return 32768, 32768, nil },
-		Chown:      func(p string, uid, gid int) error { f.chowned = append(f.chowned, p); return nil },
+		Chown:      func(p string, uid, gid int) error { f.chowned = append(f.chowned, p); f.owners[p] = uid; return nil },
 	}
 	return f
 }
@@ -80,7 +81,7 @@ func TestInstallFirstTime(t *testing.T) {
 		t.Fatalf("binary mode %v", fi.Mode())
 	}
 	// Database, port in range, self-signed certificate with a printed fingerprint.
-	db, err := OpenDB(filepath.Join(f.data, "meta.db"), false)
+	db, err := OpenDB(filepath.Join(f.data, "var", "meta.db"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,9 +124,19 @@ func TestInstallFirstTime(t *testing.T) {
 	}
 	// The service user owns what it writes.
 	owned := strings.Join(f.chowned, " ")
-	for _, want := range []string{f.data, "meta.db", "blobs", "tmp", "key.pem"} {
+	for _, want := range []string{f.data + "/var", "var/meta.db", "var/blobs", "var/tmp", "key.pem"} {
 		if !strings.Contains(owned, want) {
 			t.Errorf("%s not chowned: %s", want, owned)
+		}
+	}
+	// <data> and the binary are root's and 0755; the service user owns only <data>/var (0700).
+	bin := filepath.Join(f.data, "kaze-syncd")
+	if f.owners[f.data] != 0 || f.owners[bin] != 0 || f.owners[filepath.Join(f.data, "var")] != 32768 {
+		t.Errorf("owners %v", f.owners)
+	}
+	for p, mode := range map[string]os.FileMode{f.data: 0o755, bin: 0o755, filepath.Join(f.data, "var"): 0o700} {
+		if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != mode {
+			t.Errorf("%s mode %v, want %v", p, fi, mode)
 		}
 	}
 }
@@ -149,22 +160,22 @@ func TestInstallIsRepeatable(t *testing.T) {
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	db, _ := OpenDB(filepath.Join(f.data, "meta.db"), false)
+	db, _ := OpenDB(filepath.Join(f.data, "var", "meta.db"), false)
 	listen := MetaString(db, "listen")
 	SetMeta(db, "admin_password_hash", "keep")
 	db.Close()
-	cert1, _ := os.ReadFile(filepath.Join(f.data, "tls", "cert.pem"))
+	cert1, _ := os.ReadFile(filepath.Join(f.data, "var", "tls", "cert.pem"))
 	os.WriteFile(f.in.Self, []byte("binary v2"), 0o755)
 	f.out.Reset()
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	db, _ = OpenDB(filepath.Join(f.data, "meta.db"), false)
+	db, _ = OpenDB(filepath.Join(f.data, "var", "meta.db"), false)
 	defer db.Close()
 	if MetaString(db, "listen") != listen || MetaString(db, "admin_password_hash") != "keep" {
 		t.Fatal("upgrade changed port or data")
 	}
-	if cert2, _ := os.ReadFile(filepath.Join(f.data, "tls", "cert.pem")); !bytes.Equal(cert1, cert2) {
+	if cert2, _ := os.ReadFile(filepath.Join(f.data, "var", "tls", "cert.pem")); !bytes.Equal(cert1, cert2) {
 		t.Fatal("certificate regenerated")
 	}
 	if b, _ := os.ReadFile(filepath.Join(f.data, "kaze-syncd")); string(b) != "binary v2" {
@@ -178,7 +189,7 @@ func TestInstallIsRepeatable(t *testing.T) {
 	if err := f.install(InstallOptions{Listen: ":41873"}); err != nil {
 		t.Fatal(err)
 	}
-	db2, _ := OpenDB(filepath.Join(f.data, "meta.db"), false)
+	db2, _ := OpenDB(filepath.Join(f.data, "var", "meta.db"), false)
 	defer db2.Close()
 	if MetaString(db2, "listen") != ":41873" {
 		t.Fatal("--listen ignored")
@@ -252,7 +263,7 @@ func TestInstallCertificateFiles(t *testing.T) {
 	if err := f.install(InstallOptions{Cert: cert, Key: key}); err != nil {
 		t.Fatal(err)
 	}
-	db, _ := OpenDB(filepath.Join(f.data, "meta.db"), false)
+	db, _ := OpenDB(filepath.Join(f.data, "var", "meta.db"), false)
 	defer db.Close()
 	if MetaString(db, "cert") != cert || MetaString(db, "key") != key {
 		t.Fatal("cert paths not stored")
@@ -260,7 +271,7 @@ func TestInstallCertificateFiles(t *testing.T) {
 	if strings.Contains(f.out.String(), "fingerprint:") || !strings.Contains(f.out.String(), "without --fingerprint") {
 		t.Fatalf("output:\n%s", f.out.String())
 	}
-	if _, err := os.Stat(filepath.Join(f.data, "tls")); err == nil {
+	if _, err := os.Stat(filepath.Join(f.data, "var", "tls")); err == nil {
 		t.Fatal("self-signed certificate created in certificate mode")
 	}
 	// A later install without flags keeps the mode.

@@ -9,6 +9,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -62,8 +63,9 @@ type report struct {
 	lastWrite time.Time
 }
 
-// New opens the server state in the data directory; meta.db must exist and be at the current schema.
+// New opens the server state in <data>/var; meta.db must exist and be at the current schema.
 func New(data string, now func() time.Time) (*Server, error) {
+	data = filepath.Join(data, VarDir)
 	db, err := OpenDB(filepath.Join(data, DBFile), false)
 	if err != nil {
 		return nil, err
@@ -107,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.deviceRoutes(mux)
 	s.webRoutes(mux)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
 	var h http.Handler = http.NewCrossOriginProtection().Handler(mux)
 	return securityHeaders(h)
 }
