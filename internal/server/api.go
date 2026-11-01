@@ -238,8 +238,9 @@ func (s *Server) commitHandler(w http.ResponseWriter, r *http.Request, d device)
 func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 	body := http.MaxBytesReader(w, r.Body, proto.MaxBlockBody)
 	stored := 0
+	buf := make([]byte, proto.BlockSize)
 	for {
-		h, data, err := proto.ReadBlock(body)
+		h, data, err := proto.ReadBlock(body, buf)
 		if err == io.EOF {
 			break
 		}

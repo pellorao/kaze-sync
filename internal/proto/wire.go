@@ -164,8 +164,9 @@ func WriteBlock(w io.Writer, h Hash, data []byte) error {
 }
 
 // ReadBlock reads the next block of a packet; it returns io.EOF at a clean end
-// and io.ErrUnexpectedEOF for a truncated block.
-func ReadBlock(r io.Reader) (Hash, []byte, error) {
+// and io.ErrUnexpectedEOF for a truncated block. The data is read into buf
+// (at least BlockSize long) and valid until the next call.
+func ReadBlock(r io.Reader, buf []byte) (Hash, []byte, error) {
 	var hdr [36]byte
 	var h Hash
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
@@ -176,7 +177,7 @@ func ReadBlock(r io.Reader) (Hash, []byte, error) {
 	if n > BlockSize {
 		return h, nil, errors.New("block too large")
 	}
-	data := make([]byte, n)
+	data := buf[:n]
 	if _, err := io.ReadFull(r, data); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -224,6 +225,18 @@ func (d *driver) syncScenarios() {
 		}
 		c2, _ := d.blobCount()
 		return eq("blocks in total", fmt.Sprint(c2-c0), fmt.Sprint(blocks))
+	})
+	d.step("one database per folder: var/folders/<id>.db for every folder, plus var/meta.db", func() error {
+		var want []string
+		for _, id := range ids {
+			want = append(want, id+".db")
+		}
+		sort.Strings(want)
+		out, err := d.sh("ls %s/var/folders | grep -v -e -wal -e -shm | sort; test -f %s/var/meta.db", dataDir, dataDir)
+		if err != nil {
+			return err
+		}
+		return eq("folder databases", strings.Join(strings.Fields(out), " "), strings.Join(want, " "))
 	})
 	d.idleAndMemory(lin)
 	d.windowsScenario()

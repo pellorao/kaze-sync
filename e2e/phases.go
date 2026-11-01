@@ -26,7 +26,10 @@ func (d *driver) setupServer(installArgs ...string) error {
 		return err
 	}
 	// The server must run in plain 512 MB: no swap, also not after reboots and sysupgrade (the snapshot's rc.local enables it).
-	if _, err := d.sh("sed -i '/swapon/d' /etc/rc.local; swapoff -a; grep -c Swap /proc/swaps; test $(awk 'NR>1' /proc/swaps | wc -l) -eq 0"); err != nil {
+	// The snapshot's rc.local also mounts the data disk as /dev/sdb, but the kernel names the 512 MiB swap disk and the
+	// 2 GiB data disk in either order; pick the data disk by size so that reboots do not lose it.
+	const rcLocal = `mkdir -p /mnt/data\nfor d in sdb sdc; do [ "$(cat /sys/block/$d/size)" = 4194304 ] && { grep -q " /mnt/data " /proc/mounts || mount -t ext4 /dev/$d /mnt/data; }; done\nexit 0\n`
+	if _, err := d.sh("printf '" + rcLocal + "' > /etc/rc.local; sh /etc/rc.local; swapoff -a; grep -q ' /mnt/data ' /proc/mounts && test $(awk 'NR>1' /proc/swaps | wc -l) -eq 0"); err != nil {
 		return err
 	}
 	return d.vm.Put(d.bins.syncd, remoteBin, 0o755)

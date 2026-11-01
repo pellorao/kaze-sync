@@ -7,9 +7,13 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"sync"
 
 	"kaze-sync/internal/proto"
 )
+
+// uploadMu serializes block uploads of all folders of the process.
+var uploadMu sync.Mutex
 
 const errNewer = "the server has a newer version; resolved by two-way sync"
 
@@ -126,7 +130,11 @@ func (f *Folder) resolve(it *item, cur *proto.Entry) outcome {
 // verifying each hash. Items whose file changed meanwhile are dropped and
 // retried by the next scan.
 func (f *Folder) upload(ctx context.Context, items []*item, need map[proto.Hash]bool, rep *Report) ([]*item, error) {
+	uploadMu.Lock() // one upload at a time over all folders bounds the buffers (design: low memory)
+	defer uploadMu.Unlock()
 	var pkt bytes.Buffer
+	pkt.Grow(min(len(need)*(proto.BlockSize+36), packetTarget))
+	buf := make([]byte, proto.BlockSize)
 	flush := func() error {
 		if pkt.Len() == 0 {
 			return nil
@@ -145,12 +153,13 @@ func (f *Folder) upload(ctx context.Context, items []*item, need map[proto.Hash]
 				idx = append(idx, i)
 			}
 		}
-		err := f.readBlocks(it, idx, func(h proto.Hash, data []byte) error {
-			proto.WriteBlock(&pkt, h, data)
-			if pkt.Len() >= packetTarget {
-				return flush()
+		err := f.readBlocks(it, idx, buf, func(h proto.Hash, data []byte) error {
+			var err error
+			if pkt.Len()+36+len(data) > packetTarget {
+				err = flush()
 			}
-			return nil
+			proto.WriteBlock(&pkt, h, data)
+			return err
 		})
 		var uerr uploadError
 		switch {
@@ -177,7 +186,7 @@ type uploadError struct{ err error }
 func (e uploadError) Error() string { return e.err.Error() }
 
 // readBlocks reads the blocks with the given indexes (ascending) of the item's file.
-func (f *Folder) readBlocks(it *item, idx []int, emit func(proto.Hash, []byte) error) error {
+func (f *Folder) readBlocks(it *item, idx []int, buf []byte, emit func(proto.Hash, []byte) error) error {
 	if len(idx) == 0 {
 		return nil
 	}
@@ -199,7 +208,7 @@ func (f *Folder) readBlocks(it *item, idx []int, emit func(proto.Hash, []byte) e
 				return errChanged
 			}
 		}
-		buf := make([]byte, min(proto.BlockSize, it.op.Size-off))
+		buf := buf[:min(proto.BlockSize, it.op.Size-off)]
 		if _, err := io.ReadFull(r, buf); err != nil || proto.Hash(sha256.Sum256(buf)) != it.op.Blocks[i] {
 			return errChanged
 		}

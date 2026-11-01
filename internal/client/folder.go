@@ -24,7 +24,7 @@ const (
 	sqliteMagic  = "SQLite format 3\x00"
 	maxErrors    = 100
 	maxRounds    = 4
-	packetTarget = 16 << 20
+	packetTarget = 4 << 20
 )
 
 var (
