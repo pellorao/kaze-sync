@@ -6,28 +6,54 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	_ "modernc.org/sqlite"
 )
 
-const defaultRules = "~$*\n*.tmp\nThumbs.db\ndesktop.ini\n.DS_Store\n.sync_*.db*\n.owncloudsync.log\n.nextcloudsync.log"
-
 const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, conflict"
 
-// migrations[i] upgrades the schema from version i to i+1.
+// defaultRules is the factory global rule set: the original eight plus the system and
+// temporary files of Nextcloud's sync-exclude.lst (design 8.2).
+const defaultRules = `~$*
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
+.sync_*.db*
+.owncloudsync.log
+.nextcloudsync.log
+*~
+.~lock.*
+.*.sw?
+*.kate-swp
+*.part
+*.filepart
+*.crdownload
+System Volume Information/
+$RECYCLE.BIN/
+.Trash-*/
+.Trashes/
+.Spotlight-V100/
+.TemporaryItems/
+.DocumentRevisions-V100/
+.fseventd/
+.apdisk
+.directory
+*.textClipping
+photothumb.db
+.fuse_hidden*
+.nfs*
+._*
+.stfolder/
+.stversions/
+.stignore
+*.unison
+.sync.ffs_db`
+
+// migrations[i] upgrades the global database (meta.db) from version i to i+1.
 var migrations = []string{`
-CREATE TABLE files(
-  folder_id INTEGER NOT NULL, path TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL,
-  hash BLOB, blocks BLOB, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, exec INTEGER NOT NULL,
-  device TEXT NOT NULL, created_at INTEGER NOT NULL, conflict INTEGER NOT NULL,
-  PRIMARY KEY(folder_id, path)) WITHOUT ROWID;
-CREATE UNIQUE INDEX files_key ON files(folder_id, key) WHERE hash IS NOT NULL;
-CREATE INDEX files_conflict ON files(folder_id) WHERE conflict AND hash IS NOT NULL;
-CREATE TABLE versions(
-  id INTEGER PRIMARY KEY, folder_id INTEGER NOT NULL, path TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL,
-  hash BLOB, blocks BLOB, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, exec INTEGER NOT NULL,
-  device TEXT NOT NULL, created_at INTEGER NOT NULL, conflict INTEGER NOT NULL, replaced_at INTEGER NOT NULL);
-CREATE INDEX versions_path ON versions(folder_id, path);
 CREATE TABLE folders(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, rules TEXT NOT NULL);
 CREATE TABLE devices(
   id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, os TEXT NOT NULL, token_hash BLOB NOT NULL UNIQUE,
@@ -36,11 +62,39 @@ CREATE TABLE mappings(
   device_id INTEGER NOT NULL, folder_id INTEGER NOT NULL, path TEXT NOT NULL, adopt INTEGER NOT NULL,
   PRIMARY KEY(device_id, folder_id));
 CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
-INSERT INTO meta VALUES('next_seq', 1), ('config_version', 1), ('keep_days', 30), ('global_rules', '` + defaultRules + `');
+INSERT INTO meta VALUES('config_version', 1), ('keep_days', 30), ('global_rules', '` + defaultRules + `');
 `}
 
-// SchemaVersion is the schema version this binary works with.
-var SchemaVersion = len(migrations)
+// folderMigrations[i] upgrades a folder database (folders/<id>.db) from version i to i+1.
+var folderMigrations = []string{`
+CREATE TABLE files(
+  path TEXT PRIMARY KEY, key TEXT NOT NULL, seq INTEGER NOT NULL,
+  hash BLOB, blocks BLOB, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, exec INTEGER NOT NULL,
+  device TEXT NOT NULL, created_at INTEGER NOT NULL, conflict INTEGER NOT NULL) WITHOUT ROWID;
+CREATE UNIQUE INDEX files_key ON files(key) WHERE hash IS NOT NULL;
+CREATE INDEX files_conflict ON files(path) WHERE conflict AND hash IS NOT NULL;
+CREATE TABLE versions(
+  id INTEGER PRIMARY KEY, path TEXT NOT NULL, key TEXT NOT NULL, seq INTEGER NOT NULL,
+  hash BLOB, blocks BLOB, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, exec INTEGER NOT NULL,
+  device TEXT NOT NULL, created_at INTEGER NOT NULL, conflict INTEGER NOT NULL, replaced_at INTEGER NOT NULL);
+CREATE INDEX versions_path ON versions(path);
+CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
+INSERT INTO meta VALUES('next_seq', 1);
+`}
+
+// Schema versions this binary works with.
+var (
+	SchemaVersion       = len(migrations)
+	FolderSchemaVersion = len(folderMigrations)
+)
+
+// FolderDir is the directory of the folder databases below var/.
+const FolderDir = "folders"
+
+// FolderDBPath is the database file of a folder.
+func FolderDBPath(varDir string, id int64) string {
+	return filepath.Join(varDir, FolderDir, strconv.FormatInt(id, 10)+".db")
+}
 
 // OpenDB opens (creating if create) the metadata database at path.
 func OpenDB(path string, create bool) (*sql.DB, error) {
@@ -63,21 +117,26 @@ func OpenDB(path string, create bool) (*sql.DB, error) {
 	return db, nil
 }
 
-// Migrate brings the schema to SchemaVersion, creating it in an empty database.
-func Migrate(db *sql.DB) error {
+// Migrate brings the global schema to SchemaVersion, creating it in an empty database.
+func Migrate(db *sql.DB) error { return migrate(db, migrations) }
+
+// MigrateFolder does the same for a folder database.
+func MigrateFolder(db *sql.DB) error { return migrate(db, folderMigrations) }
+
+func migrate(db *sql.DB, steps []string) error {
 	v, err := schemaVersion(db)
 	if err != nil {
 		return err
 	}
-	if v > SchemaVersion {
-		return fmt.Errorf("database schema %d is newer than this binary (%d)", v, SchemaVersion)
+	if v > len(steps) {
+		return fmt.Errorf("database schema %d is newer than this binary (%d)", v, len(steps))
 	}
-	for ; v < SchemaVersion; v++ {
+	for ; v < len(steps); v++ {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
-		if _, err = tx.Exec(migrations[v]); err == nil {
+		if _, err = tx.Exec(steps[v]); err == nil {
 			_, err = tx.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, v+1)
 		}
 		if err != nil {

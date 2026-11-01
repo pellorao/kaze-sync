@@ -98,11 +98,10 @@ func oneBlock(content string, h proto.Hash) []proto.Hash {
 
 func (e *env) folder(name string) int64 {
 	e.t.Helper()
-	res, err := e.s.db.Exec(`INSERT INTO folders(name, rules) VALUES(?, '')`, name)
+	id, err := e.s.createFolder(name)
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	id, _ := res.LastInsertId()
 	return id
 }
 

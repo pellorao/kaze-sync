@@ -80,7 +80,11 @@ func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Re
 			return nil, err
 		}
 	}
-	tx, err := s.db.Begin()
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
 	}
@@ -88,17 +92,17 @@ func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Re
 	now := s.now().Unix()
 	res := make([]proto.Result, len(ops))
 	for i := range ops {
-		if res[i], err = s.commitOp(tx, folder, device, &ops[i], now); err != nil {
+		if res[i], err = s.commitOp(tx, device, &ops[i], now); err != nil {
 			return nil, err
 		}
 	}
 	return res, tx.Commit()
 }
 
-func (s *Server) commitOp(tx *sql.Tx, folder int64, device string, op *proto.Op, now int64) (proto.Result, error) {
+func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (proto.Result, error) {
 	var cur fileRow
 	have := true
-	err := cur.scan(tx.QueryRow(`SELECT `+fileCols+` FROM files WHERE folder_id=? AND path=?`, folder, op.Path))
+	err := cur.scan(tx.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, op.Path))
 	if errors.Is(err, sql.ErrNoRows) {
 		have = false
 	} else if err != nil {
@@ -128,7 +132,7 @@ func (s *Server) commitOp(tx *sql.Tx, folder int64, device string, op *proto.Op,
 	// Name checks.
 	key := pp.Key(op.Path)
 	if op.Hash != nil {
-		if reason, err := nameProblem(tx, folder, op.Path, key); err != nil {
+		if reason, err := nameProblem(tx, op.Path, key); err != nil {
 			return proto.Result{}, err
 		} else if reason != "" {
 			return proto.Result{Status: proto.StatusRejected, Reason: reason}, nil
@@ -155,8 +159,8 @@ func (s *Server) commitOp(tx *sql.Tx, folder int64, device string, op *proto.Op,
 
 	// Apply.
 	if live {
-		if _, err := tx.Exec(`INSERT INTO versions(folder_id, `+fileCols+`, replaced_at)
-			SELECT folder_id, `+fileCols+`, ? FROM files WHERE folder_id=? AND path=?`, now, folder, op.Path); err != nil {
+		if _, err := tx.Exec(`INSERT INTO versions(`+fileCols+`, replaced_at)
+			SELECT `+fileCols+`, ? FROM files WHERE path=?`, now, op.Path); err != nil {
 			return proto.Result{}, err
 		}
 	}
@@ -171,24 +175,24 @@ func (s *Server) commitOp(tx *sql.Tx, folder int64, device string, op *proto.Op,
 		hash, blocks, size, mtime, exec = op.Hash[:], joinBlocks(op.Blocks), op.Size, op.MtimeNs, op.Exec
 		isConflict = pp.IsConflictName(op.Path)
 	}
-	_, err = tx.Exec(`INSERT OR REPLACE INTO files(folder_id, `+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		folder, op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, isConflict)
+	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, isConflict)
 	return proto.Result{Status: proto.StatusOK, Seq: seq}, err
 }
 
 // nameProblem returns the reason a live file at path cannot be added, or "".
-func nameProblem(tx *sql.Tx, folder int64, path, key string) (string, error) {
+func nameProblem(tx *sql.Tx, path, key string) (string, error) {
 	if pp.CheckPortable(path) != nil {
 		return proto.ReasonInvalidName, nil
 	}
 	var n int
 	// Another live path with the same key.
-	if err := tx.QueryRow(`SELECT count(*) FROM files WHERE folder_id=? AND key=? AND hash IS NOT NULL AND path<>?`, folder, key, path).Scan(&n); err != nil || n > 0 {
+	if err := tx.QueryRow(`SELECT count(*) FROM files WHERE key=? AND hash IS NOT NULL AND path<>?`, key, path).Scan(&n); err != nil || n > 0 {
 		return proto.ReasonCaseCollision, err
 	}
 	// A live file where a directory of the new path is needed, or live files below the new path.
-	q := `SELECT count(*) FROM files WHERE folder_id=? AND hash IS NOT NULL AND (key >= ? AND key < ?`
-	args := []any{folder, key + "/", key + "0"}
+	q := `SELECT count(*) FROM files WHERE hash IS NOT NULL AND (key >= ? AND key < ?`
+	args := []any{key + "/", key + "0"}
 	for i := 0; i < len(key); i++ {
 		if key[i] == '/' {
 			q += ` OR key=?`

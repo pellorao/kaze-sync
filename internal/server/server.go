@@ -8,10 +8,12 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,16 +34,20 @@ const (
 )
 
 type Server struct {
-	db    *sql.DB
-	blobs *blobstore.Store
-	now   func() time.Time
-	tmpl  map[string]*template.Template
+	db     *sql.DB // global database (meta.db)
+	varDir string
+	blobs  *blobstore.Store
+	now    func() time.Time
+	tmpl   map[string]*template.Template
 
 	// Fingerprint is shown in the enrollment commands in self-signed mode; "" otherwise.
 	Fingerprint string
 
 	// PollTimeout is how long a poll hangs without news.
 	PollTimeout time.Duration
+
+	fmu  sync.Mutex        // guards fdbs
+	fdbs map[int64]*sql.DB // open folder databases
 
 	mu       sync.Mutex // guards everything below
 	sessions map[string]time.Time
@@ -82,7 +88,7 @@ func New(data string, now func() time.Time) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	return newServer(db, blobs, now), nil
+	return newServer(db, data, blobs, now), nil
 }
 
 type schemaError struct{ have int }
@@ -91,18 +97,89 @@ func (e *schemaError) Error() string {
 	return "database schema version " + strconv.Itoa(e.have) + " differs from this binary's; run install"
 }
 
-func newServer(db *sql.DB, blobs *blobstore.Store, now func() time.Time) *Server {
+func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() time.Time) *Server {
 	if now == nil {
 		now = time.Now
 	}
 	return &Server{
-		db: db, blobs: blobs, now: now, tmpl: parseTemplates(), PollTimeout: proto.PollTimeoutS * time.Second,
+		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: parseTemplates(), PollTimeout: proto.PollTimeoutS * time.Second,
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),
 	}
 }
 
-func (s *Server) Close() error { return s.db.Close() }
+func (s *Server) Close() error {
+	s.fmu.Lock()
+	defer s.fmu.Unlock()
+	for _, db := range s.fdbs {
+		db.Close()
+	}
+	return s.db.Close()
+}
+
+// folderDB returns the open database of a folder, opening it on first use. A
+// missing file is an error: only createFolder creates folder databases.
+func (s *Server) folderDB(id int64) (*sql.DB, error) {
+	s.fmu.Lock()
+	defer s.fmu.Unlock()
+	if db := s.fdbs[id]; db != nil {
+		return db, nil
+	}
+	db, err := OpenDB(FolderDBPath(s.varDir, id), false)
+	if err != nil {
+		return nil, err
+	}
+	if v, err := schemaVersion(db); err != nil || v != FolderSchemaVersion {
+		db.Close()
+		if err == nil {
+			err = &schemaError{v}
+		}
+		return nil, err
+	}
+	s.fdbs[id] = db
+	return db, nil
+}
+
+// createFolder adds a folder and its database; neither exists if either step fails.
+func (s *Server) createFolder(name string) (int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO folders(name, rules) VALUES(?, '')`, name)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	path := FolderDBPath(s.varDir, id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return 0, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return 0, fmt.Errorf("%s exists already", path)
+	}
+	db, err := OpenDB(path, true)
+	if err == nil {
+		err = MigrateFolder(db)
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		if db != nil {
+			db.Close()
+		}
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			os.Remove(path + suffix)
+		}
+		return 0, err
+	}
+	s.fmu.Lock()
+	s.fdbs[id] = db
+	s.fmu.Unlock()
+	return id, nil
+}
 
 // Handler returns the full HTTP handler: device API under /api/v1/, Web UI elsewhere.
 func (s *Server) Handler() http.Handler {

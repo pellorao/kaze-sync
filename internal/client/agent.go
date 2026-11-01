@@ -25,9 +25,9 @@ type Agent struct {
 	ScanInterval time.Duration // full scan period (design 5.2)
 	RetryAfter   time.Duration // rescan delay when files were still being written
 
-	mu      sync.Mutex // guards cfg, seq and the runners' reports
+	mu      sync.Mutex // guards cfg, cursors and the runners' reports
 	cfg     proto.Config
-	seq     int64
+	cursors map[int64]int64
 	runners map[int64]*runner
 	kick    chan struct{}
 }
@@ -65,7 +65,7 @@ func (a *Agent) pollLoop(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		a.mu.Lock()
-		req := proto.PollReq{Seq: a.seq, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
+		req := proto.PollReq{Cursors: a.cursors, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
 		a.mu.Unlock()
 		resp, err := a.API.Poll(ctx, req)
 		if err != nil {
@@ -82,7 +82,7 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		}
 		backoff = time.Second
 		a.mu.Lock()
-		a.seq = resp.Seq
+		a.cursors = resp.Cursors
 		a.mu.Unlock()
 		if resp.Config != nil {
 			if err := writeJSON(filepath.Join(a.Dir, "config.json"), resp.Config); err != nil {

@@ -193,6 +193,9 @@ func TestEnrollmentAndMappingFlow(t *testing.T) {
 	if fc.Path != "/home/u/Docs" || !fc.Adopt || fc.Name != "Docs" || fc.Rules[0] != "~$*" {
 		t.Fatalf("folder config %+v", fc)
 	}
+	if v, ok := pr.Cursors[1]; !ok || v != 0 {
+		t.Fatalf("cursors %v", pr.Cursors)
+	}
 	// Up to date: the poll hangs until the timeout and carries no config.
 	start := time.Now()
 	_, out = e.api(er.Token, "poll", proto.PollReq{ConfigVersion: 2})
@@ -330,17 +333,18 @@ func TestBrowseVersionsAndRestore(t *testing.T) {
 	}
 	var size int64
 	var dev string
-	e.s.db.QueryRow(`SELECT size, device FROM files WHERE folder_id=? AND path='a.txt'`, f).Scan(&size, &dev)
-	if size != 2 || dev != "web" || e.count(`SELECT count(*) FROM versions WHERE path='a.txt'`) != 2 {
+	fdb, _ := e.s.folderDB(f)
+	fdb.QueryRow(`SELECT size, device FROM files WHERE path='a.txt'`).Scan(&size, &dev)
+	if size != 2 || dev != "web" || e.fcount(f, `SELECT count(*) FROM versions WHERE path='a.txt'`) != 2 {
 		t.Fatalf("after restore: size %d device %s", size, dev)
 	}
 	// Restore a deleted file's last content.
 	var vid int64
-	e.s.db.QueryRow(`SELECT id FROM versions WHERE path='sub/b.txt'`).Scan(&vid)
+	fdb.QueryRow(`SELECT id FROM versions WHERE path='sub/b.txt'`).Scan(&vid)
 	if st, _ := e.post(c, "/folders/"+itoa(f)+"/restore", url.Values{"version": {itoa(vid)}}); st != 303 {
 		t.Fatal("restore deleted")
 	}
-	if e.count(`SELECT count(*) FROM files WHERE path='sub/b.txt' AND hash IS NOT NULL`) != 1 {
+	if e.fcount(f, `SELECT count(*) FROM files WHERE path='sub/b.txt' AND hash IS NOT NULL`) != 1 {
 		t.Fatal("deleted file not restored")
 	}
 }

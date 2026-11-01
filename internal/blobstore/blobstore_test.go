@@ -154,9 +154,16 @@ func TestSweep(t *testing.T) {
 	old := time.Now().Add(-48 * time.Hour)
 	os.Chtimes(oldTmp, old, old)
 
-	n, err := s.Sweep(func(h Hash) bool { return h == kept }, time.Hour, 24*time.Hour)
-	if err != nil || n != 2 {
-		t.Fatalf("Sweep = %d, %v", n, err)
+	// Two ranges that together cover the hash space sweep everything once.
+	keep := func(h Hash) bool { return h == kept }
+	n1, err1 := s.SweepBlobs(0, 128, keep, time.Hour)
+	n2, err2 := s.SweepBlobs(128, 256, keep, time.Hour)
+	nt, err3 := s.SweepTmp(24 * time.Hour)
+	if err1 != nil || err2 != nil || err3 != nil || n1+n2 != 1 || nt != 1 {
+		t.Fatalf("SweepBlobs = %d, %d (%v, %v), SweepTmp = %d (%v)", n1, n2, err1, err2, nt, err3)
+	}
+	if n1 == 1 && doomed[0] >= 128 || n2 == 1 && doomed[0] < 128 {
+		t.Fatal("a range swept a blob outside it")
 	}
 	for h, want := range map[Hash]bool{kept: true, doomed: false, fresh: true} {
 		if ok, _ := s.Has(h); ok != want {

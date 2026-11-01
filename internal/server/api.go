@@ -145,14 +145,14 @@ func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
-			writeJSON(w, proto.PollResp{Seq: metaInt(s.db, "next_seq") - 1, Config: &cfg})
+			writeJSON(w, proto.PollResp{Cursors: s.cursors(d.id), Config: &cfg})
 			s.touch(d.id)
 			return
 		}
 		select {
 		case <-ch:
 		case <-timer.C:
-			writeJSON(w, proto.PollResp{Seq: metaInt(s.db, "next_seq") - 1})
+			writeJSON(w, proto.PollResp{Cursors: s.cursors(d.id)})
 			s.touch(d.id)
 			return
 		case <-r.Context().Done():
@@ -160,6 +160,24 @@ func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 			return
 		}
 	}
+}
+
+// cursors returns the latest seq of every folder mapped to the device.
+func (s *Server) cursors(deviceID int64) map[int64]int64 {
+	out := map[int64]int64{}
+	ids, err := queryAll(s.db, func(rows *sql.Rows, id *int64) error { return rows.Scan(id) },
+		`SELECT folder_id FROM mappings WHERE device_id=?`, deviceID)
+	if err != nil {
+		slog.Warn("cursors", "err", err)
+	}
+	for _, id := range ids {
+		if db, err := s.folderDB(id); err != nil {
+			slog.Warn("cursors", "folder", id, "err", err)
+		} else {
+			out[id] = metaInt(db, "next_seq") - 1
+		}
+	}
+	return out
 }
 
 func (s *Server) noteReport(id int64, req proto.PollReq) {

@@ -195,11 +195,19 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 		Name             string
 	}
 	fols, err := queryAll(s.db, func(rows *sql.Rows, f *fol) error {
-		return rows.Scan(&f.ID, &f.Name, &f.Files, &f.Bytes)
-	}, `SELECT f.id, f.name, count(x.path), coalesce(sum(x.size), 0)
-		FROM folders f LEFT JOIN files x ON x.folder_id=f.id AND x.hash IS NOT NULL GROUP BY f.id ORDER BY f.name`)
+		return rows.Scan(&f.ID, &f.Name)
+	}, `SELECT id, name FROM folders ORDER BY name`)
 	if err != nil {
 		return err
+	}
+	for i := range fols {
+		db, err := s.folderDB(fols[i].ID)
+		if err != nil {
+			return err
+		}
+		if err := db.QueryRow(`SELECT count(*), coalesce(sum(size), 0) FROM files WHERE hash IS NOT NULL`).Scan(&fols[i].Files, &fols[i].Bytes); err != nil {
+			return err
+		}
 	}
 	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "KeepDays": metaInt(s.db, "keep_days"),
 		"Code": code, "CodeName": codeName, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint})
@@ -238,8 +246,12 @@ func (s *Server) newFolder(w http.ResponseWriter, r *http.Request) error {
 	if name == "" || len(name) > 64 || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 }) {
 		return bad(http.StatusBadRequest, "/", "文件夹名称不能为空, 至多 64 个字节, 不含控制字符")
 	}
-	if _, err := s.db.Exec(`INSERT INTO folders(name, rules) VALUES(?, '')`, name); err != nil {
+	var n int
+	if s.db.QueryRow(`SELECT count(*) FROM folders WHERE name=?`, name).Scan(&n); n > 0 {
 		return bad(http.StatusConflict, "/", "已有同名文件夹")
+	}
+	if _, err := s.createFolder(name); err != nil {
+		return err
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
@@ -453,13 +465,17 @@ type browseEntry struct {
 // browse lists the entries directly below dir ("" or "a/b"); directories are
 // derived from the paths below them. Tombstones count only when deleted is set.
 func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, error) {
-	prefix, q, args := "", `SELECT path, size, mtime_ns, device, hash IS NULL FROM files WHERE folder_id=?`, []any{folder}
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return nil, err
+	}
+	prefix, q, args := "", `SELECT path, size, mtime_ns, device, hash IS NULL FROM files WHERE true`, []any{}
 	if dir != "" {
 		prefix = dir + "/"
 		q += ` AND path >= ? AND path < ?` // "0" is the character after "/"
 		args = append(args, prefix, dir+"0")
 	}
-	rows, err := s.db.Query(q+` ORDER BY path`, args...)
+	rows, err := db.Query(q+` ORDER BY path`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -528,19 +544,23 @@ type versionItem struct {
 
 // versionList returns the current state of a path followed by its older versions, newest first.
 func (s *Server) versionList(folder int64, file string) ([]versionItem, error) {
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return nil, err
+	}
 	var out []versionItem
 	var cur fileRow
-	if err := cur.scan(s.db.QueryRow(`SELECT `+fileCols+` FROM files WHERE folder_id=? AND path=?`, folder, file)); err == nil {
+	if err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, file)); err == nil {
 		out = append(out, versionItem{Time: formatTime(cur.createdAt), Device: cur.device, Size: cur.size, Current: true, Deleted: cur.hash == nil})
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	old, err := queryAll(s.db, func(rows *sql.Rows, v *versionItem) error {
+	old, err := queryAll(db, func(rows *sql.Rows, v *versionItem) error {
 		var t int64
 		err := rows.Scan(&v.ID, &t, &v.Device, &v.Size)
 		v.Time = formatTime(t)
 		return err
-	}, `SELECT id, created_at, device, size FROM versions WHERE folder_id=? AND path=? ORDER BY replaced_at DESC, id DESC`, folder, file)
+	}, `SELECT id, created_at, device, size FROM versions WHERE path=? ORDER BY replaced_at DESC, id DESC`, file)
 	return append(out, old...), err
 }
 
@@ -552,15 +572,19 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 	}
 	back := "/folders/" + strconv.FormatInt(f.ID, 10)
 	vid, _ := strconv.ParseInt(r.FormValue("version"), 10, 64)
+	db, err := s.folderDB(f.ID)
+	if err != nil {
+		return err
+	}
 	var v fileRow
-	err = v.scan(s.db.QueryRow(`SELECT `+fileCols+` FROM versions WHERE id=? AND folder_id=?`, vid, f.ID))
+	err = v.scan(db.QueryRow(`SELECT `+fileCols+` FROM versions WHERE id=?`, vid))
 	if errors.Is(err, sql.ErrNoRows) {
 		return bad(http.StatusNotFound, back, "没有这个版本")
 	} else if err != nil {
 		return err
 	}
 	var base int64 // the current seq of the path, or 0 when it has never existed
-	s.db.QueryRow(`SELECT seq FROM files WHERE folder_id=? AND path=?`, f.ID, v.path).Scan(&base)
+	db.QueryRow(`SELECT seq FROM files WHERE path=?`, v.path).Scan(&base)
 	e := v.entry()
 	res, err := s.commit(f.ID, "web", []proto.Op{{Path: v.path, BaseSeq: base, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec}})
 	if err != nil {

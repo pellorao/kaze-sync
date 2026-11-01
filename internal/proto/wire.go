@@ -83,17 +83,17 @@ type FolderState struct {
 }
 
 type PollReq struct {
-	Seq           int64         `json:"seq"`
-	ConfigVersion int64         `json:"config_version"`
-	AgentVersion  int           `json:"agent_version"`
-	OS            string        `json:"os"`
-	Hostname      string        `json:"hostname"`
-	Folders       []FolderState `json:"folders,omitempty"`
+	Cursors       map[int64]int64 `json:"cursors,omitempty"` // folder id -> last seq the client knows
+	ConfigVersion int64           `json:"config_version"`
+	AgentVersion  int             `json:"agent_version"`
+	OS            string          `json:"os"`
+	Hostname      string          `json:"hostname"`
+	Folders       []FolderState   `json:"folders,omitempty"`
 }
 
 type PollResp struct {
-	Seq    int64   `json:"seq"`
-	Config *Config `json:"config,omitempty"` // present when the client's version differs
+	Cursors map[int64]int64 `json:"cursors"`          // folder id -> latest seq, for every folder mapped to the device
+	Config  *Config         `json:"config,omitempty"` // present when the client's version differs
 }
 
 // Op is one change of a commit. A nil Hash deletes the path.

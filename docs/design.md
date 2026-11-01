@@ -84,7 +84,8 @@
 <data>/                   安装时用 --data 指定, 位于大容量数据盘; root 所有, 0755
   kaze-syncd              服务端二进制; root 所有, 0755 (服务用户不能改写)
   var/                    服务进程写入的一切; kaze-sync 用户所有, 0700
-    meta.db               SQLite, WAL, synchronous=FULL
+    meta.db               全局库: devices, mappings, folders, meta; SQLite, WAL, synchronous=FULL
+    folders/<id>.db       每个同步文件夹一个库: files, versions, meta; 同样的 SQLite 设置
     blobs/ab/cd/<sha256>  块内容 (至多 256 KiB), 写入后只读
     tmp/                  写入中的块
     tls/                  自签名证书与私钥
@@ -92,23 +93,26 @@
 
 `<data>` 和二进制属 root, 是为了让被攻破的服务进程不能替换自己的二进制 (否则下一次 `install` 或重启会以 root 或持续地执行被改过的代码). 服务用户只能写 `var/`. `kaze-syncd run --data <data>` 在内部定位 `var/`.
 
-表 (共 6 张):
+元数据分在两类库里 (用户 2026-11-02): 全局库 `meta.db` 放设备, 映射, 文件夹和全局设置; 每个同步文件夹有自己的库 `folders/<id>.db` (`<id>` 为 `folders.id`), 放该文件夹的 `files` 和 `versions`. 好处是一个文件夹的库损坏或锁争用只波及该文件夹, 各文件夹的提交可并行; 块存储和磁盘层面的故障仍是共用的. 新建文件夹时在同一操作中创建并初始化它的库 (失败则不创建文件夹); 删除文件夹时删库 (M7). 服务进程按需打开文件夹库并保持打开 (只打开有请求访问过的文件夹).
 
-- `files`: 每个 (文件夹, 路径) 的当前状态, 含删除后的墓碑. 列: `folder_id`, `path` (原样 UTF-8, `/` 分隔), `key` (NFC 加 Unicode 大小写折叠), `seq` (全局唯一且单调递增), `hash` (整个文件的 SHA-256, 删除时为 NULL), `blocks` (按顺序拼接的块哈希, 每块 32 字节), `size`, `mtime_ns`, `exec`, `device`, `created_at`, `conflict` (路径是否为冲突副本名, 提交时计算). 主键 `(folder_id, path)`; 部分唯一索引 `UNIQUE(folder_id, key) WHERE hash IS NOT NULL`; 部分索引 `(folder_id) WHERE conflict AND hash IS NOT NULL` 供通知查询.
-- `versions`: 被替换或删除的旧内容, 列与 `files` 相同, 另加 `id` 和 `replaced_at`.
+表 (全局库 4 张: `folders`, `devices`, `mappings`, `meta`; 每个文件夹库 3 张: `files`, `versions`, `meta`):
+
+- `files` (在文件夹库中): 该文件夹每个路径的当前状态, 含删除后的墓碑. 列: `path` (原样 UTF-8, `/` 分隔), `key` (NFC 加 Unicode 大小写折叠), `seq` (文件夹内唯一且单调递增), `hash` (整个文件的 SHA-256, 删除时为 NULL), `blocks` (按顺序拼接的块哈希, 每块 32 字节), `size`, `mtime_ns`, `exec`, `device`, `created_at`, `conflict` (路径是否为冲突副本名, 提交时计算). 主键 `path`; 部分唯一索引 `UNIQUE(key) WHERE hash IS NOT NULL`; 部分索引 `(path) WHERE conflict AND hash IS NOT NULL` 供通知查询.
+- `versions` (在文件夹库中): 被替换或删除的旧内容, 列与 `files` 相同, 另加 `id` 和 `replaced_at`; 索引 `(path)`.
+- `meta(key, value)` (在文件夹库中): `schema_version`, 该文件夹的下一个 `seq`.
 - `folders(id, name, rules)`: `rules` 为该文件夹的排除规则, 接在全局规则之后.
-- `devices(id, name, os, token_hash, created_at, last_seen)`: `name` 限 `[A-Za-z0-9_-]{1,32}` 且唯一 (要进入冲突副本文件名); 设备行在注册时创建 (注册时才知道 `os`). `files.device` 存设备名文本, 吊销或改名后来源仍可读.
+- `devices(id, name, os, token_hash, created_at, last_seen)`: `name` 限 `[A-Za-z0-9_-]{1,32}` 且唯一 (要进入冲突副本文件名); 设备行在注册时创建 (注册时才知道 `os`). `files.device` 存设备名文本 (跨库, 所以不用外键), 吊销或改名后来源仍可读.
 - `mappings(device_id, folder_id, path, adopt)`: 本机路径, 是否允许接管已有的非空目录.
-- `meta(key, value)`: `schema_version`, 下一个 `seq`, `config_version`, `admin_password_hash`, `global_rules`, `keep_days`, `listen`, `cert`, `key`.
+- `meta(key, value)` (在全局库中): `schema_version`, `config_version`, `admin_password_hash`, `global_rules`, `keep_days`, `listen`, `cert`, `key`.
 
 会话, 注册码, 设备最近上报的状态, 失败计数都只放在内存中: 服务端重启后管理员需重新登录, 未使用的注册码失效, 客户端在重连后的第一次长轮询中重新上报状态. `devices.last_seen` 持久化 (每次长轮询结束时更新, 至多每分钟写一次), 供 "设备长期离线" 通知在重启后仍然成立.
 
 要点:
 
-- 变更日志就是按 `seq` 排序的 `files`, 新映射用 `cursor=0` 拿到完整当前状态. 墓碑永久保留, 不存在 "游标过旧" 的情况.
-- 每次提交在一个 SQLite 事务中完成: 更新 `files`, 把旧内容移入 `versions`, 分配 `seq`. Web UI 中的恢复也是服务端内部提交, `device` 记为 `web`.
+- 变更日志就是按 `seq` 排序的 `files`, `seq` 在每个文件夹内单调递增, 客户端为每个订阅的文件夹各保存一个游标; 新映射用 `cursor=0` 拿到完整当前状态. 墓碑永久保留, 不存在 "游标过旧" 的情况.
+- 每次提交在该文件夹库的一个 SQLite 事务中完成: 更新 `files`, 把旧内容移入 `versions`, 分配 `seq`. Web UI 中的恢复也是服务端内部提交, `device` 记为 `web`.
 - 块以 SHA-256 命名, 相同内容只存一份: 改名, 复制, 各版本中未变化的块, 多台客户端已有的相同文件都不重复存储或传输.
-- 服务端磁盘上看不到原始目录树 (用户已接受): `kaze-syncd export` 把任一时刻的树导出为普通文件; `var/meta.db` 必须纳入备份 (9.4).
+- 服务端磁盘上看不到原始目录树 (用户已接受): `kaze-syncd export` 把任一时刻的树导出为普通文件; `var/meta.db` 与 `var/folders/` 必须纳入备份 (9.4).
 
 ### 2.4 设备 API
 
@@ -117,7 +121,7 @@ HTTP/1.1 + JSON, 全部位于 `/api/v1/`, 除 `enroll` 外每个请求带 `Autho
 | 方法与路径 | 作用 |
 |---|---|
 | `POST /enroll` | `{code, os, hostname}` 换取设备令牌, 只此一次 |
-| `POST /poll` | 请求体带客户端已知的 `seq`, `config_version` 和当前状态 (3.6). 本设备已订阅文件夹出现新变更或配置版本不同时立即返回, 否则最多挂起 55 秒. 返回最新 `seq`, 配置有变化时附带完整的新配置 |
+| `POST /poll` | 请求体带每个订阅文件夹已知的游标 (`cursors`, 文件夹 id 到 `seq`), `config_version` 和当前状态 (3.6). 本设备已订阅文件夹出现新变更或配置版本不同时立即返回, 否则最多挂起 55 秒. 返回各订阅文件夹的最新 `seq` (`cursors`), 配置有变化时附带完整的新配置 |
 | `GET /changes?folder=F&since=N` | 该文件夹 `seq > N` 的条目, 每页至多 5000 条, 带 `cursor` 和 `more` |
 | `POST /commit` | `{folder, ops}`, 至多 1000 个操作, 每个独立返回 `ok` (新 `seq`), `need` (缺少的块哈希), `conflict` (附服务端当前状态) 或 `rejected` (附原因) |
 | `POST /blocks` | 上传块包: 请求体为若干 `[32 字节哈希][4 字节长度][数据]`, 服务端逐块校验并保存, 中途断开时已完整收到的块保留 |
@@ -285,7 +289,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 - 文件按 256 KiB 切块, 每块 SHA-256, 文件 = 有序的块哈希列表; 另有整个文件的 SHA-256 作为文件标识 (冲突判断, 改名复用, 落地校验都用它). 两种哈希在同一次读取中算出. 不超过 256 KiB 的文件只有一块, 块哈希即文件哈希.
 - 上传只传服务端缺少的块, 下载只取本地没有的块; 服务端各版本共享未变化的块, 所以保留许多个版本的 1 GB 数据库, 代价只是各版本之间变化的块.
 - 选择固定大小而不是内容定义分块 (CDC): SQLite 按固定大小的页原地改写, 虚拟机磁盘镜像按扇区原地改写, 偏移都不移动, 固定块正好对齐这种修改; 在文件末尾追加也只影响最后的块. CDC 只在 "大文件中间插入或删除数据" 时更好, 而用户的大文件不是这种类型 (docx 等压缩格式每次保存整体重写, 两种方式都无能为力). 固定块不需要分块库, 块列表不需要存每块长度.
-- 块大小取 256 KiB (`proto.BlockSize`, 已实现, 用户 2026-11-02 由 1 MiB 改为 256 KiB, 以降低小写入的流量放大): 1 GB 文件约 4096 块, 1 TB 数据约 400 万个块文件, GC 时内存中的哈希集合约 400 MB (GC 在服务端内存紧张时是主要的内存峰值, 见首要目标). 代价是分散的小写入仍会放大: 一次检查点改动 k 个分散的 4 KiB 页, 最多上传 k × 256 KiB. 一旦投入使用不再更改.
+- 块大小取 256 KiB (`proto.BlockSize`, 已实现, 用户 2026-11-02 由 1 MiB 改为 256 KiB, 以降低小写入的流量放大): 1 GB 文件约 4096 块, 1 TB 数据约 400 万个块文件. GC 需要在内存中比对这些块的哈希, 它是服务端内存随数据量增长的唯一部分, 由预算和分趟限制 (第 7 节). 代价是分散的小写入仍会放大: 一次检查点改动 k 个分散的 4 KiB 页, 最多上传 k × 256 KiB. 一旦投入使用不再更改.
 
 ### 5.4 上传
 
@@ -389,7 +393,34 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 - 恢复 (Web UI 文件夹页):
   - 单个版本 (含已删除文件的最后内容): 作为新的当前状态提交, 当前内容 (若有) 进入 `versions`, 随后同步到所有客户端. 恢复从不改写或删除历史.
   - 目录恢复到某一时刻: 对目录下每个路径取该时刻的状态 (`created_at <= T < replaced_at` 的版本, 或 `created_at <= T` 的当前状态), 与当前不同且有内容的就恢复. 只恢复内容, 从不删除该时刻之后新建的文件. 它同时覆盖 "误删整个目录" 和 "一批文件被错误覆盖" 两种情况.
-- GC: 每天一次, 以及 `keep_days` 保存后立即一次; 同一时刻只运行一个 GC (已有 GC 运行时, 新的触发等它结束后再运行一次). 删除超出 `keep_days` 的 `versions` 行, 把 `files` 与 `versions` 引用的块哈希读入内存集合, 删除不在集合中且修改时间超过 1 小时的块 (宽限期保护已上传但尚未提交的块), 清理 `tmp/`.
+- GC: 每天一次, 以及 `keep_days` 保存后立即一次; 同一时刻只运行一个 GC (已有 GC 运行时, 新的触发等它结束后再运行一次). 删除超出 `keep_days` 的 `versions` 行, 收集所有文件夹库中 `files` 与 `versions` 引用的块哈希 (内存做法见下), 删除未被引用且修改时间超过 1 小时的块 (宽限期保护已上传但尚未提交的块), 清理 `tmp/`.
+- GC 的内存预算与分趟 (用户 2026-11-02, 替代原先 "哈希集合约 400 MB" 的做法): 引用的块哈希收集为排序的 32 字节数组 (`[][32]byte`, 不用 map; 每个引用 32 字节, 无额外开销), 排序后去重, 用二分查找判断某个块是否被引用. 内存预算是常量 `GCMemoryBudget` (`internal/server/gc.go`, 默认 64 MB, 不做成配置项).
+  - 先读各文件夹库的块总数 (引用数的上界, 各版本重复引用也计入), 所需内存 = 引用数 x 32 字节. 不超过预算时只有 1 趟, 就是纯内存方案.
+  - 超过预算时分 k 趟, k = 所需内存 / 预算 向上取整 (至多 256). 第 p 趟 (p = 0 到 k-1) 处理哈希首字节在 [p x 256 / k, (p+1) x 256 / k) 的块: 扫一遍所有文件夹库的块列表, 只把首字节在该范围内的哈希收入数组, 排序去重, 再与 `blobs/` 下对应首字节的前缀目录比对, 删除未被引用且超过宽限期的块. 各趟复用同一个数组, 所以峰值内存约为预算 (加首字节分布不均的约 1/64 余量), 与数据量无关; 代价是块列表被扫描 k 遍.
+  - 宽限期, `tmp/` 清理, 单实例运行, `keep_days` 触发等语义不变. `tmp/` 清理与分趟无关, 只做一次.
+  - 实现状态: 收集与分趟的核心 (`sweepPasses`, `collectRefs`, `folderRefs`) 及 `blobstore.SweepBlobs` (按首字节范围清扫) 已实现并有测试与基准, 在 M7 之前不被调用; M7 补上定时与触发, `keep_days` 过期版本的删除, 单实例, `tmp/` 清理 (`blobstore.SweepTmp`).
+  - 实测 (基准 `BenchmarkGCCollect`, 内存中的合成数据, i9-13900): 收集 100 万个引用约 0.15 s, 数组约 31 MB; 400 万个约 0.65 s, 数组约 122 MB; k = 2 与 k = 4 的峰值分别降到约 1/2 与 1/4 (400 万: 63 MB 与 33 MB), 耗时只增加 3% 到 15% (基准中的 "扫描" 是内存生成, 真实的 SQLite 扫描每趟更慢, 见下表的说明).
+
+数据量与服务端内存 (块 256 KiB; 引用数 = `files` 与 `versions` 中的块引用总数, 同一块被多个版本引用时重复计入; "对应数据量" 按每个引用 256 KiB 估算, 去重后实际更小):
+
+| 引用数 | 对应数据量 | 引用数组 | 预算 64 MB 的趟数 k | GC 时服务端内存峰值 |
+|---|---|---|---|---|
+| 100 万 | 约 256 GB | 约 32 MB | 1 | 约 24 + 32 = 56 MB |
+| 200 万 | 约 512 GB | 约 64 MB | 1 | 约 24 + 64 = 88 MB |
+| 400 万 | 约 1 TB | 约 128 MB | 2 | 约 24 + 64 = 88 MB |
+| 800 万 | 约 2 TB | 约 256 MB | 4 | 约 24 + 64 = 88 MB |
+| 1600 万 | 约 4 TB | 约 512 MB | 8 | 约 24 + 64 = 88 MB |
+
+常驻内存约 24 MB (M3 实测, 与数据量基本无关; 文件夹库按需打开, 空闲连接各占少量缓存). GC 额外占用约每百万个引用 32 MB, 乘以 1/k. 各机器适合的数据量 (系统与页缓存至少留一半内存, 所以预算取内存的 1/8; 预算改常量后重新编译即可):
+
+| 服务端内存 | 建议预算 | 单趟 (k = 1) 可处理 | 默认或建议预算下 4 TB 的趟数 | 说明 |
+|---|---|---|---|---|
+| 512 MB | 64 MB (默认) | 200 万引用, 约 512 GB | 8 | 目标配置; 超过 512 GB 时 GC 多扫几遍, 内存不变 |
+| 1 GB | 128 MB | 400 万引用, 约 1 TB | 4 | 1 TB 数据单趟完成 |
+| 2 GB | 256 MB | 800 万引用, 约 2 TB | 2 | 2 TB 数据单趟完成 |
+
+趟数多只让 GC 变慢 (每天一次, 在后台), 不影响同步. 每趟要扫描全部文件夹库的块列表 (`files` 与 `versions` 的 `blocks` 列, 1 TB 约 130 MB 数据), 磁盘读取量 = k x 该大小; 每趟耗时取决于盘速, 须在目标路由器上实测并记入验证报告 (尚未测量).
+
 - `kaze-syncd export <dir> [--folder F] [--at <time>]`: 在服务端本机把某时刻的树导出为普通文件, 用于灾难恢复和迁出. 与目录恢复共用 "某时刻状态" 的查询.
 
 ## 8. 排除系统
@@ -422,7 +453,17 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 
 ### 8.2 默认规则
 
-全局规则的初始内容: `~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `.DS_Store`, 以及 Nextcloud 客户端遗留的 `.sync_*.db*`, `.owncloudsync.log`, `.nextcloudsync.log`.
+全局规则的初始内容 (出厂默认, `internal/server/db.go` 的 `defaultRules`, 约 35 条), 参考 Nextcloud 客户端自带的 `sync-exclude.lst` (去掉其 `]` 前缀后即为 gitignore 语法):
+
+- Office 与 Windows: `~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `photothumb.db`, `System Volume Information/`, `$RECYCLE.BIN/`.
+- Nextcloud 客户端遗留: `.sync_*.db*`, `.owncloudsync.log`, `.nextcloudsync.log`.
+- 编辑器与锁文件: `*~`, `.~lock.*`, `.*.sw?`, `*.kate-swp`.
+- 下载中的临时文件: `*.part`, `*.filepart`, `*.crdownload`.
+- macOS: `.DS_Store`, `.Trashes/`, `.Spotlight-V100/`, `.TemporaryItems/`, `.DocumentRevisions-V100/`, `.fseventd/`, `.apdisk`, `*.textClipping`, `._*`.
+- Linux: `.Trash-*/`, `.directory`, `.fuse_hidden*`, `.nfs*`.
+- 其他同步工具的元数据: `.stfolder/`, `.stversions/`, `.stignore`, `*.unison`, `.sync.ffs_db`.
+
+不收 Nextcloud 列表中的 `My Saved Places.`, `.synkron.*`, `.symform*`, `*.gnucash.tmp-*` (过于小众). 用户自己的规则 (如 `.venv/`, `node_modules/`) 不进出厂默认, 部署后在 Web UI 中按全局或按文件夹添加. 出厂默认只在初始化时写入 `meta`, 之后以 Web UI 中的内容为准.
 
 ### 8.3 规则变化时的行为
 
@@ -492,11 +533,11 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.3 升级
 
-服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 在启动时按 `schema_version` 顺序迁移. 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵; 版本过旧的客户端收到明确错误, 版本号显示在总览页.
+服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 按 `schema_version` 顺序迁移 (服务端在 `install` 中逐库执行: 先全局库, 再每个文件夹库, 各库有自己的版本号). 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵; 版本过旧的客户端收到明确错误, 版本号显示在总览页.
 
 ### 9.4 备份
 
-`var/meta.db` 必须备份 (没有它, 块无法还原成文件): `/etc/init.d/kaze-sync stop`, 复制 `var/meta.db`, `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
+`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻): `/etc/init.d/kaze-sync stop`, 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
 
 ## 10. 语言与依赖
 
@@ -620,7 +661,7 @@ func CheckPortable(p string) error
 - 同步引擎的 bug 可能在客户端之间传播错误的删除或覆盖. 对策: 第 11 节的不变式与崩溃测试; 服务端版本作为最后防线; 先在数据副本上试运行.
 - 服务端是路由器: 公网访问需要公网 IPv4 或 IPv6 (运营商级 NAT 后无法从外部访问); 服务暴露在公网上, 依赖随机密码, 按 IP 锁定和以 `kaze-sync` 用户运行来限制风险.
 - sysupgrade: 已定数据放在单独挂载的数据盘上 (用户 2026-11-02), 升级镜像只改写系统盘, 不影响数据. 测试虚拟机中仍用单独的数据盘验证 sysupgrade 后服务恢复.
-- 256 KiB 块对分散的小写入仍有放大, 块文件数多 (1 TB 约 400 万个), GC 的哈希集合约 400 MB (5.3); 用真实数据库和真实数据量测量.
+- 256 KiB 块对分散的小写入仍有放大, 块文件数多 (1 TB 约 400 万个), GC 需按预算分多趟扫描块列表 (第 7 节), 数据量大时 GC 变慢但内存不变; 用真实数据库和真实数据量测量.
 - WAL 模式且长期打开的 SQLite 数据库只在应用关闭后同步, 这是有意的限制 (5.6).
 - Windows 文件锁和第三方程序 (杀毒软件, 索引服务) 的行为只能在真机上暴露.
 - Linux inotify 监视数量上限: 超限时退化为每小时全量扫描, 不影响正确性.

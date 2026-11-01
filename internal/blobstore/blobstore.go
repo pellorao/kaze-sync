@@ -103,25 +103,29 @@ func (s *Store) Put(h Hash, r io.Reader) error {
 
 func (s *Store) Open(h Hash) (*os.File, error) { return os.Open(s.blobPath(h)) }
 
-// Sweep removes blobs for which keep returns false and that are older than
-// minAge, and temp files of interrupted Puts older than partMaxAge. It returns the number removed.
-func (s *Store) Sweep(keep func(Hash) bool, minAge, partMaxAge time.Duration) (removed int, err error) {
+// SweepBlobs removes the blobs whose first hash byte is in [lo, hi), for which
+// keep returns false and that are older than minAge. It returns the number removed.
+// Splitting the hash space lets a caller hold only part of the referenced hashes
+// in memory at a time.
+func (s *Store) SweepBlobs(lo, hi int, keep func(Hash) bool, minAge time.Duration) (removed int, err error) {
 	now := time.Now()
-	for _, sub := range []string{"blobs", "tmp"} {
-		err = filepath.WalkDir(filepath.Join(s.dir, sub), func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
+	for b := lo; b < hi; b++ {
+		root := filepath.Join(s.dir, "blobs", fmt.Sprintf("%02x", b))
+		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if p == root && errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
 				return err
+			}
+			if d.IsDir() {
+				return nil
 			}
 			fi, err := d.Info()
 			if err != nil {
 				return err
 			}
-			age := now.Sub(fi.ModTime())
-			if sub == "tmp" {
-				if age <= partMaxAge {
-					return nil
-				}
-			} else if h, perr := ParseHash(d.Name()); perr != nil || age <= minAge || keep(h) {
+			if h, perr := ParseHash(d.Name()); perr != nil || now.Sub(fi.ModTime()) <= minAge || keep(h) {
 				return nil
 			}
 			removed++
@@ -129,6 +133,23 @@ func (s *Store) Sweep(keep func(Hash) bool, minAge, partMaxAge time.Duration) (r
 		})
 		if err != nil {
 			return removed, err
+		}
+	}
+	return removed, nil
+}
+
+// SweepTmp removes temp files of interrupted Puts older than maxAge.
+func (s *Store) SweepTmp(maxAge time.Duration) (removed int, err error) {
+	ents, err := os.ReadDir(filepath.Join(s.dir, "tmp"))
+	if err != nil {
+		return 0, err
+	}
+	for _, e := range ents {
+		if fi, err := e.Info(); err == nil && !e.IsDir() && time.Since(fi.ModTime()) > maxAge {
+			if err := os.Remove(filepath.Join(s.dir, "tmp", e.Name())); err != nil {
+				return removed, err
+			}
+			removed++
 		}
 	}
 	return removed, nil

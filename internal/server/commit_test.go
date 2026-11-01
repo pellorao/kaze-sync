@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"testing"
 
 	"kaze-sync/internal/proto"
@@ -16,13 +17,33 @@ func status(rs []proto.Result) string {
 	return s
 }
 
-func (e *env) count(q string, args ...any) int {
+func (e *env) count(q string, args ...any) int { return e.countIn(e.s.db, q, args...) }
+
+// fcount runs a query on a folder's database.
+func (e *env) fcount(folder int64, q string, args ...any) int {
+	db, err := e.s.folderDB(folder)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return e.countIn(db, q, args...)
+}
+
+func (e *env) countIn(db *sql.DB, q string, args ...any) int {
 	e.t.Helper()
 	var n int
-	if err := e.s.db.QueryRow(q, args...).Scan(&n); err != nil {
+	if err := db.QueryRow(q, args...).Scan(&n); err != nil {
 		e.t.Fatal(err)
 	}
 	return n
+}
+
+// nextSeq is the next seq of a folder.
+func (e *env) nextSeq(folder int64) int64 {
+	db, err := e.s.folderDB(folder)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return metaInt(db, "next_seq")
 }
 
 func TestCommitBaseVersionsAndTombstones(t *testing.T) {
@@ -38,12 +59,12 @@ func TestCommitBaseVersionsAndTombstones(t *testing.T) {
 	if status(r) != "conflict" || r[0].Current == nil || r[0].Current.Seq != 1 {
 		t.Fatalf("stale add: %+v", r)
 	}
-	if e.count(`SELECT count(*) FROM versions`) != 0 {
+	if e.fcount(f, `SELECT count(*) FROM versions`) != 0 {
 		t.Fatal("a refused op must not touch versions")
 	}
 	// Modify with the right base: old content moves to versions.
 	r = e.commit(f, e.op("a.txt", 1, "two"))
-	if status(r) != "ok" || r[0].Seq != 2 || e.count(`SELECT count(*) FROM versions WHERE path='a.txt'`) != 1 {
+	if status(r) != "ok" || r[0].Seq != 2 || e.fcount(f, `SELECT count(*) FROM versions WHERE path='a.txt'`) != 1 {
 		t.Fatalf("modify: %+v", r)
 	}
 	// Delete with a stale base conflicts; with the right base it leaves a tombstone and a version.
@@ -51,10 +72,10 @@ func TestCommitBaseVersionsAndTombstones(t *testing.T) {
 		t.Fatalf("stale delete: %+v", r)
 	}
 	r = e.commit(f, proto.Op{Path: "a.txt", BaseSeq: 2})
-	if status(r) != "ok" || r[0].Seq != 3 || e.count(`SELECT count(*) FROM versions WHERE path='a.txt'`) != 2 {
+	if status(r) != "ok" || r[0].Seq != 3 || e.fcount(f, `SELECT count(*) FROM versions WHERE path='a.txt'`) != 2 {
 		t.Fatalf("delete: %+v", r)
 	}
-	if e.count(`SELECT count(*) FROM files WHERE path='a.txt' AND hash IS NULL`) != 1 {
+	if e.fcount(f, `SELECT count(*) FROM files WHERE path='a.txt' AND hash IS NULL`) != 1 {
 		t.Fatal("no tombstone")
 	}
 	// Deleting a tombstone, or a path that never existed, is a successful no-op.
@@ -64,7 +85,7 @@ func TestCommitBaseVersionsAndTombstones(t *testing.T) {
 	if r = e.commit(f, proto.Op{Path: "never", BaseSeq: 0}); status(r) != "ok" {
 		t.Fatalf("delete missing: %+v", r)
 	}
-	if e.count(`SELECT count(*) FROM files WHERE path='never'`) != 0 || metaInt(e.s.db, "next_seq") != 4 {
+	if e.fcount(f, `SELECT count(*) FROM files WHERE path='never'`) != 0 || e.nextSeq(f) != 4 {
 		t.Fatal("no-op delete changed state")
 	}
 	// A new file at a tombstoned path (base 0), and a modification based on the tombstone's seq, both work.
@@ -92,7 +113,7 @@ func TestCommitNeedsMissingBlocksOnly(t *testing.T) {
 	if status(r) != "need" || len(r[0].Need) != 1 || r[0].Need[0] != miss {
 		t.Fatalf("need: %+v", r)
 	}
-	if e.count(`SELECT count(*) FROM files`) != 0 || metaInt(e.s.db, "next_seq") != 1 {
+	if e.fcount(f, `SELECT count(*) FROM files`) != 0 || e.nextSeq(f) != 1 {
 		t.Fatal("need must not change state")
 	}
 	e.block([]byte("missing"))
@@ -125,7 +146,7 @@ func TestCommitNameRules(t *testing.T) {
 		}
 	}
 	// Case-only rename: delete first, then add.
-	seq := e.count(`SELECT seq FROM files WHERE path='A.txt'`)
+	seq := e.fcount(f, `SELECT seq FROM files WHERE path='A.txt'`)
 	if r := e.commit(f, proto.Op{Path: "A.txt", BaseSeq: int64(seq)}); status(r) != "ok" {
 		t.Fatalf("delete: %+v", r)
 	}
@@ -138,7 +159,7 @@ func TestCommitFlagsConflictCopies(t *testing.T) {
 	e := newEnv(t)
 	f := e.folder("docs")
 	e.commit(f, e.op("sub/report.conflict-laptop-20261101-153012.docx", 0, "c"), e.op("report.docx", 0, "c"))
-	if n := e.count(`SELECT count(*) FROM files WHERE folder_id=? AND conflict AND hash IS NOT NULL`, f); n != 1 {
+	if n := e.fcount(f, `SELECT count(*) FROM files WHERE conflict AND hash IS NOT NULL`); n != 1 {
 		t.Fatalf("conflict copies = %d", n)
 	}
 }

@@ -58,7 +58,7 @@ func TestScanUploadsAndVersions(t *testing.T) {
 		t.Fatal("deleted file still current on the server")
 	}
 	// Both the overwrite and the deletion left a version.
-	if n := e.count(`SELECT count(*) FROM versions WHERE path IN ('a.txt','dir/b.txt')`); n != 2 {
+	if n := e.count(f, `SELECT count(*) FROM versions WHERE path IN ('a.txt','dir/b.txt')`); n != 2 {
 		t.Fatalf("versions: %d", n)
 	}
 	if rep := g.scan(); rep.Committed != 0 {
@@ -130,7 +130,7 @@ func TestKilledUploadResumesWithRemainingBlocks(t *testing.T) {
 	if _, ok := e.serverFile(f, "big.bin"); ok {
 		t.Fatal("file committed without all blocks")
 	}
-	if n := e.count(`SELECT count(*) FROM files`); n != 0 {
+	if n := e.count(f, `SELECT count(*) FROM files`); n != 0 {
 		t.Fatal("files committed")
 	}
 	// A new process continues: only the four missing blocks are sent.
@@ -195,7 +195,7 @@ func TestMappingSafety(t *testing.T) {
 	if _, err := g.fs.Stat(markerName); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("marker written into a foreign directory")
 	}
-	if e.count(`SELECT count(*) FROM files`) != 0 {
+	if e.count(f, `SELECT count(*) FROM files`) != 0 {
 		t.Fatal("something was uploaded")
 	}
 	// The error keeps its start time while it lasts.
@@ -295,7 +295,7 @@ func TestServerRefusals(t *testing.T) {
 	if reasons["a.txt"] != "case_collision" || reasons["bad:name.txt"] != "invalid_name" || len(reasons) != 2 || rep.State != "error" {
 		t.Fatalf("report %+v", rep)
 	}
-	if rep.PendingUp != 2 || e.count(`SELECT count(*) FROM files WHERE folder_id=?`, f) != 1 {
+	if rep.PendingUp != 2 || e.count(f, `SELECT count(*) FROM files`) != 1 {
 		t.Fatalf("pending %d", rep.PendingUp)
 	}
 }

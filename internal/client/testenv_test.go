@@ -39,7 +39,6 @@ type cenv struct {
 	fp      string
 	folders int64
 	devices int
-	sdb     *sql.DB // a second connection to the server's database, for assertions
 }
 
 func newCEnv(t *testing.T) *cenv {
@@ -63,12 +62,8 @@ func newCEnv(t *testing.T) *cenv {
 	admin.Jar = jar
 	admin.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	sum := sha256.Sum256(ts.Certificate().Raw)
-	sdb, err := server.OpenDB(filepath.Join(data, server.VarDir, "meta.db"), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := &cenv{t: t, data: data, srv: s, ts: ts, admin: admin, fp: "sha256:" + hex.EncodeToString(sum[:]), sdb: sdb}
-	t.Cleanup(func() { sdb.Close(); ts.Close(); s.Close() })
+	e := &cenv{t: t, data: data, srv: s, ts: ts, admin: admin, fp: "sha256:" + hex.EncodeToString(sum[:])}
+	t.Cleanup(func() { ts.Close(); s.Close() })
 	if st, _ := e.post("/login", url.Values{"password": {"PW"}}); st != 303 {
 		t.Fatalf("admin login: %d", st)
 	}
@@ -141,7 +136,9 @@ func (e *cenv) serverFile(folder int64, p string) (content []byte, ok bool) {
 	e.t.Helper()
 	var blocks []byte
 	var hash []byte
-	err := e.sdb.QueryRow(`SELECT hash, blocks FROM files WHERE folder_id=? AND path=?`, folder, p).Scan(&hash, &blocks)
+	db := e.folderDB(folder)
+	defer db.Close()
+	err := db.QueryRow(`SELECT hash, blocks FROM files WHERE path=?`, p).Scan(&hash, &blocks)
 	if err != nil || hash == nil {
 		return nil, false
 	}
@@ -156,10 +153,22 @@ func (e *cenv) serverFile(folder int64, p string) (content []byte, ok bool) {
 	return content, true
 }
 
-func (e *cenv) count(q string, args ...any) int {
+// folderDB opens a second connection to a folder's server database, for assertions.
+func (e *cenv) folderDB(folder int64) *sql.DB {
 	e.t.Helper()
+	db, err := server.OpenDB(server.FolderDBPath(filepath.Join(e.data, server.VarDir), folder), false)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return db
+}
+
+func (e *cenv) count(folder int64, q string, args ...any) int {
+	e.t.Helper()
+	db := e.folderDB(folder)
+	defer db.Close()
 	var n int
-	if err := e.sdb.QueryRow(q, args...).Scan(&n); err != nil {
+	if err := db.QueryRow(q, args...).Scan(&n); err != nil {
 		e.t.Fatal(err)
 	}
 	return n
