@@ -1,0 +1,21 @@
+{{define "layout"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - kaze-sync</title>
+<link rel="stylesheet" href="/static/style.css">
+{{block "head" .}}{{end}}
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+<a href="/">kaze-sync</a>
+{{if .Auth}}<form method="post" action="/logout"><button>退出</button></form>{{end}}
+</header>
+<main>
+<h1>{{.Title}}</h1>
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

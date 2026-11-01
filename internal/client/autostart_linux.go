@@ -1,0 +1,51 @@
+package client
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+)
+
+func unitText(exe string) string {
+	return fmt.Sprintf(`[Unit]
+Description=kaze-sync client
+
+[Service]
+ExecStart="%s" run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+`, exe)
+}
+
+// ConfigureAutostart installs and starts a systemd user unit running "exe run".
+func ConfigureAutostart(exe string) error {
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	return configureAutostart(exe, cfg, func(args ...string) error {
+		out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl --user %v: %w: %s", args, err, out)
+		}
+		return nil
+	})
+}
+
+func configureAutostart(exe, configDir string, systemctl func(args ...string) error) error {
+	dir := filepath.Join(configDir, "systemd", "user")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kaze-sync.service"), []byte(unitText(exe)), 0o644); err != nil {
+		return err
+	}
+	if err := systemctl("daemon-reload"); err != nil {
+		return err
+	}
+	return systemctl("enable", "--now", "kaze-sync.service")
+}

@@ -4,6 +4,7 @@ package path
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -58,4 +59,12 @@ func reserved(seg string) bool {
 		return true
 	}
 	return len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9'
+}
+
+var conflictName = regexp.MustCompile(`\.conflict-[^/]+-\d{8}-\d{6}(\.[^/]*)?$`)
+
+// IsConflictName reports whether p names a conflict copy, such as
+// "report.conflict-laptop-20261101-153012.docx" (design 6.1).
+func IsConflictName(p string) bool {
+	return conflictName.MatchString(p[strings.LastIndexByte(p, '/')+1:])
 }

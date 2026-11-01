@@ -1,0 +1,36 @@
+{{define "head"}}<meta http-equiv="refresh" content="15">{{end}}
+{{define "content"}}
+{{if .Code}}
+<h2>新设备 {{.CodeName}}</h2>
+<p>注册码 <code>{{.Code}}</code> 15 分钟内有效, 只能使用一次. 在设备上执行:</p>
+<p>Linux: <pre>kaze-syncc enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</pre></p>
+<p>Windows: <pre>kaze-syncc.exe enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</pre></p>
+{{end}}
+
+<h2>设备</h2>
+<table>
+<tr><th>名称</th><th>系统</th><th>最近连接</th><th>客户端版本</th><th>配置</th></tr>
+{{range .Devices}}<tr>
+<td><a href="/devices/{{.ID}}">{{.Name}}</a></td><td>{{.OS}}</td><td>{{.LastSeen}}</td><td>{{.Version}}</td><td>{{.ConfigState}}</td>
+</tr>{{else}}<tr><td colspan="5" class="muted">还没有设备</td></tr>{{end}}
+</table>
+<form method="post" action="/devices/add">
+<p><label>添加设备 <input type="text" name="name" placeholder="名称 (字母, 数字, - 和 _)" class="wide" required></label> <button>生成注册码</button></p>
+</form>
+
+<h2>文件夹</h2>
+<table>
+<tr><th>名称</th><th>文件数</th><th>总大小</th></tr>
+{{range .Folders}}<tr>
+<td><a href="/folders/{{.ID}}">{{.Name}}</a></td><td>{{.Files}}</td><td>{{size .Bytes}}</td>
+</tr>{{else}}<tr><td colspan="3" class="muted">还没有文件夹</td></tr>{{end}}
+</table>
+<form method="post" action="/folders/new">
+<p><label>新建文件夹 <input type="text" name="name" class="wide" required></label> <button>新建</button></p>
+</form>
+
+<h2>版本保留</h2>
+<form method="post" action="/settings">
+<p><label>保留天数 <input type="number" name="keep_days" value="{{.KeepDays}}" min="1" max="3650"></label> <button>保存</button></p>
+</form>
+{{end}}

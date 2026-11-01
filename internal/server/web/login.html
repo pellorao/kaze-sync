@@ -1,0 +1,7 @@
+{{define "content"}}
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+<form method="post" action="/login">
+<p><label>管理员密码 <input type="password" name="password" autofocus autocomplete="current-password"></label>
+<button>登录</button></p>
+</form>
+{{end}}

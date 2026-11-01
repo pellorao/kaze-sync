@@ -1,0 +1,26 @@
+{{define "content"}}
+<p>
+<a href="/folders/{{.Folder.ID}}">根</a>{{range .Crumbs}} / <a href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
+ &nbsp; <a href="/folders/{{.Folder.ID}}?dir={{.Dir}}{{if not .Deleted}}&amp;deleted=1{{end}}">{{if .Deleted}}隐藏已删除{{else}}显示已删除{{end}}</a>
+</p>
+{{if .Versions}}
+<h2>{{.File}} 的版本</h2>
+<table>
+<tr><th>时间</th><th>大小</th><th>来源设备</th><th></th></tr>
+{{range .Versions}}<tr>
+<td>{{.Time}}</td><td>{{size .Size}}</td><td>{{.Device}}</td>
+<td>{{if .Current}}当前{{else if .Deleted}}删除{{else}}<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="inline" data-confirm="恢复这个版本? 当前内容会进入版本列表.">
+<input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><button>恢复</button></form>{{end}}</td>
+</tr>{{end}}
+</table>
+{{end}}
+<h2>内容</h2>
+<table>
+<tr><th>名称</th><th>大小</th><th>修改时间</th><th>来源设备</th><th></th></tr>
+{{range .Entries}}<tr>
+{{if .IsDir}}<td><a href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}/</a></td><td></td><td></td><td></td><td></td>
+{{else}}<td>{{.Name}}{{if .Gone}} <span class="muted">(已删除)</span>{{end}}</td><td>{{if not .Gone}}{{size .Size}}{{end}}</td><td>{{.Mtime}}</td><td>{{.Device}}</td>
+<td><a href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">版本</a></td>{{end}}
+</tr>{{else}}<tr><td colspan="5" class="muted">空</td></tr>{{end}}
+</table>
+{{end}}

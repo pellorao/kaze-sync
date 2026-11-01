@@ -69,9 +69,9 @@
 
 ```
 <data>/                   安装时用 --data 指定, 位于大容量数据盘
-  kaze-syncd                   服务端二进制
+  kaze-syncd              服务端二进制
   meta.db                 SQLite, WAL, synchronous=FULL
-  blocks/ab/cd/<sha256>   块内容 (至多 1 MiB), 写入后只读
+  blobs/ab/cd/<sha256>    块内容 (至多 1 MiB), 写入后只读
   tmp/                    写入中的块
   tls/                    自签名证书与私钥
 ```
@@ -81,7 +81,7 @@
 - `files`: 每个 (文件夹, 路径) 的当前状态, 含删除后的墓碑. 列: `folder_id`, `path` (原样 UTF-8, `/` 分隔), `key` (NFC 加 Unicode 大小写折叠), `seq` (全局唯一且单调递增), `hash` (整个文件的 SHA-256, 删除时为 NULL), `blocks` (按顺序拼接的块哈希, 每块 32 字节), `size`, `mtime_ns`, `exec`, `device`, `created_at`, `conflict` (路径是否为冲突副本名, 提交时计算). 主键 `(folder_id, path)`; 部分唯一索引 `UNIQUE(folder_id, key) WHERE hash IS NOT NULL`; 部分索引 `(folder_id) WHERE conflict AND hash IS NOT NULL` 供通知查询.
 - `versions`: 被替换或删除的旧内容, 列与 `files` 相同, 另加 `id` 和 `replaced_at`.
 - `folders(id, name, rules)`: `rules` 为该文件夹的排除规则, 接在全局规则之后.
-- `devices(id, name, os, token_hash, created_at, last_seen)`.
+- `devices(id, name, os, token_hash, created_at, last_seen)`: `name` 限 `[A-Za-z0-9_-]{1,32}` 且唯一 (要进入冲突副本文件名); 设备行在注册时创建 (注册时才知道 `os`). `files.device` 存设备名文本, 吊销或改名后来源仍可读.
 - `mappings(device_id, folder_id, path, adopt)`: 本机路径, 是否允许接管已有的非空目录.
 - `meta(key, value)`: `schema_version`, 下一个 `seq`, `config_version`, `admin_password_hash`, `global_rules`, `keep_days`, `listen`, `cert`, `key`.
 
@@ -321,7 +321,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 | rename 完成, 未更新 `local` | 扫描发现变化, 提交得到 `conflict`, 哈希相同, 采纳 |
 | 处理完一页变更, 未保存 `cursor` | 重新拉取该页, 每条都因 `seq` 或哈希相同而跳过 |
 
-服务端块先写入 `tmp/`, 校验并 fsync 后 rename 进 `blocks/`; 元数据提交使用 `synchronous=FULL`.
+服务端块先写入 `tmp/`, 校验并 fsync 后 rename 进 `blobs/`; 元数据提交使用 `synchronous=FULL`.
 
 ## 6. 冲突与跨平台
 
@@ -426,7 +426,7 @@ Git `wildmatch.c` 的 Go 移植, 服务端 (保存时校验) 与客户端共用 
 前提: 数据盘已在 OpenWrt 中挂载 (block-mount 在启动早期按 `/etc/config/fstab` 挂载). 在路由器上以 root 执行:
 
 ```
-./syncd install --data /mnt/data/kaze-sync             # 可选 --listen :41873, --cert <f> --key <f>, --wan
+./kaze-syncd install --data /mnt/data/kaze-sync             # 可选 --listen :41873, --cert <f> --key <f>, --wan
 /mnt/data/kaze-sync/kaze-syncd admin-password               # 显示一次随机密码
 ```
 
@@ -435,7 +435,7 @@ Git `wildmatch.c` 的 Go 移植, 服务端 (保存时校验) 与客户端共用 
 - 校验 `--data` 不在根文件系统 (overlay) 上: 与 `/` 的设备号相同时拒绝安装, 防止数据盘未挂载时把数据写进很小的 overlay.
 - 复制自身到 `<data>/kaze-syncd`. 二进制放在数据盘上, 不占 overlay, 也不受 sysupgrade 影响.
 - 创建系统用户 `kaze-sync`: OpenWrt 没有 `useradd`, 用 OpenWrt 自带的 `/lib/functions.sh` 中的 `user_exists`, `user_add`, `group_add` (它们追加 `/etc/passwd`, `/etc/shadow`, `/etc/group`, `user_add` 未给 UID 时从 32768 起选第一个空闲 UID).
-- 创建数据目录, 初始化或迁移数据库, 首次安装生成自签名证书并打印指纹; 端口在首次安装时随机选取 (20000 到 59999 之间), 存入 `meta` 并打印, 之后保持不变, `--listen` 可改; `--cert`/`--key` 存入 `meta`. 高端口不需要任何特权或能力, 也避开路由器上 LuCI 占用的 80 和 443.
+- 创建数据目录, 初始化或迁移数据库, 首次安装生成自签名证书并打印指纹; 端口在首次安装时随机选取 (20000 到 59999 之间), 存入 `meta` 并打印, 之后保持不变, `--listen` 可改; `--cert`/`--key` 存入 `meta`; 之后不带 `--cert` 执行时沿用已有的证书模式 (暂不提供切回自签名). 高端口不需要任何特权或能力, 也避开路由器上 LuCI 占用的 80 和 443.
 - 写入 procd 初始化脚本 `/etc/init.d/kaze-sync` 并执行 `/etc/init.d/kaze-sync enable` 和 `restart`:
 
 ```sh
@@ -453,7 +453,7 @@ start_service() {
 ```
 
   `respawn` 不带参数时使用 procd 的默认值 (3600 秒内失败 5 次后停止重启, 每次间隔 5 秒). `stderr 1` 把日志送入 syslog (`logread`).
-- 保证 sysupgrade 后仍然可用: sysupgrade 只保留 `/etc/sysupgrade.conf`, `/lib/upgrade/keep.d/*` 中列出的路径 (用 `find` 递归, 保留普通文件和符号链接) 以及已修改的软件包 conffiles. `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/sysupgrade.conf` 都是 base-files 的 conffiles, 修改后自动保留. `install` 在 `/etc/sysupgrade.conf` 中追加 (已有则不重复) `/etc/init.d/kaze-sync` 和 `/etc/rc.d/S99syncd`. 不使用 `/lib/upgrade/keep.d/`: 那个目录本身不被保留, 写在那里的列表会在第一次升级后消失. 二进制, 数据库和证书都在数据盘上.
+- 保证 sysupgrade 后仍然可用: sysupgrade 只保留 `/etc/sysupgrade.conf`, `/lib/upgrade/keep.d/*` 中列出的路径 (用 `find` 递归, 保留普通文件和符号链接) 以及已修改的软件包 conffiles. `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/sysupgrade.conf` 都是 base-files 的 conffiles, 修改后自动保留. `install` 在 `/etc/sysupgrade.conf` 中追加 (已有则不重复) `/etc/init.d/kaze-sync` 和 `/etc/rc.d/S99kaze-sync`. 不使用 `/lib/upgrade/keep.d/`: 那个目录本身不被保留, 写在那里的列表会在第一次升级后消失. 二进制, 数据库和证书都在数据盘上.
 - `--wan` (Q15, 用户选 B): 在 `/etc/config/firewall` 中创建或更新名为 `kaze-sync` 的规则 (与工程同名, Q16) (src `wan`, proto `tcp`, 本机端口, target `ACCEPT`) 并重新加载防火墙; 不带 `--wan` 时删除该规则. 防火墙配置是 conffile, sysupgrade 后保留.
 
 `kaze-syncd run` 在 `<data>/meta.db` 不存在时直接报错退出, 不初始化新库 (数据盘未挂载时不会在空目录上启动). `install`, `admin-password`, `export` 以 root 运行, 它们创建的数据库旁文件在退出前改为属于 `kaze-sync` 用户.
@@ -480,7 +480,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.4 备份
 
-`meta.db` 必须备份 (没有它, 块无法还原成文件): `/etc/init.d/kaze-sync stop`, 复制 `meta.db`, `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `blocks/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
+`meta.db` 必须备份 (没有它, 块无法还原成文件): `/etc/init.d/kaze-sync stop`, 复制 `meta.db`, `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
 
 ## 10. 语言与依赖
 

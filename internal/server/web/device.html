@@ -1,0 +1,28 @@
+{{define "content"}}
+<p>系统 {{.Device.OS}}, 最近连接 {{.LastSeen}}.</p>
+<h2>映射</h2>
+<table>
+<tr><th>文件夹</th><th>本机路径</th><th>允许接管非空目录</th><th></th></tr>
+{{range .Mappings}}<tr>
+<td><a href="/folders/{{.FolderID}}">{{.Folder}}</a></td>
+<td colspan="2"><form method="post" action="/devices/{{$.Device.ID}}/mapping" class="inline">
+<input type="hidden" name="folder" value="{{.FolderID}}">
+<input type="text" name="path" value="{{.Path}}" class="wide">
+<label><input type="checkbox" name="adopt" value="1"{{if .Adopt}} checked{{end}}> 允许接管</label>
+<button name="action" value="save">保存</button></form></td>
+<td><form method="post" action="/devices/{{$.Device.ID}}/mapping" class="inline" data-confirm="删除映射? 本机文件原样保留.">
+<input type="hidden" name="folder" value="{{.FolderID}}"><button name="action" value="delete">删除</button></form></td>
+</tr>{{else}}<tr><td colspan="4" class="muted">没有映射</td></tr>{{end}}
+</table>
+{{if .Free}}
+<form method="post" action="/devices/{{.Device.ID}}/mapping">
+<p><select name="folder">{{range .Free}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+<input type="text" name="path" placeholder="{{if eq .Device.OS "windows"}}D:\Docs{{else}}/home/user/Docs{{end}}" class="wide" required>
+<label><input type="checkbox" name="adopt" value="1"> 允许接管</label>
+<button name="action" value="save">添加映射</button></p>
+</form>
+{{end}}
+<h2>吊销</h2>
+<form method="post" action="/devices/{{.Device.ID}}/revoke" data-confirm="吊销设备 {{.Device.Name}}? 它的令牌立即失效.">
+<button>吊销设备</button></form>
+{{end}}
