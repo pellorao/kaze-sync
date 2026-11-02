@@ -162,13 +162,17 @@ func (d *driver) summary(folder string) (errs, warns string, err error) {
 	return mm[1], mm[2], nil
 }
 
-func (d *driver) m4Scenarios() {
+func (d *driver) m4Scenarios(skipM4 bool) {
 	m := &m4{d: d, ids: map[string]string{}}
 	if !d.step("M4 setup: a Linux and a Windows client, two folders each", m.setup) {
 		return
 	}
 	defer m.teardown()
 	disk0 := d.diskWritten()
+	if skipM4 {
+		m.m5Scenarios()
+		return
+	}
 	d.step("M4 1: a new file on one side appears on the other within 10 s", m.newFile)
 	d.step("M4 2: both sides edit one file: the same conflict copy on both, folder error count 1, deleting it clears the notice", m.conflict)
 	d.step("M4 3: stop one client, edit both sides, resume: converge per the conflict table", m.offlineEdits)
@@ -179,8 +183,9 @@ func (d *driver) m4Scenarios() {
 	d.step("M4 8: the firewall drops the port for 1 minute: the clients reconnect and converge", m.firewall)
 	d.step("M4 migration drill: two clients holding the same files join one after the other; the second downloads nothing", m.migration)
 	d.step("M4 resident memory and one idle minute with two clients", m.idle)
+	m.m5Scenarios()
 	written := d.diskWritten() - disk0
-	d.metric("M4 disk written: the VM wrote %.0f MB to its disks; the scenarios wrote about %.0f MB on the Windows disk", float64(written)/1e6, float64(m.written)/1e6)
+	d.metric("M4 and M5 disk written: the VM wrote %.0f MB to its disks; the scenarios wrote about %.0f MB on the Windows disk", float64(written)/1e6, float64(m.written)/1e6)
 }
 
 func (d *driver) dropAgent(a *agent) {

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"kaze-sync/internal/ignore"
 	"kaze-sync/internal/proto"
 )
 
@@ -81,11 +82,13 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /devices/add":          s.addDevice,
 		"POST /folders/new":          s.newFolder,
 		"POST /settings":             s.saveSettings,
+		"POST /rules":                s.saveGlobalRules,
 		"GET /devices/{id}":          s.devicePage,
 		"POST /devices/{id}/mapping": s.saveMapping,
 		"POST /devices/{id}/revoke":  s.revoke,
 		"GET /folders/{id}":          s.folderPage,
 		"POST /folders/{id}/restore": s.restore,
+		"POST /folders/{id}/rules":   s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
 	}
@@ -248,7 +251,7 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 	if err != nil {
 		return err
 	}
-	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "Summary": summary, "Offline": offline, "KeepDays": metaInt(s.db, "keep_days"),
+	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "Summary": summary, "Offline": offline, "KeepDays": metaInt(s.db, "keep_days"), "Rules": MetaString(s.db, "global_rules"),
 		"Code": code, "CodeName": codeName, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint})
 	return nil
 }
@@ -306,6 +309,63 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
+}
+
+// maxRulesText bounds a rule set: every device receives it with its configuration.
+const maxRulesText = 64 << 10
+
+// saveRules validates rule text (the trust boundary, design 3.2), stores it with write (whose last
+// argument is the text and whose other arguments are args) and, when it changed, pushes the new configuration.
+func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, back, read, write string, args ...any) error {
+	text := strings.TrimRight(strings.ReplaceAll(r.FormValue("rules"), "\r\n", "\n"), "\n")
+	if len(text) > maxRulesText {
+		return bad(http.StatusBadRequest, back, "规则太长")
+	}
+	if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
+		var msgs []string
+		for _, e := range errs {
+			msgs = append(msgs, fmt.Sprintf("第 %d 行: %s", e.Line, e.Msg))
+		}
+		return bad(http.StatusBadRequest, back, strings.Join(msgs, "; "))
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var old string
+	if err := tx.QueryRow(read, args...).Scan(&old); err != nil {
+		return err
+	}
+	changed := old != text
+	if changed {
+		if _, err := tx.Exec(write, append([]any{text}, args...)...); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if changed {
+		s.broadcast()
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
+	return nil
+}
+
+func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
+	return s.saveRules(w, r, "/", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`)
+}
+
+func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
+	}
+	return s.saveRules(w, r, "/folders/"+strconv.FormatInt(f.ID, 10), `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, f.ID)
 }
 
 type deviceRow struct {
@@ -482,13 +542,13 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 }
 
 type folderRow struct {
-	ID   int64
-	Name string
+	ID          int64
+	Name, Rules string
 }
 
 func (s *Server) loadFolder(r *http.Request) (f folderRow, err error) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	err = s.db.QueryRow(`SELECT id, name FROM folders WHERE id=?`, id).Scan(&f.ID, &f.Name)
+	err = s.db.QueryRow(`SELECT id, name, rules FROM folders WHERE id=?`, id).Scan(&f.ID, &f.Name, &f.Rules)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = bad(http.StatusNotFound, "/", "没有这个文件夹")
 	}

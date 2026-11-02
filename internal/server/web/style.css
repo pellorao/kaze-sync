@@ -8,6 +8,7 @@ th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-al
 th { background: #eef; }
 input[type=text], input[type=password], input[type=number], select, textarea { padding: 3px; }
 input.wide { width: 24em; }
+textarea.wide { width: 100%; max-width: 40em; font-family: monospace; }
 form.inline { display: inline; }
 .err { color: #a00; }
 .muted { color: #777; }

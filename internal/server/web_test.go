@@ -377,3 +377,63 @@ func TestHealthzNeedsNoLogin(t *testing.T) {
 		t.Fatalf("%d %q", status, body)
 	}
 }
+
+func TestRulesEditingValidatesBumpsAndBroadcasts(t *testing.T) {
+	e := newEnv(t)
+	e.s.PollTimeout = 10 * time.Second
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	dev, tok := e.enrollDevice("d1", "linux")
+	e.post(c, "/folders/new", url.Values{"name": {"F"}})
+	e.post(c, "/devices/"+itoa(dev)+"/mapping", url.Values{"folder": {"1"}, "path": {"/data/f"}, "action": {"save"}})
+	v := metaInt(e.s.db, "config_version")
+
+	// The global rules start as the factory defaults and the pages show them.
+	if _, body := e.get(c, "/"); !strings.Contains(body, "Thumbs.db") {
+		t.Fatal("default rules not shown")
+	}
+	// An invalid line is reported with its number and nothing changes.
+	for _, form := range []string{"/rules", "/folders/1/rules"} {
+		st, body := e.post(c, form, url.Values{"rules": {"*.o\r\nbad\\"}})
+		if st != 400 || !strings.Contains(body, "第 2 行") || metaInt(e.s.db, "config_version") != v {
+			t.Fatalf("%s: %d %s", form, st, body)
+		}
+	}
+	// A change wakes the hanging poll with both layers joined, folder rules last.
+	done := make(chan proto.PollResp)
+	go func() {
+		_, out := e.api(tok, "poll", proto.PollReq{ConfigVersion: v, Cursors: map[int64]int64{1: 0}})
+		var pr proto.PollResp
+		json.Unmarshal(out, &pr)
+		done <- pr
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if st, _ := e.post(c, "/rules", url.Values{"rules": {"*.o\r\nbuild/\r\n"}}); st != 303 {
+		t.Fatal("save global rules")
+	}
+	select {
+	case pr := <-done:
+		if pr.Config == nil || pr.Config.Version != v+1 || strings.Join(pr.Config.Folders[0].Rules, ",") != "*.o,build/" {
+			t.Fatalf("poll result %+v", pr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll did not wake")
+	}
+	if st, _ := e.post(c, "/folders/1/rules", url.Values{"rules": {"!/build/\n/build/*\n!/build/keep.txt"}}); st != 303 {
+		t.Fatal("save folder rules")
+	}
+	cfg, err := e.s.effectiveConfig(dev)
+	if err != nil || cfg.Version != v+2 || strings.Join(cfg.Folders[0].Rules, ",") != "*.o,build/,!/build/,/build/*,!/build/keep.txt" {
+		t.Fatalf("config %+v %v", cfg, err)
+	}
+	// Saving the same text again changes nothing.
+	e.post(c, "/folders/1/rules", url.Values{"rules": {"!/build/\r\n/build/*\r\n!/build/keep.txt"}})
+	e.post(c, "/rules", url.Values{"rules": {"*.o\nbuild/"}})
+	if metaInt(e.s.db, "config_version") != v+2 {
+		t.Fatal("no-op save bumped the version")
+	}
+	if _, body := e.get(c, "/folders/1"); !strings.Contains(body, "!/build/keep.txt") {
+		t.Fatal("folder rules not shown")
+	}
+}

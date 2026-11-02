@@ -39,6 +39,13 @@
 <p><label>新建文件夹 <input type="text" name="name" class="wide" required></label> <button>新建</button></p>
 </form>
 
+<h2>全局排除规则</h2>
+<form method="post" action="/rules">
+<p class="muted">gitignore 语法, 每行一条, 所有文件夹共用; 文件夹页的规则接在其后, 可用 ! 覆盖.</p>
+<p><textarea name="rules" rows="12" class="wide" spellcheck="false">{{.Rules}}</textarea></p>
+<p><button>保存</button></p>
+</form>
+
 <h2>版本保留</h2>
 <form method="post" action="/settings">
 <p><label>保留天数 <input type="number" name="keep_days" value="{{.KeepDays}}" min="1" max="3650"></label> <button>保存</button></p>

@@ -24,6 +24,13 @@
 </tr>{{end}}
 </table>
 {{end}}
+<h2>文件夹排除规则</h2>
+<form method="post" action="/folders/{{.Folder.ID}}/rules">
+<p class="muted">接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 !/dir/ 再 /dir/* 再 !/dir/file.</p>
+<p><textarea name="rules" rows="8" class="wide" spellcheck="false">{{.Folder.Rules}}</textarea></p>
+<p><button>保存</button></p>
+</form>
+
 <h2>内容</h2>
 <table>
 <tr><th>名称</th><th>大小</th><th>修改时间</th><th>来源设备</th><th></th></tr>

@@ -76,6 +76,13 @@ func (f *Folder) Seen() int64 { return f.seen }
 // NewFolder builds the engine for a configured folder; caseFold selects the matcher mode.
 func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFold bool) *Folder {
 	m, _ := ignore.Compile(fc.Rules, caseFold) // the server validated the rules
+	if rules := strings.Join(fc.Rules, "\n"); db.metaString("rules") != rules {
+		// New rules (also while the agent was off): read the whole server state again so that what they
+		// release is reconciled; what they newly exclude is forgotten by the next scan (design 8.3).
+		if err := db.setMeta("cursor", 0); err == nil {
+			db.setMeta("rules", rules)
+		}
+	}
 	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1}
 }
 
