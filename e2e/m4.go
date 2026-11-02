@@ -170,7 +170,9 @@ func (d *driver) m4Scenarios(skipM4 bool) {
 	defer m.teardown()
 	disk0 := d.diskWritten()
 	if skipM4 {
-		if d.only == "m6" {
+		if d.only == "m7" {
+			m.m7Scenarios()
+		} else if d.only == "m6" {
 			m.m6Scenarios()
 		} else {
 			m.m5Scenarios()
@@ -189,6 +191,7 @@ func (d *driver) m4Scenarios(skipM4 bool) {
 	d.step("M4 resident memory and one idle minute with two clients", m.idle)
 	m.m5Scenarios()
 	m.m6Scenarios()
+	m.m7Scenarios()
 	written := d.diskWritten() - disk0
 	d.metric("M4 and M5 disk written: the VM wrote %.0f MB to its disks; the scenarios wrote about %.0f MB on the Windows disk", float64(written)/1e6, float64(m.written)/1e6)
 }

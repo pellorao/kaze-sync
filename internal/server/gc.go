@@ -2,11 +2,20 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
+	"log/slog"
 	"slices"
+	"time"
 
 	"kaze-sync/internal/blobstore"
+)
+
+// GC schedule (design 7).
+const (
+	gcEvery = 24 * time.Hour
+	gcGrace = time.Hour // a block or tmp/ file must be older than this to be removed: uploads wait for their commit
 )
 
 // GCMemoryBudget bounds the memory of the reference array of one GC pass (design 7).
@@ -125,4 +134,82 @@ func sweepPasses(sources []refSource, budget int64, sweep func(lo, hi int, refer
 		}
 	}
 	return k, nil
+}
+
+type gcStats struct{ versions, blobs, tmp, passes int }
+
+// gc removes the versions older than keep_days, then the blocks no file or version references and the
+// leftovers in tmp/ (design 7). It must not run twice at once: use requestGC.
+func (s *Server) gc() (st gcStats, err error) {
+	cutoff := s.now().Add(-time.Duration(max(metaInt(s.db, "keep_days"), 1)) * 24 * time.Hour).Unix()
+	ids, err := queryAll(s.db, func(rows *sql.Rows, id *int64) error { return rows.Scan(id) }, `SELECT id FROM folders`)
+	if err != nil {
+		return st, err
+	}
+	var sources []refSource
+	for _, id := range ids {
+		db, err := s.folderDB(id)
+		if err != nil {
+			return st, err
+		}
+		res, err := db.Exec(`DELETE FROM versions WHERE replaced_at < ?`, cutoff)
+		if err != nil {
+			return st, err
+		}
+		n, _ := res.RowsAffected()
+		st.versions += int(n)
+		sources = append(sources, folderRefs(db))
+	}
+	st.passes, err = sweepPasses(sources, GCMemoryBudget, func(lo, hi int, referenced func(blobstore.Hash) bool) error {
+		n, err := s.blobs.SweepBlobs(lo, hi, referenced, gcGrace)
+		st.blobs += n
+		return err
+	})
+	if err == nil {
+		st.tmp, err = s.blobs.SweepTmp(gcGrace)
+	}
+	return st, err
+}
+
+// requestGC runs a GC in the background. Only one runs at a time: a request made while one runs makes it
+// run once more when it ends (the keep_days of the first may be stale).
+func (s *Server) requestGC() {
+	s.gcMu.Lock()
+	defer s.gcMu.Unlock()
+	if s.gcRunning {
+		s.gcAgain = true
+		return
+	}
+	s.gcRunning = true
+	s.gcWG.Add(1)
+	go func() {
+		defer s.gcWG.Done()
+		for again := true; again; {
+			start := time.Now()
+			st, err := s.gc()
+			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "took", time.Since(start).Round(time.Millisecond), "err", err)
+			s.gcMu.Lock()
+			again, s.gcAgain = s.gcAgain, false
+			s.gcRunning = again
+			s.gcMu.Unlock()
+		}
+	}()
+}
+
+// gcWait is how long to wait before the next daily GC; the first minute after a start is left alone.
+func gcWait(last, now time.Time) time.Duration { return max(last.Add(gcEvery).Sub(now), time.Minute) }
+
+// gcLoop requests a GC once a day; the time of the last request survives restarts in meta.
+func (s *Server) gcLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(gcWait(time.Unix(metaInt(s.db, "last_gc"), 0), s.now())):
+		}
+		if err := SetMeta(s.db, "last_gc", s.now().Unix()); err != nil {
+			slog.Error("gc", "err", err)
+		}
+		s.requestGC()
+	}
 }

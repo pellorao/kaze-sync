@@ -103,7 +103,7 @@
 - `folders(id, name, rules)`: `rules` 为该文件夹的排除规则, 接在全局规则之后.
 - `devices(id, name, os, token_hash, created_at, last_seen)`: `name` 限 `[A-Za-z0-9_-]{1,32}` 且唯一 (要进入冲突副本文件名); 设备行在注册时创建 (注册时才知道 `os`). `files.device` 存设备名文本 (跨库, 所以不用外键), 吊销或改名后来源仍可读.
 - `mappings(device_id, folder_id, path, adopt)`: 本机路径, 是否允许接管已有的非空目录.
-- `meta(key, value)` (在全局库中): `schema_version`, `config_version`, `admin_password_hash`, `global_rules`, `keep_days`, `listen`, `cert`, `key`.
+- `meta(key, value)` (在全局库中): `schema_version`, `config_version`, `admin_password_hash`, `global_rules`, `keep_days`, `listen`, `cert`, `key`, `last_gc` (上次请求 GC 的时间, 供每天一次的计时在重启后继续).
 
 会话, 注册码, 设备最近上报的状态, 失败计数都只放在内存中: 服务端重启后管理员需重新登录, 未使用的注册码失效, 客户端在重连后的第一次长轮询中重新上报状态. `devices.last_seen` 持久化 (每次长轮询结束时更新, 至多每分钟写一次), 供 "设备长期离线" 通知在重启后仍然成立.
 
@@ -398,7 +398,8 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
   - 先读各文件夹库的块总数 (引用数的上界, 各版本重复引用也计入), 所需内存 = 引用数 x 32 字节. 不超过预算时只有 1 趟, 就是纯内存方案.
   - 超过预算时分 k 趟, k = 所需内存 / 预算 向上取整 (至多 256). 第 p 趟 (p = 0 到 k-1) 处理哈希首字节在 [p x 256 / k, (p+1) x 256 / k) 的块: 扫一遍所有文件夹库的块列表, 只把首字节在该范围内的哈希收入数组, 排序去重, 再与 `blobs/` 下对应首字节的前缀目录比对, 删除未被引用且超过宽限期的块. 各趟复用同一个数组, 所以峰值内存约为预算 (加首字节分布不均的约 1/64 余量), 与数据量无关; 代价是块列表被扫描 k 遍.
   - 宽限期, `tmp/` 清理, 单实例运行, `keep_days` 触发等语义不变. `tmp/` 清理与分趟无关, 只做一次.
-  - 实现状态: 收集与分趟的核心 (`sweepPasses`, `collectRefs`, `folderRefs`) 及 `blobstore.SweepBlobs` (按首字节范围清扫) 已实现并有测试与基准, 在 M7 之前不被调用; M7 补上定时与触发, `keep_days` 过期版本的删除, 单实例, `tmp/` 清理 (`blobstore.SweepTmp`).
+  - 实现状态 (M7 完成): 收集与分趟的核心 (`sweepPasses`, `collectRefs`, `folderRefs`) 与 `blobstore.SweepBlobs` / `SweepTmp` 由 `gc()` 调用; `requestGC` 保证同一时刻只运行一个 GC (运行中的新请求让它结束后再运行一次); `gcLoop` 每天请求一次, 上次请求时间存在全局 `meta` 的 `last_gc` 中 (重启后继续计时, 服务启动一分钟内不运行); 总览页保存 `keep_days` 时立即请求一次. 版本删除先于块收集, 日志 `msg=gc` 一行记录删除的版本, 块, `tmp/` 文件数, 趟数与耗时.
+  - 宽限期对 "上传后尚未提交" 的块成立; 对 "早已无引用的旧块被新提交重新引用" 的情形, 由 `blobstore.Use` 保证: 提交检查块是否存在时, 对超过 10 分钟的旧块刷新修改时间 (小于 1 小时宽限), Put 与 Use 持共享锁, 清扫在删除每个块之前持独占锁并重新读取修改时间, 所以收集引用与删除之间的新提交不会丢块.
   - 实测 (基准 `BenchmarkGCCollect`, 内存中的合成数据, i9-13900): 收集 100 万个引用约 0.15 s, 数组约 31 MB; 400 万个约 0.65 s, 数组约 122 MB; k = 2 与 k = 4 的峰值分别降到约 1/2 与 1/4 (400 万: 63 MB 与 33 MB), 耗时只增加 3% 到 15% (基准中的 "扫描" 是内存生成, 真实的 SQLite 扫描每趟更慢, 见下表的说明).
 
 数据量与服务端内存 (块 256 KiB; 引用数 = `files` 与 `versions` 中的块引用总数, 同一块被多个版本引用时重复计入; "对应数据量" 按每个引用 256 KiB 估算, 去重后实际更小):
@@ -537,7 +538,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.4 备份
 
-`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻): `/etc/init.d/kaze-sync stop`, 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
+`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻); 建议同时备份 `var/tls/` (很小), 否则还原后证书重新生成, 指纹变化, 全部客户端需重新注册; 还原后执行 `kaze-syncd install` 修正属主, 完整步骤见 `docs/operations.md`. 备份步骤: `/etc/init.d/kaze-sync stop`, 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
 
 ## 10. 语言与依赖
 

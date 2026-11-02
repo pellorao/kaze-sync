@@ -24,6 +24,13 @@
 </tr>{{end}}
 </table>
 {{end}}
+<h2>恢复目录到某一时刻</h2>
+{{if .Restored}}<p>已恢复 {{.Restored}} 个文件{{if ne .Failed "0"}}, {{.Failed}} 个失败 (名称冲突或被同时修改){{end}}.</p>{{end}}
+<form method="post" action="/folders/{{.Folder.ID}}/restore-dir" data-confirm="把 {{if .Dir}}{{.Dir}}/{{else}}整个文件夹{{end}} 下在该时刻存在而现在不同的文件恢复成当时的内容? 之后新建的文件不受影响.">
+<p class="muted">范围: {{if .Dir}}{{.Dir}}/{{else}}整个文件夹{{end}}. 只恢复内容, 不删除任何文件; 当前内容进入版本列表.</p>
+<p><label>时间 (UTC) <input type="text" name="time" placeholder="2026-11-02 12:00" required></label><input type="hidden" name="dir" value="{{.Dir}}"> <button>恢复</button></p>
+</form>
+
 <h2>文件夹排除规则</h2>
 <form method="post" action="/folders/{{.Folder.ID}}/rules">
 <p class="muted">接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 !/dir/ 再 /dir/* 再 !/dir/file.</p>
@@ -40,4 +47,12 @@
 <td><a href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">版本</a></td>{{end}}
 </tr>{{else}}<tr><td colspan="5" class="muted">空</td></tr>{{end}}
 </table>
+
+{{if .CanDelete}}
+<h2>删除文件夹</h2>
+<form method="post" action="/folders/{{.Folder.ID}}/delete" data-confirm="永久删除文件夹 {{.Folder.Name}} 及其全部历史版本?">
+<p class="muted">没有设备映射它时才可删除; 它的块在下次清理时回收.</p>
+<p><button>删除</button></p>
+</form>
+{{end}}
 {{end}}

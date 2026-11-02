@@ -46,12 +46,13 @@ type driver struct {
 	current string
 	only    string
 	metrics []string
+	m7      *m7State
 }
 
 func main() {
 	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".config/kaze-sync-e2e/config.json"), "e2e config file")
 	logs := flag.String("logs", "", "directory for collected logs (default: a new temp directory)")
-	only := flag.String("only", "", "stop after a stage while debugging: setup (up to the admin login), sync (before security, sysupgrade and the certificate), m4 (only the M4 and M5 scenarios), m5 (only the M5 scenarios)")
+	only := flag.String("only", "", "stop after a stage while debugging: setup (up to the admin login), sync (before security, sysupgrade and the certificate), m4 (only the M4 and M5 scenarios), m5 (only the M5 scenarios), m6, m7 (the M7 scenarios, then the backup restore), upgrade (only the upgrade phase)")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 	cfg, err := config.Load(*cfgPath)
@@ -94,7 +95,13 @@ func (d *driver) run() {
 	if !d.step("build binaries", d.build) {
 		return
 	}
-	d.mainPhase()
+	if d.only != "upgrade" {
+		d.mainPhase()
+		d.restorePhase()
+	}
+	if d.only == "" || d.only == "upgrade" {
+		d.upgradePhase()
+	}
 }
 
 // metric records a measurement for the final report.

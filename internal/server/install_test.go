@@ -353,3 +353,49 @@ func TestRunServesTLSAndStops(t *testing.T) {
 		t.Fatal("Run did not stop")
 	}
 }
+
+// Installing again over data from an older version migrates every database and hands what root
+// restored from a backup (design 9.4) to the service user: databases and block directories, not block files.
+func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
+	f := newFakeSystem(t)
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(f.data, "var")
+	// A folder database of the previous schema, as a backup holds it, and a block below two directories.
+	db, _ := OpenDB(filepath.Join(state, "meta.db"), false)
+	db.Exec(`INSERT INTO folders(id, name, rules) VALUES(1, 'docs', '')`)
+	db.Close()
+	os.MkdirAll(filepath.Join(state, "folders"), 0o700)
+	old, _ := OpenDB(FolderDBPath(state, 1), true)
+	if _, err := old.Exec(folderMigrations[0]); err != nil {
+		t.Fatal(err)
+	}
+	SetMeta(old, "schema_version", 1)
+	old.Close()
+	blob := filepath.Join(state, "blobs", "ab", "cd", strings.Repeat("ab", 32))
+	os.MkdirAll(filepath.Dir(blob), 0o755)
+	os.WriteFile(blob, []byte("x"), 0o444)
+
+	f.chowned = nil
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	fdb, _ := OpenDB(FolderDBPath(state, 1), false)
+	defer fdb.Close()
+	if v, _ := schemaVersion(fdb); v != FolderSchemaVersion {
+		t.Fatalf("folder schema %d after install, want %d", v, FolderSchemaVersion)
+	}
+	owned := map[string]bool{}
+	for _, p := range f.chowned {
+		owned[p] = true
+	}
+	for _, p := range []string{filepath.Join(state, "folders"), FolderDBPath(state, 1), filepath.Dir(blob), filepath.Join(state, "blobs", "ab")} {
+		if !owned[p] {
+			t.Errorf("%s not handed to the service user", p)
+		}
+	}
+	if owned[blob] {
+		t.Error("block files are chowned one by one")
+	}
+}

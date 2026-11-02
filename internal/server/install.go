@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -49,9 +50,6 @@ const (
 	rcLink      = "/etc/rc.d/S99" + serviceName
 	fwSection   = "firewall.kaze_sync"
 )
-
-// serviceOwned lists what the service user must own, relative to <data>/var (blobs are created by the service itself).
-var serviceOwned = []string{"", "blobs", "tmp", TLSDir, TLSDir + "/cert.pem", TLSDir + "/key.pem", DBFile, DBFile + "-wal", DBFile + "-shm"}
 
 func NewInstaller() *Installer {
 	self, _ := os.Executable()
@@ -287,12 +285,20 @@ func (in *Installer) chownData(data string) error {
 	if err := os.Chmod(state, 0o700); err != nil {
 		return err
 	}
-	for _, p := range serviceOwned {
-		if err := in.Chown(filepath.Join(state, p), uid, gid); err != nil && !errors.Is(err, os.ErrNotExist) {
+	// Everything below var/ but the blocks themselves (read-only, world-readable): this also repairs a
+	// tree that root restored from a backup (design 9.4).
+	return filepath.WalkDir(state, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		if !d.IsDir() && strings.HasPrefix(p, filepath.Join(state, "blobs")+"/") {
+			return nil
+		}
+		if err := in.Chown(p, uid, gid); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	})
 }
 
 func (in *Installer) path(p string) string { return filepath.Join(in.Root, p) }

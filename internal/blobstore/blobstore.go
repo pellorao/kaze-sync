@@ -10,8 +10,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
+
+// refreshAge is the age from which Use refreshes a block's modification time. It must be well below
+// the minAge of SweepBlobs: a block that is older is refreshed before it is referenced again.
+const refreshAge = 10 * time.Minute
 
 var ErrHashMismatch = errors.New("blobstore: content does not match hash")
 
@@ -38,7 +43,10 @@ func HashReader(r io.Reader) (Hash, int64, error) {
 	return h, n, err
 }
 
-type Store struct{ dir string }
+type Store struct {
+	dir string
+	mu  sync.RWMutex // Put and Use hold it shared; SweepBlobs holds it exclusively while it removes one blob
+}
 
 func Open(dir string) (*Store, error) {
 	for _, sub := range []string{"blobs", "tmp"} {
@@ -46,7 +54,7 @@ func Open(dir string) (*Store, error) {
 			return nil, err
 		}
 	}
-	return &Store{dir}, nil
+	return &Store{dir: dir}, nil
 }
 
 func (s *Store) blobPath(h Hash) string {
@@ -58,6 +66,26 @@ func (s *Store) Has(h Hash) (bool, error) {
 	_, err := os.Stat(s.blobPath(h))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
+	}
+	return err == nil, err
+}
+
+// Use reports whether a block exists and, when it is old, refreshes its modification time, so that a
+// sweep cannot remove it between now and the commit that references it (the grace period of SweepBlobs).
+func (s *Store) Use(h Hash) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p := s.blobPath(h)
+	fi, err := os.Stat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err == nil && time.Since(fi.ModTime()) > refreshAge {
+		now := time.Now()
+		err = os.Chtimes(p, now, now)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
 	}
 	return err == nil, err
 }
@@ -91,6 +119,8 @@ func (s *Store) Put(h Hash, r io.Reader) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	s.mu.RLock() // a sweep must not remove the old copy of dst after it was judged, and thus the new one
+	defer s.mu.RUnlock()
 	if err := os.Rename(f.Name(), dst); err != nil {
 		// Windows cannot replace the read-only copy a concurrent Put just stored.
 		if ok, _ := s.Has(h); ok {
@@ -126,6 +156,11 @@ func (s *Store) SweepBlobs(lo, hi int, keep func(Hash) bool, minAge time.Duratio
 				return err
 			}
 			if h, perr := ParseHash(d.Name()); perr != nil || now.Sub(fi.ModTime()) <= minAge || keep(h) {
+				return nil
+			}
+			s.mu.Lock() // look again: a Put or Use may have renewed the blob since it was judged
+			defer s.mu.Unlock()
+			if fi, err = os.Lstat(p); err != nil || time.Since(fi.ModTime()) <= minAge {
 				return nil
 			}
 			removed++

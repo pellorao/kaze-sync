@@ -49,6 +49,10 @@ type Server struct {
 	fmu  sync.Mutex        // guards fdbs
 	fdbs map[int64]*sql.DB // open folder databases
 
+	gcMu               sync.Mutex // guards the GC state: at most one runs
+	gcRunning, gcAgain bool
+	gcWG               sync.WaitGroup
+
 	mu       sync.Mutex // guards everything below
 	sessions map[string]time.Time
 	codes    map[[32]byte]pendingCode

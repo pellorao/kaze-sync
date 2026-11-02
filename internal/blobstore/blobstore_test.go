@@ -177,3 +177,71 @@ func TestSweep(t *testing.T) {
 		t.Error("new temp removed")
 	}
 }
+
+func ageBlob(t *testing.T, s *Store, h Hash, age time.Duration) {
+	t.Helper()
+	old := time.Now().Add(-age)
+	if err := os.Chtimes(s.blobPath(h), old, old); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Use renews an old block, so a sweep that judged it unreferenced earlier keeps it when it looks again;
+// a young block keeps its time; a missing block is reported as such.
+func TestUseRenewsOldBlocks(t *testing.T) {
+	s := newStore(t)
+	h := put(t, s, []byte("block"))
+	young, _ := os.Stat(s.blobPath(h))
+	if ok, err := s.Use(h); !ok || err != nil {
+		t.Fatalf("Use: %v %v", ok, err)
+	}
+	if fi, _ := os.Stat(s.blobPath(h)); !fi.ModTime().Equal(young.ModTime()) {
+		t.Error("a young block was touched")
+	}
+	ageBlob(t, s, h, 2*time.Hour)
+	if ok, err := s.Use(h); !ok || err != nil {
+		t.Fatalf("Use old: %v %v", ok, err)
+	}
+	if n, err := s.SweepBlobs(0, 256, func(Hash) bool { return false }, time.Hour); n != 0 || err != nil {
+		t.Fatalf("a used block was swept: %d %v", n, err)
+	}
+	if ok, err := s.Use(hashOf(t, []byte("absent"))); ok || err != nil {
+		t.Fatalf("Use missing: %v %v", ok, err)
+	}
+	ageBlob(t, s, h, 2*time.Hour)
+	if n, _ := s.SweepBlobs(0, 256, func(Hash) bool { return false }, time.Hour); n != 1 {
+		t.Fatalf("an unused old block stayed: %d", n)
+	}
+}
+
+// Whatever the timing, a block that Put and Use keep storing and renewing is never swept while they
+// run, and the store stays usable.
+func TestSweepRacesWithPutAndUse(t *testing.T) {
+	s := newStore(t)
+	data := []byte("contended block")
+	h := hashOf(t, data)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 300; i++ {
+			s.Put(h, bytes.NewReader(data))
+			old := time.Now().Add(-2 * time.Hour) // as if it had been stored long ago, then re-referenced
+			os.Chtimes(s.blobPath(h), old, old)
+			if ok, _ := s.Use(h); !ok {
+				continue // swept before Use: a commit would ask for the block again
+			}
+			if _, err := s.Open(h); err != nil {
+				t.Errorf("block vanished right after Use: %v", err)
+				return
+			}
+		}
+	}()
+	for running := true; running; {
+		select {
+		case <-done:
+			running = false
+		default:
+			s.SweepBlobs(0, 256, func(Hash) bool { return false }, time.Hour)
+		}
+	}
+}

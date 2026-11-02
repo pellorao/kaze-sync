@@ -140,3 +140,45 @@ func WSLPath(win string) (string, error) {
 	out, err := exec.Command("wslpath", "-u", win).Output()
 	return filepath.Clean(strings.TrimSpace(string(out))), err
 }
+
+// TarGet copies names (default: everything) of a guest directory into a local directory through tar over SSH.
+func (v *VM) TarGet(remoteDir, local string, names ...string) error {
+	if len(names) == 0 {
+		names = []string{"."}
+	}
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		return err
+	}
+	return pipeTar(exec.Command("ssh", append(v.sshArgs(), "tar cf - -C "+remoteDir+" "+strings.Join(names, " "))...),
+		exec.Command("tar", "xf", "-", "-C", local))
+}
+
+// TarPut copies the contents of a local directory into a guest directory (created when missing) the same way.
+func (v *VM) TarPut(local, remoteDir string) error {
+	return pipeTar(exec.Command("tar", "cf", "-", "-C", local, "."),
+		exec.Command("ssh", append(v.sshArgs(), "mkdir -p "+remoteDir+" && tar xf - -C "+remoteDir)...))
+}
+
+// pipeTar runs send | recv.
+func pipeTar(send, recv *exec.Cmd) error {
+	var e1, e2 bytes.Buffer
+	send.Stderr, recv.Stderr = &e1, &e2
+	pipe, err := send.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	recv.Stdin = pipe
+	if err := recv.Start(); err != nil {
+		return err
+	}
+	if err := send.Start(); err != nil {
+		recv.Process.Kill()
+		recv.Wait()
+		return err
+	}
+	err1, err2 := send.Wait(), recv.Wait()
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf("tar pipe: %v %v: %s %s", err1, err2, e1.String(), e2.String())
+	}
+	return nil
+}

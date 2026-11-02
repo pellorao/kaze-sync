@@ -153,7 +153,7 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 				continue
 			}
 			seen[b] = true
-			ok, err := s.blobs.Has(blobstore.Hash(b))
+			ok, err := s.blobs.Use(blobstore.Hash(b))
 			if err != nil {
 				return proto.Result{}, err
 			}

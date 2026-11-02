@@ -43,6 +43,7 @@ func Run(ctx context.Context, data string) error {
 		srv.Shutdown(sctx)
 		srv.Close()
 	}()
+	go s.gcLoop(ctx)
 	slog.Info("listening", "addr", ln.Addr().String(), "fingerprint", s.Fingerprint)
 	if err := srv.ServeTLS(ln, "", ""); err != http.ErrServerClosed {
 		return err

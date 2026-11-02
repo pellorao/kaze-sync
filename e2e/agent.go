@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +63,11 @@ func (a *agent) start() error {
 	a.cmd.Env = a.environ()
 	a.cmd.Stdout, a.cmd.Stderr = f, f
 	a.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return a.cmd.Start()
+	if err := a.cmd.Start(); err != nil {
+		return err
+	}
+	log.Printf("started agent %s (pid %d)", a.name, a.cmd.Process.Pid)
+	return nil
 }
 
 // stop ends the agent; kill is SIGKILL (a crash) instead of SIGTERM.

@@ -9,8 +9,10 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -78,17 +80,19 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
 	for pattern, h := range map[string]handler{
-		"GET /{$}":                   s.overview,
-		"POST /devices/add":          s.addDevice,
-		"POST /folders/new":          s.newFolder,
-		"POST /settings":             s.saveSettings,
-		"POST /rules":                s.saveGlobalRules,
-		"GET /devices/{id}":          s.devicePage,
-		"POST /devices/{id}/mapping": s.saveMapping,
-		"POST /devices/{id}/revoke":  s.revoke,
-		"GET /folders/{id}":          s.folderPage,
-		"POST /folders/{id}/restore": s.restore,
-		"POST /folders/{id}/rules":   s.saveFolderRules,
+		"GET /{$}":                       s.overview,
+		"POST /devices/add":              s.addDevice,
+		"POST /folders/new":              s.newFolder,
+		"POST /settings":                 s.saveSettings,
+		"POST /rules":                    s.saveGlobalRules,
+		"GET /devices/{id}":              s.devicePage,
+		"POST /devices/{id}/mapping":     s.saveMapping,
+		"POST /devices/{id}/revoke":      s.revoke,
+		"GET /folders/{id}":              s.folderPage,
+		"POST /folders/{id}/restore":     s.restore,
+		"POST /folders/{id}/restore-dir": s.restoreDir,
+		"POST /folders/{id}/delete":      s.deleteFolder,
+		"POST /folders/{id}/rules":       s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
 	}
@@ -307,6 +311,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) error {
 	if err := SetMeta(s.db, "keep_days", days); err != nil {
 		return err
 	}
+	s.requestGC() // clears the versions that the new value has expired at once
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
 }
@@ -627,7 +632,15 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	data := map[string]any{"Notices": notes, "Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs}
+	var maps int
+	if err := s.db.QueryRow(`SELECT count(*) FROM mappings WHERE folder_id=?`, f.ID).Scan(&maps); err != nil {
+		return err
+	}
+	data := map[string]any{"Notices": notes, "Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "CanDelete": maps == 0}
+	_, err1 := strconv.Atoi(r.FormValue("restored"))
+	if _, err2 := strconv.Atoi(r.FormValue("failed")); err1 == nil && err2 == nil {
+		data["Restored"], data["Failed"] = r.FormValue("restored"), r.FormValue("failed") // numbers only: nothing else is echoed
+	}
 	if file := r.FormValue("file"); file != "" {
 		if data["Versions"], err = s.versionList(f.ID, file); err != nil {
 			return err
@@ -697,5 +710,142 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 		return bad(http.StatusConflict, back, "无法恢复: "+res[0].Status+" "+res[0].Reason)
 	}
 	http.Redirect(w, r, back+"?dir="+url.QueryEscape(r.FormValue("dir"))+"&file="+url.QueryEscape(v.path), http.StatusSeeOther)
+	return nil
+}
+
+// ParseTime reads a time given in UTC, or with an explicit zone, as the Web UI and export take it.
+func ParseTime(s string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02 15:04", "2006-01-02T15:04", time.RFC3339} {
+		if t, err := time.ParseInLocation(layout, strings.TrimSpace(s), time.UTC); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("time %q: use YYYY-MM-DD HH:MM[:SS] in UTC", s)
+}
+
+// stateAt calls visit for every file the folder held at unix time at (0: now) below dir (design 7): the
+// current rows created by then and the versions whose life spans it. Deleted paths have no row.
+func stateAt(db *sql.DB, dir string, at int64, visit func(*fileRow) error) error {
+	if at == 0 {
+		at = math.MaxInt64
+	}
+	cond, args := "true", []any{}
+	if dir != "" {
+		cond, args = "path >= ? AND path < ?", []any{dir + "/", dir + "0"} // "0" is the character after "/"
+	}
+	rows, err := db.Query(`SELECT `+fileCols+` FROM files WHERE hash IS NOT NULL AND created_at <= ? AND `+cond+
+		` UNION ALL SELECT `+fileCols+` FROM versions WHERE created_at <= ? AND replaced_at > ? AND `+cond,
+		append(append([]any{at}, args...), append([]any{at, at}, args...)...)...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f fileRow
+		if err := f.scan(rows); err != nil {
+			return err
+		}
+		if err := visit(&f); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// restoreDir brings back what a directory held at a point in time, as device "web": paths that now hold
+// other content, or were deleted, get the old content; paths created since stay (nothing is deleted).
+func (s *Server) restoreDir(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
+	}
+	dir := strings.Trim(r.FormValue("dir"), "/")
+	back := "/folders/" + strconv.FormatInt(f.ID, 10)
+	at, err := ParseTime(r.FormValue("time"))
+	if err != nil {
+		return bad(http.StatusBadRequest, back, err.Error())
+	}
+	db, err := s.folderDB(f.ID)
+	if err != nil {
+		return err
+	}
+	var ops []proto.Op
+	restored, failed := 0, 0
+	flush := func() error {
+		res, err := s.commit(f.ID, "web", ops)
+		for _, x := range res {
+			if x.Status == proto.StatusOK {
+				restored++
+			} else {
+				failed++
+			}
+		}
+		ops = ops[:0]
+		return err
+	}
+	err = stateAt(db, dir, at.Unix(), func(v *fileRow) error {
+		var cur fileRow
+		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
+		if err == nil && bytes.Equal(cur.hash, v.hash) {
+			return nil // already as it was
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		e := v.entry()
+		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
+		if len(ops) == proto.MaxCommitOps {
+			return flush()
+		}
+		return nil
+	})
+	if err == nil && len(ops) > 0 {
+		err = flush()
+	}
+	if err != nil {
+		return err
+	}
+	slog.Info("restore dir", "folder", f.Name, "dir", dir, "at", at, "restored", restored, "failed", failed)
+	http.Redirect(w, r, fmt.Sprintf("%s?dir=%s&restored=%d&failed=%d", back, url.QueryEscape(dir), restored, failed), http.StatusSeeOther)
+	return nil
+}
+
+// deleteFolder removes a folder that no device maps, with its database. Its blocks go at the next GC.
+func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM mappings WHERE folder_id=?`, f.ID).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return bad(http.StatusConflict, "/folders/"+strconv.FormatInt(f.ID, 10), "文件夹仍映射到设备, 先在设备页删除映射")
+	}
+	if _, err := tx.Exec(`DELETE FROM folders WHERE id=?`, f.ID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.fmu.Lock()
+	if db := s.fdbs[f.ID]; db != nil {
+		db.Close()
+		delete(s.fdbs, f.ID)
+	}
+	s.fmu.Unlock()
+	path := FolderDBPath(s.varDir, f.ID)
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	slog.Info("folder deleted", "folder", f.Name)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
 }

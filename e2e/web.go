@@ -141,3 +141,16 @@ func fileRow(page, name string) string {
 	}
 	return m[0]
 }
+
+// restoreDir restores a directory to a point in time (UTC) and returns the redirect's query: "restored=N&failed=M".
+func (w *webClient) restoreDir(folder, dir, at string) (string, error) {
+	st, b, h, err := w.do("POST", "/folders/"+folder+"/restore-dir", url.Values{"dir": {dir}, "time": {at}}, w.base)
+	if err != nil {
+		return "", err
+	}
+	if st != 303 {
+		return "", fmt.Errorf("restore-dir: %d %s", st, firstLine(b))
+	}
+	loc := h.Get("Location")
+	return loc[strings.Index(loc, "restored="):], nil
+}
