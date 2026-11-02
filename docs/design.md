@@ -97,7 +97,7 @@
 
 表 (全局库 4 张: `folders`, `devices`, `mappings`, `meta`; 每个文件夹库 3 张: `files`, `versions`, `meta`):
 
-- `files` (在文件夹库中): 该文件夹每个路径的当前状态, 含删除后的墓碑. 列: `path` (原样 UTF-8, `/` 分隔), `key` (NFC 加 Unicode 大小写折叠), `seq` (文件夹内唯一且单调递增), `hash` (整个文件的 SHA-256, 删除时为 NULL), `blocks` (按顺序拼接的块哈希, 每块 32 字节), `size`, `mtime_ns`, `exec`, `device`, `created_at`, `conflict` (路径是否为冲突副本名, 提交时计算). 主键 `path`; 部分唯一索引 `UNIQUE(key) WHERE hash IS NOT NULL`; 部分索引 `(path) WHERE conflict AND hash IS NOT NULL` 供通知查询.
+- `files` (在文件夹库中): 该文件夹每个路径的当前状态, 含删除后的墓碑. 列: `path` (原样 UTF-8, `/` 分隔), `key` (NFC 加 Unicode 大小写折叠), `seq` (文件夹内唯一且单调递增), `hash` (整个文件的 SHA-256, 删除时为 NULL), `blocks` (按顺序拼接的块哈希, 每块 32 字节), `size`, `mtime_ns`, `exec`, `device`, `created_at`, `conflict` (路径是否为冲突副本名, 提交时计算). 主键 `path`; 部分唯一索引 `UNIQUE(key) WHERE hash IS NOT NULL`; 部分索引 `(path) WHERE conflict AND hash IS NOT NULL` 供通知查询; 索引 `(seq)` 供 `GET /changes` 按游标读取 (文件夹库架构版本 2 加入).
 - `versions` (在文件夹库中): 被替换或删除的旧内容, 列与 `files` 相同, 另加 `id` 和 `replaced_at`; 索引 `(path)`.
 - `meta(key, value)` (在文件夹库中): `schema_version`, 该文件夹的下一个 `seq`.
 - `folders(id, name, rules)`: `rules` 为该文件夹的排除规则, 接在全局规则之后.
@@ -120,12 +120,12 @@ HTTP/1.1 + JSON, 全部位于 `/api/v1/`, 除 `enroll` 外每个请求带 `Autho
 
 | 方法与路径 | 作用 |
 |---|---|
-| `POST /enroll` | `{code, os, hostname}` 换取设备令牌, 只此一次 |
-| `POST /poll` | 请求体带每个订阅文件夹已知的游标 (`cursors`, 文件夹 id 到 `seq`), `config_version` 和当前状态 (3.6). 本设备已订阅文件夹出现新变更或配置版本不同时立即返回, 否则最多挂起 55 秒. 返回各订阅文件夹的最新 `seq` (`cursors`), 配置有变化时附带完整的新配置 |
-| `GET /changes?folder=F&since=N` | 该文件夹 `seq > N` 的条目, 每页至多 5000 条, 带 `cursor` 和 `more` |
+| `POST /enroll` | `{code, os, hostname}` 换取设备令牌和设备名 (`name`, 冲突副本命名用), 只此一次 |
+| `POST /poll` | 请求体带每个订阅文件夹已知的游标 (`cursors`, 文件夹 id 到 `seq`), `config_version` 和当前状态 (3.6). `cursors` 是客户端已读到的各文件夹最新 `seq` (不是已应用的游标, 见 5.5), 缺少某个文件夹的键视为有新内容. 本设备已订阅文件夹的最新 `seq` 与 `cursors` 不同, 或配置版本不同时立即返回, 否则最多挂起 55 秒; 任何一次成功提交都会唤醒挂起的长轮询. 返回各订阅文件夹的最新 `seq` (`cursors`), 配置有变化时附带完整的新配置 |
+| `GET /changes?folder=F&since=N` | 该文件夹 `seq > N` 的条目, 每页至多 5000 条, 块哈希合计超过 2 万个时提前结束该页, 带 `cursor` 和 `more` |
 | `POST /commit` | `{folder, ops}`, 至多 1000 个操作, 每个独立返回 `ok` (新 `seq`), `need` (缺少的块哈希), `conflict` (附服务端当前状态) 或 `rejected` (附原因) |
 | `POST /blocks` | 上传块包: 请求体为若干 `[32 字节哈希][4 字节长度][数据]`, 服务端逐块校验并保存, 中途断开时已完整收到的块保留 |
-| `POST /blocks/get` | `{hashes}`, 以同样格式返回块包 (每次至多 64 MiB) |
+| `POST /blocks/get` | `{hashes}`, 以同样格式返回块包 (每次至多 64 MiB, 即 256 个块); 请求中任一块不存在时整个请求失败, 不发送部分内容 |
 
 长轮询同时承担心跳, 状态上报和配置下发, 因此没有单独的配置和状态端点. "在线" 即该设备当前有挂起的长轮询, 或 90 秒内结束过一次.
 
@@ -148,7 +148,7 @@ HTTP/1.1 + JSON, 全部位于 `/api/v1/`, 除 `enroll` 外每个请求带 `Autho
 
 客户端状态目录 (Linux `~/.local/state/kaze-sync/`, Windows `%LOCALAPPDATA%\kaze-sync\`) 中只有:
 
-- `device.json`: `server`, `fingerprint` (可空), `token`, `device_id`, 由 `kaze-syncc enroll` 写入 (Linux 下权限 0600).
+- `device.json`: `server`, `fingerprint` (可空), `token`, `device_id`, `name` (设备名), 由 `kaze-syncc enroll` 写入 (Linux 下权限 0600).
 - `config.json`: 最近一次从服务端取得的有效配置, 原子写入.
 - `folder-<id>.db`: 每个已订阅文件夹的本地同步状态 (5.1).
 - 日志文件.
@@ -274,7 +274,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 
 每个已订阅文件夹一个 SQLite:
 
-- `local(path, key, seq, hash, blocks, size, mtime_ns, exec)`: 每个已同步路径 "上次与服务端一致时" 的状态, 即提交时的 base; `blocks` 用于下载时复用本地已有的块.
+- `local(path, key, seq, hash, blocks, size, mtime_ns, exec)`: 每个已同步路径 "上次与服务端一致时" 的状态, 即提交时的 base; `blocks` 用于下载时复用本地已有的块; 索引 `(hash)` 用于按整文件哈希找到可复用的本地文件.
 - `meta`: `cursor`, `rules_hash`.
 
 ### 5.2 变更检测
@@ -297,14 +297,14 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 
 ### 5.5 下载与应用
 
-`Pull` 读取该文件夹 `cursor` 之后的变更, 每页分三遍处理: 第 1 遍把 key 相同的删除与新增 (仅大小写改名) 合并为一次 rename (必须最先做, 否则在不区分大小写的文件系统上写入 `A.txt` 会覆盖 `a.txt`, 随后删除 `a.txt` 又把它删掉); 第 2 遍新增与修改; 第 3 遍删除. 每页处理完持久化 `cursor`.
+`Pull` 读取该文件夹 `cursor` 之后的变更, 每页分三遍处理: 第 1 遍把 key 相同的删除与新增 (仅大小写改名) 合并为一次 rename (必须最先做, 否则在不区分大小写的文件系统上写入 `A.txt` 会覆盖 `a.txt`, 随后删除 `a.txt` 又把它删掉); 第 2 遍新增与修改; 第 3 遍删除. 每页处理完持久化 `cursor`, 但 `cursor` 停在第一条未能应用的条目之前 (推迟, 被占用, 出错), 下次 `Pull` 从那里重读; 已应用的条目靠 "`seq` 等于 `local` 中的 `seq`" 和磁盘状态检查而无副作用地重复跳过. 客户端另外记住已读到的最新 `seq` (`seen`, 只在内存中), 长轮询的 `cursors` 报的是它, 所以暂时应用不了的条目不会让长轮询反复立即返回, 由重试定时器再次 `Pull`.
 
 单条处理规则:
 
 - 被有效排除规则排除: 跳过. `seq` 等于 `local` 中的 `seq`: 自己提交的回声, 跳过.
 - 本地磁盘状态与 `local` 不一致 (有未提交的本地修改): 跳过, 由下次 `Scan` 经冲突流程解决. 下载永远不覆盖未同步的本地内容.
 - 目标是正在使用的 SQLite 数据库 (5.6): 推迟, 上报 `in_use`.
-- 新内容: 用 12.3 节的原子落地写入同目录的临时文件. 内容按块依次来自: 本地有相同整文件哈希的未改动文件 (改名或复制, 完全不走网络); 同一路径旧版本中哈希相同的块 (由 `local.blocks` 定位, 局部修改的大文件只下载变化的块); 其余用 `POST /blocks/get` 成批下载. 整文件哈希不符 (本地来源恰好被改动) 时放弃本地复用重新下载. 设置 mtime 与可执行位, 复查目标后 rename, 更新 `local`.
+- 新内容: 用 12.3 节的原子落地写入同目录的临时文件. 内容按块依次来自: 本地有相同整文件哈希的未改动文件 (改名或复制, 完全不走网络); 同一路径旧版本中哈希相同的块 (由 `local.blocks` 定位, 局部修改的大文件只下载变化的块); 其余用 `POST /blocks/get` 成批下载 (每批 64 个块位置, 批内重复的块只请求一次). 冲突副本改名后的文件也是块来源 (服务端版本与冲突副本常共享大部分块). 整文件哈希不符 (本地来源恰好被改动) 时放弃本地复用重新下载. 设置 mtime 与可执行位, 复查目标后 rename, 更新 `local`.
 - 删除: 确认磁盘与 `local` 一致后删除文件, 自下而上删除因此变空的父目录 (到根为止).
 
 残余风险: 最后一次 stat 与 rename 之间的极短窗口内若有程序写入目标, 这次写入会被覆盖. Syncthing 和 Nextcloud 客户端都有同样的窗口, 再缩小需要系统特定的锁, 不值得.
@@ -371,7 +371,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 
 ### 6.4 大小写
 
-服务端每个文件夹的命名空间不区分大小写 (存活路径的 `key` 唯一). Linux 客户端同时有 `A.txt` 和 `a.txt` 时, 后提交的被拒绝 (`case_collision`), 显示为通知. Windows 上仅大小写改名产生同 key 的删除加新增, 同批中删除在前, 服务端顺序处理; 其他 Windows 客户端合并为一次 rename.
+服务端每个文件夹的命名空间不区分大小写 (存活路径的 `key` 唯一). Linux 客户端同时有 `A.txt` 和 `a.txt` 时, 后提交的被拒绝 (`case_collision`), 显示为通知. Windows 上仅大小写改名产生同 key 的删除加新增, 同批中删除在前, 服务端顺序处理; 其他 Windows 客户端合并为一次 rename. 一般情况下客户端先提交不依赖任何删除的新增, 再提交删除, 最后提交依赖删除的新增 (同 key, 或文件与目录同名): 移动一个大目录时其他客户端先看到新增, 此时旧文件还在本地, 可按整文件哈希本地复制, 即使两批超过单次提交的 1000 个操作也不下载任何块.
 
 ### 6.5 Windows 非法名称
 
@@ -379,7 +379,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 
 ### 6.6 文件与目录同名
 
-提交 `x` 时存在存活的 `x/...`, 或提交 `x/y` 时 `x` 是存活文件, 返回 `type_conflict`. 被拒的一方把本地的文件或整个目录改名为冲突副本名, 然后照常同步.
+提交 `x` 时存在存活的 `x/...`, 或提交 `x/y` 时 `x` 是存活文件, 返回 `type_conflict`. 被拒的一方把本地的文件或整个目录改名为冲突副本名, 然后照常同步. 服务端因此拒绝时客户端把 `cursor` 退回 0 做一次完整对账 (已一致的条目都被跳过, 只多读一遍变更列表). 下载 `x` 而本地 `x` 是目录时: 目录内全是已同步且未改动的文件则等待服务端的删除条目先到, 否则把目录改名为冲突副本名; 下载 `x/y` 而本地 `x` 是文件时同理.
 
 ### 6.7 符号链接, 权限, mtime, 行尾
 

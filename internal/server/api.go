@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,7 +27,9 @@ func (s *Server) deviceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/enroll", s.enroll)
 	mux.HandleFunc("POST /api/v1/poll", s.auth(s.poll))
 	mux.HandleFunc("POST /api/v1/commit", s.auth(s.commitHandler))
+	mux.HandleFunc("GET /api/v1/changes", s.auth(s.changes))
 	mux.HandleFunc("POST /api/v1/blocks", s.auth(s.blocks))
+	mux.HandleFunc("POST /api/v1/blocks/get", s.auth(s.blocksGet))
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -96,7 +99,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := res.LastInsertId()
 	slog.Info("device enrolled", "device", pc.name, "os", req.OS)
-	writeJSON(w, proto.EnrollResp{DeviceID: id, Token: tok})
+	writeJSON(w, proto.EnrollResp{DeviceID: id, Name: pc.name, Token: tok})
 }
 
 // effectiveConfig is the device's mappings with global and folder rules joined.
@@ -127,36 +130,45 @@ func splitRules(s string) []string {
 	return strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 }
 
-// poll hangs until the device's configuration differs from the version it
-// reports, or PollTimeout passes. It also carries the device's status report.
+// poll hangs until the device's configuration or the latest seq of one of its
+// folders differs from what it reports, or PollTimeout passes. It also carries
+// the device's status report; a device is online while it has a poll hanging.
 func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 	var req proto.PollReq
 	if !readJSON(w, r, &req) {
 		return
 	}
-	s.noteReport(d.id, req)
+	s.pollStart(d.id, req)
+	defer s.pollEnd(d.id)
 	timer := time.NewTimer(s.PollTimeout)
 	defer timer.Stop()
 	for {
-		ch := s.waitCh() // taken before reading the version so no change is missed
-		if v := metaInt(s.db, "config_version"); v != req.ConfigVersion {
-			cfg, err := s.effectiveConfig(d.id)
-			if err != nil {
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
+		ch := s.waitCh() // taken before reading the state so no change is missed
+		resp := proto.PollResp{Cursors: s.cursors(d.id)}
+		news := metaInt(s.db, "config_version") != req.ConfigVersion
+		for id, seq := range resp.Cursors {
+			if have, ok := req.Cursors[id]; !ok || have != seq {
+				news = true
 			}
-			writeJSON(w, proto.PollResp{Cursors: s.cursors(d.id), Config: &cfg})
-			s.touch(d.id)
+		}
+		if news {
+			if metaInt(s.db, "config_version") != req.ConfigVersion {
+				cfg, err := s.effectiveConfig(d.id)
+				if err != nil {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
+				resp.Config = &cfg
+			}
+			writeJSON(w, resp)
 			return
 		}
 		select {
 		case <-ch:
 		case <-timer.C:
-			writeJSON(w, proto.PollResp{Cursors: s.cursors(d.id)})
-			s.touch(d.id)
+			writeJSON(w, resp)
 			return
 		case <-r.Context().Done():
-			s.touch(d.id)
 			return
 		}
 	}
@@ -180,7 +192,7 @@ func (s *Server) cursors(deviceID int64) map[int64]int64 {
 	return out
 }
 
-func (s *Server) noteReport(id int64, req proto.PollReq) {
+func (s *Server) pollStart(id int64, req proto.PollReq) {
 	s.mu.Lock()
 	rep := s.reports[id]
 	if rep == nil {
@@ -188,15 +200,22 @@ func (s *Server) noteReport(id int64, req proto.PollReq) {
 		s.reports[id] = rep
 	}
 	rep.req, rep.at = req, s.now()
+	rep.pending++
 	s.mu.Unlock()
 }
 
-// touch persists last_seen, at most once per lastSeenEvery per device.
-func (s *Server) touch(id int64) {
+// pollEnd records the end of a poll and persists last_seen, at most once per lastSeenEvery per device.
+func (s *Server) pollEnd(id int64) {
 	now := s.now()
 	s.mu.Lock()
 	rep := s.reports[id]
-	due := rep != nil && now.Sub(rep.lastWrite) >= lastSeenEvery
+	if rep == nil { // revoked meanwhile
+		s.mu.Unlock()
+		return
+	}
+	rep.pending--
+	rep.at = now
+	due := now.Sub(rep.lastWrite) >= lastSeenEvery
 	if due {
 		rep.lastWrite = now
 	}
@@ -204,6 +223,55 @@ func (s *Server) touch(id int64) {
 	if due {
 		s.db.Exec(`UPDATE devices SET last_seen=? WHERE id=?`, now.Unix(), id)
 	}
+}
+
+// mapped reports whether the folder is mapped to the device.
+func (s *Server) mapped(deviceID, folder int64) bool {
+	var n int
+	return s.db.QueryRow(`SELECT count(*) FROM mappings WHERE device_id=? AND folder_id=?`, deviceID, folder).Scan(&n) == nil && n > 0
+}
+
+// changes returns the next page of a folder's entries after seq "since" (design 2.4).
+func (s *Server) changes(w http.ResponseWriter, r *http.Request, d device) {
+	folder, _ := strconv.ParseInt(r.FormValue("folder"), 10, 64)
+	since, err := strconv.ParseInt(r.FormValue("since"), 10, 64)
+	if err != nil || since < 0 {
+		http.Error(w, "bad since", http.StatusBadRequest)
+		return
+	}
+	if !s.mapped(d.id, folder) {
+		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
+		return
+	}
+	db, err := s.folderDB(folder)
+	var rows *sql.Rows
+	if err == nil {
+		rows, err = db.Query(`SELECT `+fileCols+` FROM files WHERE seq > ? ORDER BY seq LIMIT ?`, since, proto.MaxChangesPage+1)
+	}
+	if err != nil {
+		slog.Error("changes", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	resp := proto.ChangesResp{Entries: []proto.Entry{}, Cursor: since}
+	nblocks := 0
+	for rows.Next() {
+		var f fileRow
+		if err := f.scan(rows); err != nil {
+			slog.Error("changes", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if len(resp.Entries) >= proto.MaxChangesPage || (len(resp.Entries) > 0 && nblocks+len(f.blocks)/32 > proto.MaxChangeBlocks) {
+			resp.More = true
+			break
+		}
+		nblocks += len(f.blocks) / 32
+		resp.Entries = append(resp.Entries, *f.entry())
+		resp.Cursor = f.seq
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) commitHandler(w http.ResponseWriter, r *http.Request, d device) {
@@ -215,8 +283,7 @@ func (s *Server) commitHandler(w http.ResponseWriter, r *http.Request, d device)
 		http.Error(w, "too many ops", http.StatusBadRequest)
 		return
 	}
-	var n int
-	if err := s.db.QueryRow(`SELECT count(*) FROM mappings WHERE device_id=? AND folder_id=?`, d.id, req.Folder).Scan(&n); err != nil || n == 0 {
+	if !s.mapped(d.id, req.Folder) {
 		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
 		return
 	}
@@ -254,4 +321,41 @@ func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 		stored++
 	}
 	writeJSON(w, map[string]int{"stored": stored})
+}
+
+// blocksGet returns the requested blocks as a block packet.
+func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
+	var req proto.BlocksGetReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if len(req.Hashes) > proto.MaxGetBlocks {
+		http.Error(w, "too many blocks", http.StatusBadRequest)
+		return
+	}
+	for _, h := range req.Hashes {
+		if ok, err := s.blobs.Has(blobstore.Hash(h)); err != nil || !ok {
+			http.Error(w, "missing block "+h.String(), http.StatusNotFound)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	buf := make([]byte, proto.BlockSize)
+	for _, h := range req.Hashes {
+		f, err := s.blobs.Open(blobstore.Hash(h))
+		if err == nil {
+			var n int
+			n, err = io.ReadFull(f, buf)
+			f.Close()
+			if err == io.ErrUnexpectedEOF || err == io.EOF {
+				err = nil
+			}
+			if err == nil {
+				err = proto.WriteBlock(w, h, buf[:n])
+			}
+		}
+		if err != nil {
+			panic(http.ErrAbortHandler) // headers are gone: break the connection so the client sees a truncated body
+		}
+	}
 }

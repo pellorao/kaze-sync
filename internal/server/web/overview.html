@@ -7,12 +7,22 @@
 <p>Windows: <pre>kaze-syncc.exe enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</pre></p>
 {{end}}
 
+{{if or .Summary .Offline}}
+<h2>通知</h2>
+<table>
+<tr><th>文件夹</th><th>错误</th><th>提醒</th></tr>
+{{range .Summary}}<tr><td><a href="/folders/{{.ID}}">{{.Name}}</a></td><td>{{.Errors}}</td><td>{{.Warnings}}</td></tr>{{end}}
+{{if .Offline}}<tr><td>设备</td><td colspan="2">{{range .Offline}}<a href="/devices/{{.ID}}">{{.Name}}</a> ({{.Days}} 天未连接) {{end}}</td></tr>{{end}}
+</table>
+{{end}}
+
 <h2>设备</h2>
 <table>
-<tr><th>名称</th><th>系统</th><th>最近连接</th><th>客户端版本</th><th>配置</th></tr>
+<tr><th>名称</th><th>系统</th><th>在线</th><th>最近连接</th><th>文件夹状态</th><th>客户端版本</th><th>配置</th></tr>
 {{range .Devices}}<tr>
-<td><a href="/devices/{{.ID}}">{{.Name}}</a></td><td>{{.OS}}</td><td>{{.LastSeen}}</td><td>{{.Version}}</td><td>{{.ConfigState}}</td>
-</tr>{{else}}<tr><td colspan="5" class="muted">还没有设备</td></tr>{{end}}
+<td><a href="/devices/{{.ID}}">{{.Name}}</a></td><td>{{.OS}}</td><td>{{if .Online}}在线{{else}}离线{{end}}</td><td>{{.LastSeen}}</td>
+<td>{{range .Status}}{{.Folder}}: {{.State}}, 同步于 {{.Synced}}, 上传 {{.PendingUp}} 下载 {{.PendingDown}}<br>{{end}}</td><td>{{.Version}}</td><td>{{.ConfigState}}</td>
+</tr>{{else}}<tr><td colspan="7" class="muted">还没有设备</td></tr>{{end}}
 </table>
 <form method="post" action="/devices/add">
 <p><label>添加设备 <input type="text" name="name" placeholder="名称 (字母, 数字, - 和 _)" class="wide" required></label> <button>生成注册码</button></p>

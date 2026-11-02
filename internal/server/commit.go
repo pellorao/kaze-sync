@@ -96,7 +96,16 @@ func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Re
 			return nil, err
 		}
 	}
-	return res, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	for _, r := range res {
+		if r.Status == proto.StatusOK {
+			s.broadcast() // wake the hanging polls of the devices that map this folder
+			break
+		}
+	}
+	return res, nil
 }
 
 func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (proto.Result, error) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -45,41 +46,77 @@ type Folder struct {
 	Stable  time.Duration // files modified more recently are left for the next scan
 	OS      string        // "windows" keeps the execute bit of the base
 
-	errs     []proto.FileError
-	errSince map[string]int64
+	DeviceName string       // used in conflict copy names
+	CaseFold   bool         // the file system ignores case: Pull merges case-only renames
+	OnDir      func(string) // called for every directory a scan visits (the watcher adds it)
+
+	errs, pullErrs []proto.FileError
+	sink           *[]proto.FileError
+	errSince       map[string]int64
+	ready          bool // the sync root was checked by the last Scan
+	retry          bool // something was postponed: run again soon
+	pendingUp      int
+	pendingDown    int
+	changed        bool                 // Pull changed the tree or the base since rejected was filled
+	rejected       map[string]rejection // files the server refused, until they change or something else changes
+	seen           int64                // latest server seq the last Pull read up to
 }
+
+type rejection struct {
+	size, mtime int64
+	reason      string
+}
+
+// Ready reports whether the last Scan found the sync root in order, so that Pull may run.
+func (f *Folder) Ready() bool { return f.ready }
+
+// Seen is the latest server seq the last successful Pull read.
+func (f *Folder) Seen() int64 { return f.seen }
 
 // NewFolder builds the engine for a configured folder; caseFold selects the matcher mode.
 func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFold bool) *Folder {
 	m, _ := ignore.Compile(fc.Rules, caseFold) // the server validated the rules
-	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second}
+	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1}
 }
 
 // Report is the outcome of one Scan.
 type Report struct {
-	State     string // "idle" or "error"
-	Errors    []proto.FileError
-	PendingUp int  // changes found and not yet on the server
-	Retry     bool // unstable files were skipped: scan again soon
-	Committed int  // commits the server accepted as changes
+	State       string // "idle" or "error"
+	Errors      []proto.FileError
+	PendingUp   int  // changes found and not yet on the server
+	PendingDown int  // server changes not applied yet
+	Retry       bool // something was postponed: run again soon
+	Committed   int  // commits the server accepted as changes
 }
 
 func (f *Folder) note(p, kind, msg string) {
-	f.errs = append(f.errs, proto.FileError{Path: p, Kind: kind, Message: msg})
+	if f.sink == nil {
+		f.sink = &f.errs
+	}
+	*f.sink = append(*f.sink, proto.FileError{Path: p, Kind: kind, Message: msg})
 }
 
 // Scan finds local changes and commits them to the server (design 5.2, 5.4).
-func (f *Folder) Scan(ctx context.Context) (Report, error) {
+// With dirs, only the trees below them are examined (a watcher's hint); without, the whole root.
+func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	var rep Report
-	f.errs = nil
+	f.errs, f.sink, f.retry, f.pendingUp = nil, &f.errs, false, 0
 	ok, err := f.checkRoot()
-	if ok && err == nil {
-		err = f.scan(ctx, &rep)
+	f.ready = ok && err == nil
+	if f.ready {
+		err = f.scan(ctx, dirs, &rep)
 	}
+	f.finish(&rep)
+	return rep, err
+}
+
+// finish completes a report from the folder's current errors and counters.
+func (f *Folder) finish(rep *Report) {
+	all := append(append([]proto.FileError{}, f.errs...), f.pullErrs...)
 	since := map[string]int64{}
 	now := f.Now().Unix()
-	for i := range f.errs {
-		e := &f.errs[i]
+	for i := range all {
+		e := &all[i]
 		k := e.Kind + "\x00" + e.Path
 		if s, ok := f.errSince[k]; ok {
 			e.Since = s
@@ -95,8 +132,9 @@ func (f *Folder) Scan(ctx context.Context) (Report, error) {
 	if rep.State == "" {
 		rep.State = "idle"
 	}
-	rep.Errors = f.errs[:min(len(f.errs), maxErrors)]
-	return rep, err
+	rep.Errors = all[:min(len(all), maxErrors)]
+	rep.PendingUp, rep.PendingDown = f.pendingUp, f.pendingDown
+	rep.Retry = rep.Retry || f.retry
 }
 
 // checkRoot makes sure the sync root is the one we set up (design 3.5). It
@@ -149,7 +187,13 @@ type found struct {
 // walk lists the files to sync below dir. Directories that cannot be read go
 // to failed, so nothing below them is taken for deleted.
 func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool) {
+	if f.OnDir != nil {
+		f.OnDir(dir)
+	}
 	entries, err := f.FS.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return // gone: everything below it counts as deleted
+	}
 	if err != nil {
 		f.note(dir, proto.KindIO, err.Error())
 		failed[dir] = true
@@ -251,10 +295,26 @@ type item struct {
 	done bool
 }
 
-func (f *Folder) scan(ctx context.Context, rep *Report) error {
+func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	files, failed := map[string]found{}, map[string]bool{}
-	f.walk("", files, failed)
-	local, err := f.DB.all()
+	var local map[string]localRow
+	var err error
+	if dirs = pruneDirs(dirs); len(dirs) == 0 {
+		f.walk("", files, failed)
+		local, err = f.DB.all()
+	} else {
+		local = map[string]localRow{}
+		for _, d := range dirs {
+			if !f.Matcher.ExcludedPath(d, true) && !builtinPath(d) {
+				f.walk(d, files, failed)
+			}
+			rows, err := f.DB.under(d)
+			if err != nil {
+				return err
+			}
+			maps.Copy(local, rows)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -277,6 +337,10 @@ func (f *Folder) scan(ctx context.Context, rep *Report) error {
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
 			rep.Retry = true
+			continue
+		}
+		if rj, ok := f.rejected[p]; ok && rj.size == e.Size && rj.mtime == e.MtimeNs {
+			f.note(p, proto.KindRejected, rj.reason) // refused before and unchanged: not asking again
 			continue
 		}
 		h, err := f.hashFile(p, files[p].busy, buf)
@@ -331,10 +395,26 @@ func (f *Folder) scan(ctx context.Context, rep *Report) error {
 	err = f.commitAll(ctx, items, rep)
 	for _, it := range items {
 		if !it.done {
-			rep.PendingUp++
+			f.pendingUp++
 		}
 	}
 	return err
+}
+
+// pruneDirs sorts dirs and drops the ones below another; a root among them
+// ("", "." or "/") means everything, returned as nil.
+func pruneDirs(dirs []string) []string {
+	var out []string
+	slices.Sort(dirs)
+	for _, d := range dirs {
+		if d == "." || d == "" {
+			return nil
+		}
+		if n := len(out); n == 0 || !strings.HasPrefix(d, out[n-1]+"/") {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func builtinPath(p string) bool {

@@ -65,9 +65,15 @@ type pendingCode struct {
 // report is the last state a device sent with a poll.
 type report struct {
 	req       proto.PollReq
-	at        time.Time
+	at        time.Time // when the last poll ended (or the report arrived)
 	lastWrite time.Time
+	pending   int // polls hanging now
 }
+
+// onlineWindow is how long after its last poll a device still counts as online.
+const onlineWindow = 90 * time.Second
+
+func (r *report) online(now time.Time) bool { return r.pending > 0 || now.Sub(r.at) < onlineWindow }
 
 // New opens the server state in <data>/var; meta.db must exist and be at the current schema.
 func New(data string, now func() time.Time) (*Server, error) {

@@ -169,6 +169,18 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 	type dev struct {
 		ID                                       int64
 		Name, OS, LastSeen, Version, ConfigState string
+		Online                                   bool
+		Status                                   []deviceStatus
+	}
+	folderNames := map[int64]string{}
+	if rows, err := s.db.Query(`SELECT id, name FROM folders`); err == nil {
+		for rows.Next() {
+			var id int64
+			var n string
+			rows.Scan(&id, &n)
+			folderNames[id] = n
+		}
+		rows.Close()
 	}
 	cfgVersion := metaInt(s.db, "config_version")
 	devs, err := queryAll(s.db, func(rows *sql.Rows, d *dev) error {
@@ -182,6 +194,11 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 			seen = max(seen, rep.at.Unix())
 			d.Version = strconv.Itoa(rep.req.AgentVersion)
 			d.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
+			d.Online = rep.online(s.now())
+			for _, fs := range rep.req.Folders {
+				d.Status = append(d.Status, deviceStatus{Folder: folderNames[fs.ID], State: fs.State, Synced: formatTime(fs.LastSyncedAt), PendingUp: fs.PendingUp, PendingDown: fs.PendingDown})
+			}
+			sort.Slice(d.Status, func(i, j int) bool { return d.Status[i].Folder < d.Status[j].Folder })
 		}
 		s.mu.Unlock()
 		d.LastSeen = formatTime(seen)
@@ -209,7 +226,29 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 			return err
 		}
 	}
-	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "KeepDays": metaInt(s.db, "keep_days"),
+	var summary []folderSummary
+	for _, f := range fols {
+		notes, err := s.folderNotices(f.ID)
+		if err != nil {
+			return err
+		}
+		fs := folderSummary{ID: f.ID, Name: f.Name}
+		for _, n := range notes {
+			if n.Error {
+				fs.Errors++
+			} else {
+				fs.Warnings++
+			}
+		}
+		if len(notes) > 0 {
+			summary = append(summary, fs)
+		}
+	}
+	offline, err := s.offlineDevices()
+	if err != nil {
+		return err
+	}
+	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "Summary": summary, "Offline": offline, "KeepDays": metaInt(s.db, "keep_days"),
 		"Code": code, "CodeName": codeName, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint})
 	return nil
 }
@@ -524,7 +563,11 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request) error {
 			crumbs = append(crumbs, crumb{p, strings.Join(strings.Split(dir, "/")[:i+1], "/")})
 		}
 	}
-	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs}
+	notes, err := s.folderNotices(f.ID)
+	if err != nil {
+		return err
+	}
+	data := map[string]any{"Notices": notes, "Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs}
 	if file := r.FormValue("file"); file != "" {
 		if data["Versions"], err = s.versionList(f.ID, file); err != nil {
 			return err

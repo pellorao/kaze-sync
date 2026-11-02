@@ -348,14 +348,19 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 		t.Fatalf("doc.txt = %q", got)
 	}
 
-	// Different content on both sides cannot be resolved without pulling: reported, server unchanged.
+	// Different content on both sides: the server version stays, the local one becomes a conflict copy (design 6.1).
 	g2.put("doc.txt", []byte("v3 by dev2"))
-	g2.scan() // dev2 had a stale base (deleted): modification wins over the old tombstone? it is live now
+	rep := g2.scan()
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "v2 by dev1" {
 		t.Fatalf("a stale writer overwrote the server: %q", got)
 	}
-	rep := g2.scan()
-	if rep.State != "error" || rep.PendingUp != 1 {
-		t.Fatalf("diverged: %+v", rep)
+	if len(rep.Errors) != 0 || !rep.Retry {
+		t.Fatalf("conflict scan: %+v", rep)
+	}
+	if rep := g2.scan(); rep.Committed != 1 || rep.PendingUp != 0 { // the copy is uploaded by the retry
+		t.Fatalf("conflict copy scan: %+v", rep)
+	}
+	if _, err := g2.fs.Stat("doc.txt"); err != nil {
+		t.Fatalf("server version not downloaded: %v", err)
 	}
 }

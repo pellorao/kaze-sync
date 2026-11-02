@@ -80,6 +80,8 @@ CREATE TABLE versions(
 CREATE INDEX versions_path ON versions(path);
 CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
 INSERT INTO meta VALUES('next_seq', 1);
+`, `
+CREATE INDEX files_seq ON files(seq);
 `}
 
 // Schema versions this binary works with.

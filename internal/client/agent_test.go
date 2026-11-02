@@ -2,10 +2,13 @@ package client
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,4 +120,95 @@ func TestAgentUsesCachedConfigurationOffline(t *testing.T) {
 		_, err := os.Stat(filepath.Join(root, markerName))
 		return err == nil
 	})
+}
+
+func TestAgentsPropagateChangesBothWays(t *testing.T) {
+	e := newCEnv(t)
+	f := e.newFolder("One")
+	var roots [2]string
+	for i := range roots {
+		dev, api := e.newDevice()
+		roots[i] = filepath.Join(t.TempDir(), "one")
+		e.mapFolder(dev, f, roots[i], true)
+		a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, DeviceName: dev.Name, Stable: 0,
+			ScanInterval: time.Hour, RetryAfter: 50 * time.Millisecond, Debounce: 50 * time.Millisecond}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- a.Run(ctx) }()
+		t.Cleanup(func() { cancel(); <-done })
+	}
+	read := func(root, p string) (string, bool) {
+		b, err := os.ReadFile(filepath.Join(root, p))
+		return string(b), err == nil
+	}
+	eventually(t, "both roots to be set up", func() bool {
+		_, e1 := os.Stat(filepath.Join(roots[0], markerName))
+		_, e2 := os.Stat(filepath.Join(roots[1], markerName))
+		return e1 == nil && e2 == nil
+	})
+	writeFile(t, filepath.Join(roots[0], "sub", "a.txt"), "alpha")
+	eventually(t, "a new file to reach the other device", func() bool { s, ok := read(roots[1], "sub/a.txt"); return ok && s == "alpha" })
+	writeFile(t, filepath.Join(roots[1], "sub", "a.txt"), "beta")
+	eventually(t, "the edit to come back", func() bool { s, _ := read(roots[0], "sub/a.txt"); return s == "beta" })
+	os.Remove(filepath.Join(roots[0], "sub", "a.txt"))
+	eventually(t, "the deletion to arrive", func() bool { _, ok := read(roots[1], "sub/a.txt"); return !ok })
+}
+
+// pollCounter counts the long polls an agent sends.
+type pollCounter struct {
+	base http.RoundTripper
+	n    atomic.Int64
+}
+
+func (c *pollCounter) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.HasSuffix(r.URL.Path, "/poll") {
+		c.n.Add(1)
+	}
+	return c.base.RoundTrip(r)
+}
+
+// A folder that cannot be synced (non-empty directory, not adopted) must not make the long poll return at once.
+func TestUnusableFolderDoesNotSpinThePoll(t *testing.T) {
+	e := newCEnv(t)
+	e.srv.PollTimeout = 30 * time.Second
+	dev, api := e.newDevice()
+	f1, f2 := e.newFolder("One"), e.newFolder("Two")
+	root1, root2 := filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "two")
+	writeFile(t, filepath.Join(root1, "mine.txt"), "not yours")
+	e.mapFolder(dev, f1, root1, false)
+	e.mapFolder(dev, f2, root2, true)
+	pc := &pollCounter{base: api.HC.Transport}
+	api.HC.Transport = pc
+	a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, DeviceName: dev.Name, ScanInterval: time.Hour, RetryAfter: time.Hour}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	eventually(t, "the usable folder to be set up", func() bool {
+		_, err := os.Stat(filepath.Join(root2, markerName))
+		return err == nil
+	})
+	time.Sleep(time.Second)
+	if n := pc.n.Load(); n > 6 {
+		t.Fatalf("%d polls in about a second: the poll spins", n)
+	}
+}
+
+// A status report postponed by statusEvery must not leave a stale wake time behind: nextWake would stay zero and the loop would spin.
+func TestStaleStatusRetryDoesNotSpinTheLoop(t *testing.T) {
+	a := &Agent{runners: map[int64]*runner{1: {}}}
+	canceled := false
+	a.cancel, a.sig, a.pollAt = func() { canceled = true }, "outdated", time.Now()
+	a.statusChanged()
+	if a.statusAt.IsZero() || canceled {
+		t.Fatal("the report should be postponed")
+	}
+	a.pollAt = time.Now().Add(-statusEvery)
+	a.statusChanged() // the poll is no longer running (nobody restarts it here), so the due retry is consumed
+	if !canceled || !a.statusAt.IsZero() {
+		t.Fatalf("canceled=%v statusAt=%v", canceled, a.statusAt)
+	}
+	if d := a.nextWake(); d < time.Minute {
+		t.Fatalf("nextWake %v: the loop would spin", d)
+	}
 }

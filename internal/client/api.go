@@ -63,6 +63,10 @@ func (a *API) do(ctx context.Context, path string, body io.Reader, contentType s
 	if a.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Token)
 	}
+	return a.send(req, path, out)
+}
+
+func (a *API) send(req *http.Request, path string, out any) error {
 	resp, err := a.HC.Do(req)
 	if err != nil {
 		return err
@@ -114,4 +118,38 @@ func (a *API) Commit(ctx context.Context, folder int64, ops []proto.Op) ([]proto
 func (a *API) UploadBlocks(ctx context.Context, packet []byte) error {
 	var r map[string]int
 	return a.do(ctx, "blocks", bytes.NewReader(packet), "application/octet-stream", &r)
+}
+
+// Changes returns one page of the entries of a folder with seq > since.
+func (a *API) Changes(ctx context.Context, folder, since int64) (proto.ChangesResp, error) {
+	var r proto.ChangesResp
+	u := fmt.Sprintf("%s/api/v1/changes?folder=%d&since=%d", strings.TrimRight(a.Base, "/"), folder, since)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return r, err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.Token)
+	return r, a.send(req, "changes", &r)
+}
+
+// GetBlocks requests blocks; the caller reads the packet from the body (see
+// proto.ReadBlock) and closes it.
+func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser, error) {
+	b, _ := json.Marshal(proto.BlocksGetReq{Hashes: hashes})
+	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(a.Base, "/")+"/api/v1/blocks/get", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+a.Token)
+	resp, err := a.HC.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		defer resp.Body.Close()
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("blocks/get: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return resp.Body, nil
 }

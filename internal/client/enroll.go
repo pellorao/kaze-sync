@@ -29,5 +29,5 @@ func Enroll(ctx context.Context, dir, server, code, fingerprint string) error {
 	if err != nil {
 		return err
 	}
-	return SaveDevice(dir, Device{Server: server, Fingerprint: fingerprint, Token: resp.Token, DeviceID: resp.DeviceID})
+	return SaveDevice(dir, Device{Server: server, Fingerprint: fingerprint, Token: resp.Token, Name: resp.Name, DeviceID: resp.DeviceID})
 }

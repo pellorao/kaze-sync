@@ -40,6 +40,7 @@ type EnrollReq struct {
 
 type EnrollResp struct {
 	DeviceID int64  `json:"device_id"`
+	Name     string `json:"name"` // the device name, used in conflict copy names
 	Token    string `json:"token"`
 }
 
@@ -148,6 +149,25 @@ type Result struct {
 
 type CommitResp struct {
 	Results []Result `json:"results"`
+}
+
+// ChangesResp is one page of GET /changes: the entries with seq > since in
+// seq order. Cursor is the last seq returned (since when there is none).
+type ChangesResp struct {
+	Entries []Entry `json:"entries"`
+	Cursor  int64   `json:"cursor"`
+	More    bool    `json:"more"`
+}
+
+// Limits of GET /changes pages and POST /blocks/get requests.
+const (
+	MaxChangesPage  = 5000
+	MaxChangeBlocks = 20000 // block hashes per page; a page ends early beyond this
+	MaxGetBlocks    = MaxBlockBody / BlockSize
+)
+
+type BlocksGetReq struct {
+	Hashes []Hash `json:"hashes"`
 }
 
 // BlockPacket frames one block in a block upload body: 32-byte hash, 4-byte

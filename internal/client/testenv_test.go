@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -122,6 +123,9 @@ func (e *cenv) code() string {
 
 func (e *cenv) mapFolder(dev Device, folder int64, path string, adopt bool) {
 	e.t.Helper()
+	if runtime.GOOS == "windows" && strings.HasPrefix(path, "/") {
+		path = "C:" + path // the server wants drive-letter paths from a Windows device
+	}
 	form := url.Values{"folder": {strconv.FormatInt(folder, 10)}, "path": {path}, "action": {"save"}}
 	if adopt {
 		form.Set("adopt", "1")

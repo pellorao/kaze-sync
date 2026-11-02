@@ -198,7 +198,7 @@ func TestEnrollmentAndMappingFlow(t *testing.T) {
 	}
 	// Up to date: the poll hangs until the timeout and carries no config.
 	start := time.Now()
-	_, out = e.api(er.Token, "poll", proto.PollReq{ConfigVersion: 2})
+	_, out = e.api(er.Token, "poll", proto.PollReq{ConfigVersion: 2, Cursors: map[int64]int64{1: 0}})
 	pr = proto.PollResp{}
 	json.Unmarshal(out, &pr)
 	if pr.Config != nil || time.Since(start) < e.s.PollTimeout {

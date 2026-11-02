@@ -15,7 +15,10 @@ import (
 // Test double: an in-memory FS with optional case-insensitive names, locked
 // files and one-shot failure injection. Production code does not use it.
 
-type MemOptions struct{ CaseInsensitive bool }
+type MemOptions struct {
+	CaseInsensitive bool
+	Clock           int64 // first logical mtime; give clients of one test different ranges so that mtimes never collide
+}
 
 type node struct {
 	name  string
@@ -37,10 +40,13 @@ type Mem struct {
 }
 
 func NewMem(opts MemOptions) *Mem {
+	if opts.Clock == 0 {
+		opts.Clock = 1_000_000_000_000
+	}
 	return &Mem{
 		ci:        opts.CaseInsensitive,
 		root:      &node{dir: true, kids: map[string]*node{}},
-		clock:     1_000_000_000_000,
+		clock:     opts.Clock,
 		locked:    map[*node]bool{},
 		failAfter: -1,
 	}
@@ -183,8 +189,13 @@ func (m *Mem) Open(p string) (io.ReadCloser, error) {
 	if m.locked[n] {
 		return nil, pathErr("open", p, ErrLocked)
 	}
-	return io.NopCloser(bytes.NewReader(bytes.Clone(n.data))), nil
+	return seekCloser{bytes.NewReader(bytes.Clone(n.data))}, nil
 }
+
+// seekCloser is a reader that can seek, like *os.File.
+type seekCloser struct{ *bytes.Reader }
+
+func (seekCloser) Close() error { return nil }
 
 type memWriter struct {
 	m *Mem

@@ -106,7 +106,7 @@ func run(dir string) error {
 	host, _ := os.Hostname()
 	a := &client.Agent{
 		Dir: dir, API: &client.API{Base: dev.Server, Token: dev.Token, HC: hc}, NewFS: cfs.OS,
-		OS: runtime.GOOS, Hostname: host, Stable: stablePeriod, ScanInterval: scanInterval, RetryAfter: retryAfter,
+		OS: runtime.GOOS, Hostname: host, DeviceName: dev.Name, Stable: stablePeriod, ScanInterval: scanInterval, RetryAfter: retryAfter,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

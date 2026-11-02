@@ -15,6 +15,7 @@ type Device struct {
 	Server      string `json:"server"`
 	Fingerprint string `json:"fingerprint,omitempty"`
 	Token       string `json:"token"`
+	Name        string `json:"name"` // the device name, used in conflict copy names
 	DeviceID    int64  `json:"device_id"`
 }
 

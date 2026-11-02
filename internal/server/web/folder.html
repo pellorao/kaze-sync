@@ -3,6 +3,16 @@
 <a href="/folders/{{.Folder.ID}}">根</a>{{range .Crumbs}} / <a href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
  &nbsp; <a href="/folders/{{.Folder.ID}}?dir={{.Dir}}{{if not .Deleted}}&amp;deleted=1{{end}}">{{if .Deleted}}隐藏已删除{{else}}显示已删除{{end}}</a>
 </p>
+{{if .Notices}}
+<h2>通知</h2>
+<table>
+<tr><th>级别</th><th>来源设备</th><th>路径</th><th>消息</th><th>起始时间</th><th>处理</th></tr>
+{{range .Notices}}<tr>
+<td>{{if .Error}}错误{{else}}提醒{{end}}</td><td>{{.Device}}{{if .Reported}} <span class="muted">({{.Reported}})</span>{{end}}</td>
+<td>{{if .Link}}<a href="{{.Link}}">{{if .Path}}{{.Path}}{{else}}设备页{{end}}</a>{{else}}{{.Path}}{{end}}</td><td>{{.Message}}</td><td>{{.Since}}</td><td>{{.Advice}}</td>
+</tr>{{end}}
+</table>
+{{end}}
 {{if .Versions}}
 <h2>{{.File}} 的版本</h2>
 <table>

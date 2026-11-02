@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,9 @@ import (
 
 func TestMain(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if runtime.GOOS == "windows" { // the server runs on OpenWrt only
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 
