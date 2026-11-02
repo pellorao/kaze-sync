@@ -93,6 +93,7 @@ type Report struct {
 	PendingUp   int  // changes found and not yet on the server
 	PendingDown int  // server changes not applied yet
 	Retry       bool // something was postponed: run again soon
+	Slow        bool // files are in use or locked: retry on the slow schedule (design 5.7)
 	Committed   int  // commits the server accepted as changes
 }
 
@@ -131,6 +132,9 @@ func (f *Folder) finish(rep *Report) {
 			e.Since = now
 		}
 		since[k] = e.Since
+		if e.Kind == proto.KindInUse {
+			rep.Slow = true
+		}
 		if e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped {
 			rep.State = "error"
 		}

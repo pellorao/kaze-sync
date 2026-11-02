@@ -153,7 +153,7 @@ func TestPullHoldsFilesInUse(t *testing.T) {
 	g1.scan()
 	g2.fs.Lock("a.txt")
 	rep := g2.pull()
-	if len(rep.Errors) != 1 || rep.Errors[0].Kind != proto.KindInUse || !rep.Retry || rep.PendingDown != 1 {
+	if len(rep.Errors) != 1 || rep.Errors[0].Kind != proto.KindInUse || rep.Retry || !rep.Slow || rep.PendingDown != 1 {
 		t.Fatalf("locked file: %+v", rep)
 	}
 	g2.fs.Unlock("a.txt")

@@ -60,7 +60,13 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	if err == nil {
 		f.seen = since
 	}
-	f.retry = f.retry || f.pendingDown > 0
+	waiting := 0 // entries held for files in use wait for the slow schedule, not the quick retry
+	for _, e := range f.pullErrs {
+		if e.Kind == proto.KindInUse {
+			waiting++
+		}
+	}
+	f.retry = f.retry || f.pendingDown > waiting
 	f.finish(&rep)
 	return rep, err
 }

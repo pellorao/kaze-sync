@@ -7,6 +7,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -34,7 +35,7 @@ type driver struct {
 	vm      *vmctl.VM
 	tmp     string // local scratch
 	logs    string // collected logs
-	bins    struct{ syncd, linux, windows string }
+	bins    struct{ syncd, linux, windows, winAgent string }
 	port    string
 	fp      string
 	base    string
@@ -142,14 +143,29 @@ func (d *driver) build() error {
 	d.bins.syncd = filepath.Join(d.tmp, "kaze-syncd")
 	d.bins.linux = filepath.Join(d.tmp, "kaze-syncc")
 	d.bins.windows = filepath.Join(d.tmp, "kaze-syncc.exe")
-	for _, b := range []struct{ goos, out, pkg string }{
-		{"linux", d.bins.syncd, "./cmd/kaze-syncd"}, {"linux", d.bins.linux, "./cmd/kaze-syncc"}, {"windows", d.bins.windows, "./cmd/kaze-syncc"},
+	d.bins.winAgent = filepath.Join(d.tmp, "kaze-syncc-agent.exe")
+	for _, b := range []struct{ goos, out, pkg, ldflags string }{
+		{"linux", d.bins.syncd, "./cmd/kaze-syncd", ""}, {"linux", d.bins.linux, "./cmd/kaze-syncc", ""}, {"windows", d.bins.windows, "./cmd/kaze-syncc", ""},
+		{"windows", d.bins.winAgent, "./cmd/kaze-syncc", "-H=windowsgui"}, // the windowless agent of the Run key (design 2.1)
 	} {
-		c := exec.Command("go", "build", "-o", b.out, b.pkg)
+		c := exec.Command("go", "build", "-ldflags", b.ldflags, "-o", b.out, b.pkg)
 		c.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+b.goos, "GOARCH=amd64")
 		if out, err := c.CombinedOutput(); err != nil {
 			return fmt.Errorf("go build %s: %w: %s", b.pkg, err, out)
 		}
+	}
+	return checkGUI(d.bins.winAgent)
+}
+
+// checkGUI verifies that the PE file is a GUI-subsystem program (no console window when started by the Run key).
+func checkGUI(exe string) error {
+	b, err := os.ReadFile(exe)
+	if err != nil || len(b) < 0x40 {
+		return fmt.Errorf("read %s: %v", exe, err)
+	}
+	pe := int(binary.LittleEndian.Uint32(b[0x3c:]))
+	if sub := binary.LittleEndian.Uint16(b[pe+24+68:]); sub != 2 { // IMAGE_SUBSYSTEM_WINDOWS_GUI
+		return fmt.Errorf("%s has subsystem %d, want 2 (GUI)", exe, sub)
 	}
 	return nil
 }

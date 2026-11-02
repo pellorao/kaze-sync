@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 type agent struct {
 	name     string
 	exe      string
+	runExe   string   // the executable that runs the agent when it differs from exe (Windows: the GUI build)
 	state    string   // state directory root (XDG_STATE_HOME or, on Windows, LOCALAPPDATA)
 	env      []string // extra environment
 	windows  bool
@@ -56,7 +58,7 @@ func (a *agent) start() error {
 		return err
 	}
 	a.logFile = f
-	a.cmd = exec.Command(a.exe, "run")
+	a.cmd = exec.Command(cmp.Or(a.runExe, a.exe), "run")
 	a.cmd.Env = a.environ()
 	a.cmd.Stdout, a.cmd.Stderr = f, f
 	a.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -69,7 +71,7 @@ func (a *agent) stop(kill bool) {
 		return
 	}
 	if a.windows {
-		exec.Command("taskkill.exe", "/F", "/IM", filepath.Base(a.exe)).Run()
+		exec.Command("taskkill.exe", "/F", "/IM", filepath.Base(cmp.Or(a.runExe, a.exe))).Run()
 	} else if kill {
 		syscall.Kill(-a.cmd.Process.Pid, syscall.SIGKILL)
 	} else {

@@ -29,9 +29,10 @@ type Agent struct {
 	NewFS                    func(root string) cfs.FS
 	OS, Hostname, DeviceName string
 	Stable                   time.Duration
-	ScanInterval             time.Duration // full scan period (design 5.2)
-	RetryAfter               time.Duration // delay before running again after a failure or postponed work
-	Debounce                 time.Duration // quiet time after file events before scanning (design 5.2)
+	ScanInterval             time.Duration   // full scan period (design 5.2)
+	RetryAfter               time.Duration   // delay before running again after a failure or postponed work
+	SlowRetry                []time.Duration // delays of the retries for files in use; after them the periodic scan retries (design 5.7)
+	Debounce                 time.Duration   // quiet time after file events before scanning (design 5.2)
 
 	mu       sync.Mutex // guards cfg, runners, their fields below the line, and the poll state
 	cfg      proto.Config
@@ -66,6 +67,7 @@ type runner struct {
 	pull       bool
 	debounceAt time.Time
 	retryAt    time.Time
+	slowTries  int // retries for files in use so far
 	nextFull   time.Time
 }
 
@@ -74,6 +76,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.runners = map[int64]*runner{}
 	if a.Debounce == 0 {
 		a.Debounce = 2 * time.Second
+	}
+	if a.SlowRetry == nil {
+		a.SlowRetry = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 	}
 	if err := readJSON(filepath.Join(a.Dir, "config.json"), &a.cfg); err == nil {
 		slog.Info("using cached configuration", "version", a.cfg.Version)
@@ -223,6 +228,7 @@ type task struct {
 	dirs       []string
 	full, scan bool
 	pull       bool
+	retry      bool // run because a retry was due
 }
 
 // cycle runs the due work of all folders concurrently.
@@ -233,6 +239,7 @@ func (a *Agent) cycle(ctx context.Context) {
 	for _, r := range a.runners {
 		t := task{r: r, full: r.full || (!r.nextFull.IsZero() && !now.Before(r.nextFull)), pull: r.pull}
 		retry := !r.retryAt.IsZero() && !now.Before(r.retryAt)
+		t.retry = retry
 		if len(r.dirty) > 0 && !now.Before(r.debounceAt) {
 			for d := range r.dirty {
 				t.dirs = append(t.dirs, d)
@@ -307,6 +314,16 @@ func (a *Agent) work(ctx context.Context, t task) {
 		a.failures = map[bool]int{true: a.failures + 1, false: a.failures}[err != nil]
 	} else {
 		a.failures = 0
+	}
+	if !rep.Slow {
+		r.slowTries = 0
+	} else if err == nil && !rep.Retry {
+		if t.retry {
+			r.slowTries++
+		}
+		if r.slowTries < len(a.SlowRetry) {
+			r.retryAt = now.Add(a.SlowRetry[r.slowTries])
+		}
 	}
 	if t.full {
 		r.nextFull = now.Add(a.ScanInterval)

@@ -170,7 +170,11 @@ func (d *driver) m4Scenarios(skipM4 bool) {
 	defer m.teardown()
 	disk0 := d.diskWritten()
 	if skipM4 {
-		m.m5Scenarios()
+		if d.only == "m6" {
+			m.m6Scenarios()
+		} else {
+			m.m5Scenarios()
+		}
 		return
 	}
 	d.step("M4 1: a new file on one side appears on the other within 10 s", m.newFile)
@@ -184,6 +188,7 @@ func (d *driver) m4Scenarios(skipM4 bool) {
 	d.step("M4 migration drill: two clients holding the same files join one after the other; the second downloads nothing", m.migration)
 	d.step("M4 resident memory and one idle minute with two clients", m.idle)
 	m.m5Scenarios()
+	m.m6Scenarios()
 	written := d.diskWritten() - disk0
 	d.metric("M4 and M5 disk written: the VM wrote %.0f MB to its disks; the scenarios wrote about %.0f MB on the Windows disk", float64(written)/1e6, float64(m.written)/1e6)
 }
@@ -223,15 +228,17 @@ func (m *m4) setup() error {
 		return err
 	}
 	m.winWork = work
-	exe := filepath.Join(work, "kaze-syncc-m4.exe")
-	b, err := os.ReadFile(d.bins.windows)
-	if err != nil {
-		return err
+	exe, runExe := filepath.Join(work, "kaze-syncc-m4.exe"), filepath.Join(work, "kaze-syncc-agent-m4.exe")
+	for from, to := range map[string]string{d.bins.windows: exe, d.bins.winAgent: runExe} {
+		b, err := os.ReadFile(from)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(to, b, 0o755); err != nil {
+			return err
+		}
 	}
-	if err := os.WriteFile(exe, b, 0o755); err != nil {
-		return err
-	}
-	m.win = &agent{name: "host4", exe: exe, windows: true, logs: d.logs, state: filepath.Join(work, "state"), stateWin: winWin + `\state`}
+	m.win = &agent{name: "host4", exe: exe, runExe: runExe, windows: true, logs: d.logs, state: filepath.Join(work, "state"), stateWin: winWin + `\state`}
 	os.MkdirAll(m.win.state, 0o755)
 	d.agents = append(d.agents, m.win)
 	m.winRoot, m.winWin = filepath.Join(work, "root"), winWin+`\root`
@@ -699,7 +706,7 @@ func (m *m4) idle() error {
 			d.metric("M4 Linux client memory: %s", l)
 		}
 	}
-	if out, err := exec.Command("tasklist.exe", "/FI", "IMAGENAME eq kaze-syncc-m4.exe", "/FO", "CSV", "/NH").Output(); err == nil {
+	if out, err := exec.Command("tasklist.exe", "/FI", "IMAGENAME eq kaze-syncc-agent-m4.exe", "/FO", "CSV", "/NH").Output(); err == nil {
 		d.metric("M4 Windows client (tasklist): %s", strings.TrimSpace(string(out)))
 	}
 	if ticks := cpuTicks(srv1) - cpuTicks(srv0); ticks > 50 || (rx1-rx0)+(tx1-tx0) > 300_000 {

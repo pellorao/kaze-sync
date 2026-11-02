@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -210,5 +212,55 @@ func TestStaleStatusRetryDoesNotSpinTheLoop(t *testing.T) {
 	}
 	if d := a.nextWake(); d < time.Minute {
 		t.Fatalf("nextWake %v: the loop would spin", d)
+	}
+}
+
+// busyFS fails the first n opens of a.txt with ErrLocked and counts them (a file another program holds open).
+type busyFS struct {
+	cfs.FS
+	n, opens atomic.Int64
+}
+
+func (b *busyFS) Open(p string) (io.ReadCloser, error) {
+	if p == "a.txt" {
+		b.opens.Add(1)
+		if b.n.Add(-1) >= 0 {
+			return nil, fmt.Errorf("open a.txt: %w", cfs.ErrLocked)
+		}
+	}
+	return b.FS.Open(p)
+}
+
+// A locked file is retried on the slow schedule (design 5.7): as often as it has steps, then left to the periodic scan.
+func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		steps      int
+		locked     int64
+		wantOpens  int64
+		wantSynced bool
+	}{{3, 2, 4, true}, {1, 5, 2, false}} {
+		e := newCEnv(t)
+		e.srv.PollTimeout = 300 * time.Millisecond
+		dev, api := e.newDevice()
+		f := e.newFolder("One")
+		e.mapFolder(dev, f, "/mem", true)
+		b := &busyFS{FS: cfs.NewMem(cfs.MemOptions{})}
+		b.n.Store(tc.locked)
+		putFile(t, b.FS, "a.txt", []byte("alpha"))
+		slow := make([]time.Duration, tc.steps)
+		for i := range slow {
+			slow[i] = 20 * time.Millisecond
+		}
+		a := &Agent{Dir: t.TempDir(), API: api, NewFS: func(string) cfs.FS { return b }, OS: runtime.GOOS, ScanInterval: time.Hour, RetryAfter: time.Hour, SlowRetry: slow}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- a.Run(ctx) }()
+		eventually(t, "the retries", func() bool { return b.opens.Load() >= tc.wantOpens })
+		time.Sleep(300 * time.Millisecond) // a retry beyond the schedule would show now
+		if _, ok := e.serverFile(f, "a.txt"); ok != tc.wantSynced || b.opens.Load() != tc.wantOpens {
+			t.Errorf("steps %d: synced %v, opens %d; want %v, %d", tc.steps, ok, b.opens.Load(), tc.wantSynced, tc.wantOpens)
+		}
+		cancel()
+		<-done
 	}
 }

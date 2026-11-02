@@ -325,8 +325,8 @@ func (d *driver) mainPhase() {
 	if d.only == "setup" {
 		return
 	}
-	if d.only == "m4" || d.only == "m5" {
-		d.m4Scenarios(d.only == "m5")
+	if d.only == "m4" || d.only == "m5" || d.only == "m6" {
+		d.m4Scenarios(d.only != "m4")
 		return
 	}
 	d.syncScenarios()
