@@ -534,7 +534,12 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.3 升级
 
-服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 按 `schema_version` 顺序迁移 (服务端在 `install` 中逐库执行: 先全局库, 再每个文件夹库, 各库有自己的版本号). 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵; 版本过旧的客户端收到明确错误, 版本号显示在总览页.
+服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 按 `schema_version` 顺序迁移 (服务端在 `install` 中逐库执行: 先全局库, 再每个文件夹库, 各库有自己的版本号). 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵. 版本过旧的客户端收到明确错误, 版本号显示在总览页, 机制如下 (不增加端点, 不增加表, 空闲时没有任何额外开销):
+
+- 客户端协议版本是整数常量 `proto.AgentVersion`, 设备 API 每次发生改动 (新增或改变端点, 字段语义) 时加一; 服务端另有常量 `proto.MinAgentVersion`, 只在旧客户端无法再正常工作的改动中提高, 其余时候低于 `AgentVersion`. 当前两者都是 2: 版本 1 是 M4 之前 (没有 `GET /changes`, 不会下载) 的客户端.
+- 客户端在每个请求的 `Kaze-Agent-Version` 头里带 `AgentVersion` (长轮询请求体里仍有 `agent_version`, 供总览页显示). 服务端在已认证的设备路由和 `enroll` 上先比较: 低于 `MinAgentVersion` 的请求立即得到 HTTP 426 和一行说明 "client version N is too old, the server needs M or newer: upgrade kaze-syncc", 其余处理都不执行. 没有这个头的请求来自这个头出现之前的客户端, 按版本 1 处理, 所以最早的客户端也会被同样拒绝, 并在自己的日志里读到这行说明 (它们把非 200 的响应体写进 "poll failed" 日志).
+- 新客户端把 426 变成 `UpgradeError`: 长轮询日志记一条错误级别的 "client too old, sync is stopped until kaze-syncc is upgraded" 并按现有的退避 (1 秒起, 最长 1 分钟) 重试, 各文件夹的提交与下载错误里也是同一句话, 即客户端自己的状态. 被拒绝的客户端无法上报状态 (服务端不处理它的任何请求), 所以总览页由服务端在拒绝时记在内存里: 该设备的版本列显示 "N (过旧, 请升级客户端)"; 客户端升级后的第一次长轮询覆盖这条记录. 服务端重启后在客户端下一次请求前不显示, 与客户端上报的状态一致 (4.3).
+- 比服务端新的客户端不被这个检查拒绝 (升级顺序是先服务端, 不保证兼容).
 
 ### 9.4 备份
 

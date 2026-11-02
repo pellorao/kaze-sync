@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -130,7 +131,11 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		case cancelled: // restarted to report a changed status
 			continue
 		case err != nil:
-			slog.Warn("poll failed", "err", err, "retry_in", backoff)
+			if ue := (*UpgradeError)(nil); errors.As(err, &ue) {
+				slog.Error("client too old, sync is stopped until kaze-syncc is upgraded", "err", err, "retry_in", backoff)
+			} else {
+				slog.Warn("poll failed", "err", err, "retry_in", backoff)
+			}
 			select {
 			case <-ctx.Done():
 			case <-time.After(backoff):

@@ -29,7 +29,13 @@ const (
 	MaxBlockBody = 64 << 20
 	MaxCommitOps = 1000
 	PollTimeoutS = 55
-	AgentVersion = 1 // reported by clients in poll requests
+	// AgentVersion is the protocol version of this client, bumped on every change of the device API; clients send it in
+	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
+	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
+	// (design 9.3). A request without the header comes from a client older than the header: version 1.
+	AgentVersion    = 2
+	MinAgentVersion = 2
+	VersionHeader   = "Kaze-Agent-Version"
 )
 
 type EnrollReq struct {

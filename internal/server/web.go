@@ -202,6 +202,9 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 			d.Version = strconv.Itoa(rep.req.AgentVersion)
 			d.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
 			d.Online = rep.online(s.now())
+			if rep.tooOld > 0 {
+				d.Version, d.ConfigState = fmt.Sprintf("%d (过旧, 请升级客户端)", rep.tooOld), "-"
+			}
 			for _, fs := range rep.req.Folders {
 				d.Status = append(d.Status, deviceStatus{Folder: folderNames[fs.ID], State: fs.State, Synced: formatTime(fs.LastSyncedAt), PendingUp: fs.PendingUp, PendingDown: fs.PendingDown})
 			}

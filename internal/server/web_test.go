@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -435,5 +437,67 @@ func TestRulesEditingValidatesBumpsAndBroadcasts(t *testing.T) {
 	}
 	if _, body := e.get(c, "/folders/1"); !strings.Contains(body, "!/build/keep.txt") {
 		t.Fatal("folder rules not shown")
+	}
+}
+
+// rawAPI sends a device API request with exactly the given version header ("" sends none, like clients before the header).
+func (e *env) rawAPI(token, path, version string, body any) (int, string) {
+	e.t.Helper()
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", e.ts.URL+"/api/v1/"+path, bytes.NewReader(b))
+	if version != "" {
+		req.Header.Set(proto.VersionHeader, version)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := e.ts.Client().Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(out)
+}
+
+func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	dev, tok := e.enrollDevice("d1", "linux")
+	f := e.folder("Docs")
+	e.mapFolder(dev, f, "/x")
+	e.s.PollTimeout = 50 * time.Millisecond
+
+	// A client without the header (every client before it) and one with an older number are refused on every device route.
+	for _, v := range []string{"", "1"} {
+		for _, path := range []string{"poll", "commit", "blocks", "blocks/get"} {
+			st, msg := e.rawAPI(tok, path, v, proto.PollReq{AgentVersion: 1})
+			if st != http.StatusUpgradeRequired || !strings.Contains(msg, "version 1 is too old") || !strings.Contains(msg, "upgrade kaze-syncc") {
+				t.Fatalf("version %q %s: %d %q", v, path, st, msg)
+			}
+		}
+	}
+	// An old client cannot enroll either: its token would be useless.
+	if st, msg := e.rawAPI("", "enroll", "", proto.EnrollReq{Code: "x", OS: "linux"}); st != http.StatusUpgradeRequired || !strings.Contains(msg, "too old") {
+		t.Fatalf("enroll: %d %q", st, msg)
+	}
+	_, body := e.get(c, "/")
+	if !strings.Contains(body, "1 (过旧, 请升级客户端)") {
+		t.Fatalf("overview does not show the old client:\n%s", body)
+	}
+
+	// The current version passes, and a poll of it replaces the refusal on the overview.
+	if st, msg := e.rawAPI(tok, "poll", strconv.Itoa(proto.MinAgentVersion), proto.PollReq{AgentVersion: proto.AgentVersion, ConfigVersion: 1}); st != 200 {
+		t.Fatalf("current version refused: %d %s", st, msg)
+	}
+	_, body = e.get(c, "/")
+	if strings.Contains(body, "过旧") || !strings.Contains(body, ">"+strconv.Itoa(proto.AgentVersion)+"<") {
+		t.Fatalf("overview still shows the refusal:\n%s", body)
+	}
+	// A newer client than the server is not refused by this check (the order is server first, no matrix).
+	if st, _ := e.rawAPI(tok, "poll", strconv.Itoa(proto.AgentVersion+5), proto.PollReq{}); st != 200 {
+		t.Fatalf("newer client refused: %d", st)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -41,6 +42,20 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+// versionOK refuses a client older than proto.MinAgentVersion with 426 and a message that says what to do (design 9.3).
+// It reports the client's version; a request without the header comes from a client that predates it: version 1.
+func versionOK(w http.ResponseWriter, r *http.Request) (int, bool) {
+	v, err := strconv.Atoi(r.Header.Get(proto.VersionHeader))
+	if err != nil {
+		v = 1
+	}
+	if v >= proto.MinAgentVersion {
+		return v, true
+	}
+	http.Error(w, fmt.Sprintf("client version %d is too old, the server needs %d or newer: upgrade kaze-syncc", v, proto.MinAgentVersion), http.StatusUpgradeRequired)
+	return v, false
+}
+
 func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.locked(r) {
@@ -63,13 +78,32 @@ func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.H
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if v, ok := versionOK(w, r); !ok {
+			s.noteTooOld(d.id, v)
+			return
+		}
 		h(w, r, d)
 	}
+}
+
+// noteTooOld remembers a refused client for the overview page.
+func (s *Server) noteTooOld(id int64, version int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rep := s.reports[id]
+	if rep == nil {
+		rep = &report{}
+		s.reports[id] = rep
+	}
+	rep.tooOld, rep.at = version, s.now()
 }
 
 func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	if s.locked(r) {
 		http.Error(w, "too many failures", http.StatusTooManyRequests)
+		return
+	}
+	if _, ok := versionOK(w, r); !ok {
 		return
 	}
 	var req proto.EnrollReq
@@ -199,7 +233,7 @@ func (s *Server) pollStart(id int64, req proto.PollReq) {
 		rep = &report{}
 		s.reports[id] = rep
 	}
-	rep.req, rep.at = req, s.now()
+	rep.req, rep.at, rep.tooOld = req, s.now(), 0
 	rep.pending++
 	s.mu.Unlock()
 }

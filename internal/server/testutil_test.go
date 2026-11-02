@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -173,6 +174,7 @@ func (e *env) api(token, path string, body any) (int, []byte) {
 	e.t.Helper()
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/api/v1/"+path, bytes.NewReader(b))
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -209,6 +211,7 @@ func (e *env) mapFolder(dev, folder int64, path string) {
 func newBearerRequest(url, token string, body []byte) (*http.Request, error) {
 	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err == nil {
+		req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	return req, err

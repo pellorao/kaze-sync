@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,25 @@ import (
 )
 
 var ErrUnauthorized = errors.New("server rejected the device token (revoked? enroll again)")
+
+// UpgradeError is the server's refusal of a client whose version is too old (HTTP 426); the message says what to do.
+type UpgradeError struct{ Msg string }
+
+func (e *UpgradeError) Error() string {
+	return "this client is too old for the server, upgrade kaze-syncc: " + e.Msg
+}
+
+// httpError turns a non-200 answer into an error; the caller closes the body.
+func httpError(path string, resp *http.Response, token string) error {
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	switch {
+	case resp.StatusCode == http.StatusUpgradeRequired:
+		return &UpgradeError{Msg: strings.TrimSpace(string(msg))}
+	case resp.StatusCode == 401 && token != "":
+		return ErrUnauthorized
+	}
+	return fmt.Errorf("%s: %s: %s", path, resp.Status, strings.TrimSpace(string(msg)))
+}
 
 // NewHTTPClient returns a client for the server. With a fingerprint
 // ("sha256:<hex>") only the certificate with that hash is accepted, whatever
@@ -60,6 +80,7 @@ func (a *API) do(ctx context.Context, path string, body io.Reader, contentType s
 		return err
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	if a.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.Token)
 	}
@@ -73,11 +94,7 @@ func (a *API) send(req *http.Request, path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		if resp.StatusCode == 401 && a.Token != "" {
-			return ErrUnauthorized
-		}
-		return fmt.Errorf("%s: %s: %s", path, resp.Status, strings.TrimSpace(string(msg)))
+		return httpError(path, resp, a.Token)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -128,6 +145,7 @@ func (a *API) Changes(ctx context.Context, folder, since int64) (proto.ChangesRe
 	if err != nil {
 		return r, err
 	}
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	req.Header.Set("Authorization", "Bearer "+a.Token)
 	return r, a.send(req, "changes", &r)
 }
@@ -141,6 +159,7 @@ func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	req.Header.Set("Authorization", "Bearer "+a.Token)
 	resp, err := a.HC.Do(req)
 	if err != nil {
@@ -148,8 +167,7 @@ func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser
 	}
 	if resp.StatusCode != 200 {
 		defer resp.Body.Close()
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("blocks/get: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+		return nil, httpError("blocks/get", resp, a.Token)
 	}
 	return resp.Body, nil
 }

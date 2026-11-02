@@ -71,7 +71,7 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 ## 升级
 
-服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (可重复执行, 端口, 证书和密码不变); 它复制新二进制, 按 `schema_version` 逐库迁移 (先全局库, 再每个文件夹库), 然后重启服务. 先升级服务端, 再逐台升级客户端: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 版本过旧的客户端会收到明确错误, 客户端版本显示在总览页. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1).
+服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (可重复执行, 端口, 证书和密码不变); 它复制新二进制, 按 `schema_version` 逐库迁移 (先全局库, 再每个文件夹库), 然后重启服务. 先升级服务端, 再逐台升级客户端: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 服务端升级后, 版本过旧 (低于服务端的 `MinAgentVersion`, 设计 9.3) 的客户端不再同步: 它的日志 (Linux 在 `~/.local/state/kaze-sync/kaze-syncc.log`) 里每分钟一条 `client too old ... upgrade kaze-syncc`, 总览页该设备的版本列显示 "N (过旧, 请升级客户端)"; 按上面的步骤替换这台客户端的二进制并重启 agent 即可, 数据不受影响, 升级后自动继续同步. 只有协议变得不兼容的改动才会提高 `MinAgentVersion`, 其余升级不要求同步升级客户端. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1).
 
 ## 客户端卸载 (手动)
 

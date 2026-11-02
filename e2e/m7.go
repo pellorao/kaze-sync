@@ -677,17 +677,31 @@ func (d *driver) upgradePhase() {
 		return d.waitFile(fid, "", "a.txt", "18 B", 30*time.Second)
 	})
 	d.step("M7 upgrade: after the client is replaced too, sync carries on in both directions", func() error {
-		// The old client against the new server is outside the support rule (server first, then the clients):
-		// what happens is only observed. Then the new client takes over its state directory.
+		// The old client against the new server is outside the support rule (server first, then the clients), but it must
+		// be told: it cannot send the version header (design 9.3), so the server takes it for version 1 and answers every
+		// request with 426; the old client writes the message into its log (it logs the body of a failed poll), the
+		// server does not take its upload, and the overview marks the device. Then the new client takes over its state.
 		fid, err := d.web.idOf("folders", "upg")
 		if err != nil {
 			return err
 		}
 		writeOld(filepath.Join(root, "during.txt"), []byte("old client, new server"))
-		if err := d.waitFile(fid, "", "during.txt", "22 B", 40*time.Second); err != nil {
-			d.metric("M7 upgrade: the old client does NOT sync against the new server (%v)", err)
-		} else {
-			d.metric("M7 upgrade: the old client keeps syncing against the new server")
+		if _, err := until("the old client to log the too-old error", 120*time.Second, func() (bool, error) {
+			log := oldAgent.stateLog()
+			return strings.Contains(log, "client version 1 is too old") && strings.Contains(log, "upgrade kaze-syncc"), fmt.Errorf("old client log:\n%s", log)
+		}); err != nil {
+			return err
+		}
+		_, page, err := d.web.get("/")
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(page, "1 (过旧, 请升级客户端)") {
+			return fmt.Errorf("the overview does not mark the old client:\n%s", page)
+		}
+		time.Sleep(5 * time.Second) // past the debounce of the new file, so the refused upload has been tried
+		if err := d.absent(fid, "", "during.txt"); err != nil {
+			return fmt.Errorf("the refused old client still synced: %w", err)
 		}
 		oldAgent.stop(false)
 		d.dropAgent(oldAgent)
@@ -699,6 +713,9 @@ func (d *driver) upgradePhase() {
 		writeOld(filepath.Join(root, "after.txt"), []byte("after the upgrade"))
 		if err := d.waitFile(fid, "", "after.txt", "17 B", 90*time.Second); err != nil {
 			return err
+		}
+		if _, page, err := d.web.get("/"); err != nil || strings.Contains(page, "过旧") {
+			return fmt.Errorf("the overview still marks the replaced client (%v)", err)
 		}
 		// A second client of the new version receives everything the old pair uploaded.
 		code, err := d.web.addDevice("newdev")

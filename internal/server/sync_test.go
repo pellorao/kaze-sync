@@ -17,6 +17,7 @@ import (
 func (e *env) getAPI(token, path string) (int, []byte) {
 	e.t.Helper()
 	req, _ := http.NewRequest("GET", e.ts.URL+"/api/v1/"+path, nil)
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := e.ts.Client().Do(req)
 	if err != nil {

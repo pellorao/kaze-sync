@@ -72,6 +72,7 @@ type report struct {
 	at        time.Time // when the last poll ended (or the report arrived)
 	lastWrite time.Time
 	pending   int // polls hanging now
+	tooOld    int // the version of the client when its last request was refused as too old; 0 once it polls again
 }
 
 // onlineWindow is how long after its last poll a device still counts as online.
