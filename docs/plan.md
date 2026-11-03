@@ -13,9 +13,10 @@
 | M5 | 两层排除规则的集中配置与客户端应用 | 约 150 | 按需排除 |
 | M6 | Windows 客户端 | 约 110 | Windows 与 Linux 混合使用 |
 | M7 | 保留与 GC, 目录恢复到某一时刻, 导出 | 约 220 | 长期运行 |
-| 合计 | | 约 4460 | |
+| M8 | 普通 Linux 服务端安装 (systemd, OpenRC) | 约 80 | 服务端部署到 VPS |
+| 合计 | | 约 4540 | |
 
-依赖关系: M1 已开始, 接口不变. M2 起需要设计定稿. M3 的虚拟机由另一项工作构建 (结果另行报告), 端到端场景须在 M4 前就绪. M5 与 M6 互不依赖, 可对调.
+依赖关系: M1 已开始, 接口不变. M8 只依赖 M7 (2026-11-04 用户增加). M2 起需要设计定稿. M3 的虚拟机由另一项工作构建 (结果另行报告), 端到端场景须在 M4 前就绪. M5 与 M6 互不依赖, 可对调.
 
 ## M1: 可先行模块 (约 700 行)
 
@@ -150,6 +151,17 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 - 端到端升级: 用旧版本部署并同步后, 用新二进制再执行 `kaze-syncd install`, 迁移自动完成, 同步不受影响.
 - `kaze-syncd export --at` 导出的树与当时客户端的树逐字节一致; 按设计 9.4 的步骤备份 `meta.db`, `folders/` 与 `blobs/` 后, 在干净的虚拟机上还原并 `export`, 结果一致.
 
+## M8: 普通 Linux 服务端安装 (约 80 行)
+
+内容 (设计 9.1 "systemd 与 OpenRC"): `install` 按 `/etc/openwrt_release`, `/run/systemd/system`, `/sbin/openrc-run` 识别服务管理器, 都不是时拒绝; systemd unit 与 OpenRC 脚本的写入, 启用与重启; `useradd` 与 busybox `adduser` 两种系统用户创建; 普通 Linux 上不做数据目录的设备号检查, 带 `--wan` 时报错; `admin-password` 和 `install` 末尾按服务管理器重启服务; `docs/operations.md` 补普通 Linux 的安装, 启停, 日志, 放行端口和备份步骤, 以及 OpenWrt 只有一块盘时在同一块盘上新建分区并挂载的步骤.
+
+验收标准:
+
+- 单元测试: 三种服务管理器的识别与拒绝, 各自写出的服务定义与执行的命令 (用替身记录, 不改真实系统), 普通 Linux 上带 `--wan` 报错, OpenWrt 上仍拒绝根文件系统上的数据目录.
+- 虚拟机 (共用目录中的 `ubuntu` 与 `alpine`, 从各自登记的基线开始, 结束后还原; 用前加锁): 在根文件系统上的数据目录执行 `install` 与 `admin-password`, 服务以 `kaze-sync` 用户运行; 重启虚拟机后服务自动启动; 杀掉服务进程后被重新拉起; 用新二进制再执行 `install` 完成升级且端口, 证书, 密码不变; WSL 中的 Linux 客户端注册到该服务端并同步一个文件夹 (双向各一个文件).
+- 在两台虚拟机上记录服务端空闲时的常驻内存与系统总内存占用 (设计 "首要目标").
+- 已有端到端场景 (OpenWrt) 全部通过.
+
 ## 开发与验证方式
 
 - 仓库布局: `cmd/kaze-syncd`, `cmd/kaze-syncc`, `internal/server` (含 `web/` 模板与静态文件), `internal/client` (引擎内核, 扫描, 拉取, agent 循环, `fs`, `place`, `watch`), `internal/ignore`, `internal/blobstore`, `internal/proto` (协议类型, 块大小, 路径规则), `e2e/` (含 `e2e/vm/`). 不预设其他层次.
@@ -159,4 +171,4 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 - 端到端: `go run ./e2e -config <path>`, 每个里程碑结束时运行全部已有场景.
 - 每个里程碑结束时: 单元与模拟测试全绿, 端到端场景通过, 提交一次.
 
-计划层面没有待决问题 (原 E1 随虚拟机改由另一项工作构建而取消, E2 随 systemd 支持删除而不再适用).
+计划层面没有待决问题 (原 E1 随虚拟机改由另一项工作构建而取消, E2 原为 systemd 相关问题, 已由 M8 的设计取代).

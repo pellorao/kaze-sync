@@ -1,6 +1,6 @@
 # 自托管文件同步服务: 设计
 
-状态: 定稿 (用户 2026-11-02 复核通过). 工程名 `kaze-sync` (用户 2026-11-02, Q16), 服务端二进制 `kaze-syncd`, 客户端 `kaze-syncc`; 服务端的系统用户, procd 脚本和防火墙规则都叫 `kaze-sync`.
+状态: 定稿 (用户 2026-11-02 复核通过). 工程名 `kaze-sync` (用户 2026-11-02, Q16), 服务端二进制 `kaze-syncd`, 客户端 `kaze-syncc`; 服务端的系统用户, 服务定义 (procd 脚本, systemd unit, OpenRC 脚本) 和防火墙规则都叫 `kaze-sync`. 2026-11-04 用户确认增加普通 Linux 服务端安装 (systemd 与 OpenRC, 9.1).
 
 ## 首要目标: 低 CPU, 低内存, 低流量
 
@@ -36,7 +36,7 @@
 
 目标:
 
-- 服务端只运行在 OpenWrt 上: 局域网中的 x86-64 路由器 (Intel i5, 8 GB 内存, 1 TB 数据盘). 若干 Windows 和 Linux 客户端, 单用户.
+- 服务端运行在 OpenWrt (局域网中的 x86-64 路由器, Intel i5, 8 GB 内存, 1 TB 数据盘) 或普通 x86-64 Linux VPS (systemd 或 OpenRC, 例如 Debian, Ubuntu, Rocky, Alpine; 内存 512 MB 到 1 GB) 上. 若干 Windows 和 Linux 客户端, 单用户.
 - 服务端有多个同步文件夹. 每台客户端可以同步多个文件夹, 每个文件夹映射到本机的一个本地目录 (与 Nextcloud 一样, 例如 Windows 上的 `D:\Docs` 和 `E:\Photos`, Linux 上的 `~/Docs`), 各文件夹互相独立.
 - 客户端监视本地变更并上传, 拉取其他客户端的变更; 并发修改时不丢数据.
 - 大文件按固定大小的块传输和存储, 只传变化的块, 各版本共享未变化的块.
@@ -49,7 +49,7 @@
 非目标 (每一项都意味着不写对应代码):
 
 - 分享, 多用户, 协作编辑; Web UI 中打开, 预览或下载文件 (Web UI 只浏览名称和元数据).
-- OpenWrt 以外的服务端安装 (systemd, OpenRC); 列入下面的未来支持计划, 现在不实现.
+- x86-64 以外的服务端架构 (如 ARM VPS); 普通 Linux 上不配置防火墙 (只在 OpenWrt 上由 `--wan` 配置); 不用 systemd 的 Linux 客户端 (用户 2026-11-04).
 - ACME / Let's Encrypt: 公网端口不是 443 或 80, HTTP 与 TLS-ALPN 验证都无法进行; 需要正式证书时用证书文件模式 (例如 acme.sh 的 DNS 验证).
 - 客户端上的任何通知 (桌面通知, shell 提示, 推送服务); 客户端本地 GUI, 托盘, 客户端本地命令 (除注册外).
 - 按设备的排除规则, 也就是按设备只同步文件夹的一部分: 需要时拆成单独的文件夹 (3.2).
@@ -57,10 +57,6 @@
 - 空目录同步, 符号链接, ACL, 扩展属性, 所有者.
 - 双因素认证 (4.3), 配置修改历史, 自动更新, macOS, 移动端.
 - 服务端不是备份: 版本与当前数据在同一块盘上; 但客户端本身就持有各文件夹的普通文件副本.
-
-未来支持计划 (现在不实现, 不为它预留代码; 实施前先与用户确认设计):
-
-- 服务端安装到普通 Linux VPS (systemd), 目标机器内存 512 MB 到 1 GB (用户 2026-11-02). 当前实现保持对它友好: OpenWrt 专有部分 (procd, uci, `sysupgrade.conf`) 只放在 `install` 中, 其余服务端代码不依赖它们.
 
 ## 2. 架构
 
@@ -484,7 +480,11 @@ Git `wildmatch.c` 的 Go 移植, 服务端 (保存时校验) 与客户端共用 
 
 ## 9. 部署
 
-### 9.1 服务端: 只支持 OpenWrt
+### 9.1 服务端: OpenWrt, systemd, OpenRC
+
+`install` 按以下顺序识别服务管理器, 不提供选择参数: 存在 `/etc/openwrt_release` 时为 OpenWrt (procd); 存在 `/run/systemd/system` 时为 systemd; 存在 `/sbin/openrc-run` 时为 OpenRC; 都不是时拒绝安装. 系统相关的部分 (服务定义, 用户创建, OpenWrt 的数据目录检查, `sysupgrade.conf` 与防火墙) 只放在 `install` 中, 其余服务端代码不依赖它们. 下文先写 OpenWrt, 再写 systemd 与 OpenRC 的差别.
+
+#### OpenWrt
 
 前提: 数据盘已在 OpenWrt 中挂载 (block-mount 在启动早期按 `/etc/config/fstab` 挂载). 在路由器上以 root 执行:
 
@@ -495,7 +495,7 @@ Git `wildmatch.c` 的 Go 移植, 服务端 (保存时校验) 与客户端共用 
 
 `kaze-syncd install` 是安装和升级的唯一入口, 可以重复执行:
 
-- 校验 `--data` 不在根文件系统 (overlay) 上: 与 `/` 的设备号相同时拒绝安装, 防止数据盘未挂载时把数据写进很小的 overlay.
+- 校验 `--data` 不在根文件系统 (overlay) 上: 与 `/` 的设备号相同时拒绝安装, 防止数据盘未挂载时把数据写进很小的 overlay; 根文件系统还会被 sysupgrade 改写, 放在上面的数据会在升级时丢失. 只有一块盘时, 在同一块盘上另建一个分区并挂载 (x86 镜像先扩大磁盘, 再在空闲空间新建分区, 格式化为 ext4, 写入 `/etc/config/fstab`), 步骤写在 `docs/operations.md` (用户 2026-11-04 选择保留拒绝并写明分区方法).
 - 复制自身到 `<data>/kaze-syncd`. 二进制放在数据盘上, 不占 overlay, 也不受 sysupgrade 影响.
 - 创建系统用户 `kaze-sync`: OpenWrt 没有 `useradd`, 用 OpenWrt 自带的 `/lib/functions.sh` 中的 `user_exists`, `user_add`, `group_add` (它们追加 `/etc/passwd`, `/etc/shadow`, `/etc/group`, `user_add` 未给 UID 时从 32768 起选第一个空闲 UID).
 - 创建数据目录, 初始化或迁移数据库, 首次安装生成自签名证书并打印指纹; 端口在首次安装时随机选取 (20000 到 59999 之间), 存入 `meta` 并打印, 之后保持不变, `--listen` 可改; `--cert`/`--key` 存入 `meta`; 之后不带 `--cert` 执行时沿用已有的证书模式 (暂不提供切回自签名). 高端口不需要任何特权或能力, 也避开路由器上 LuCI 占用的 80 和 443.
@@ -521,7 +521,53 @@ start_service() {
 
 `kaze-syncd run` 在 `<data>/var/meta.db` 不存在时直接报错退出, 不初始化新库 (数据盘未挂载时不会在空目录上启动). `install`, `admin-password`, `export` 以 root 运行, 它们创建的数据库旁文件在退出前改为属于 `kaze-sync` 用户.
 
-静态链接 (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`) 的 Go 二进制在 OpenWrt 的 musl 系统上直接运行.
+静态链接 (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`) 的 Go 二进制在 OpenWrt 和 Alpine 的 musl 系统上直接运行.
+
+#### systemd 与 OpenRC (普通 Linux)
+
+命令相同: `./kaze-syncd install --data /var/lib/kaze-sync` (路径由用户选择), 之后 `admin-password`. 与 OpenWrt 的差别:
+
+- 数据目录可以在根文件系统上 (VPS 通常只有一块盘, 系统升级不改写数据); 不做设备号检查. 数据盘未挂载时 `run` 找不到 `meta.db` 而退出, 与 OpenWrt 相同.
+- 系统用户 `kaze-sync`: systemd 系统用 `useradd --system --no-create-home --shell /bin/false kaze-sync`; Alpine 用 busybox 的 `addgroup -S kaze-sync` 与 `adduser -S -D -H -G kaze-sync -s /sbin/nologin kaze-sync`. 用户已存在时跳过.
+- 不配置防火墙: 带 `--wan` 时报错退出. 安装结束时打印端口, 并提示在云厂商安全组或本机防火墙中放行该 TCP 端口.
+- 没有 `sysupgrade.conf` 相关步骤.
+- systemd: 写入 `/etc/systemd/system/kaze-sync.service`, 执行 `systemctl daemon-reload`, `systemctl enable kaze-sync` 和 `systemctl restart kaze-sync`; 日志进 journald (`journalctl -u kaze-sync`):
+
+```ini
+[Unit]
+Description=kaze-sync server
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/kaze-sync
+
+[Service]
+ExecStart=/var/lib/kaze-sync/kaze-syncd run --data /var/lib/kaze-sync
+User=kaze-sync
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+- OpenRC: 写入 `/etc/init.d/kaze-sync` (权限 0755), 执行 `rc-update add kaze-sync default` 和 `rc-service kaze-sync restart`; `supervise-daemon` 在进程退出后重启它; 日志经 `logger` 进 syslog (Alpine 默认为 `/var/log/messages`). `output_logger` 与 `respawn_delay` 的可用版本在实施时按 OpenRC 文档核实:
+
+```sh
+#!/sbin/openrc-run
+description="kaze-sync server"
+supervisor=supervise-daemon
+command=/var/lib/kaze-sync/kaze-syncd
+command_args="run --data /var/lib/kaze-sync"
+command_user=kaze-sync
+respawn_delay=5
+output_logger="logger -t kaze-sync"
+error_logger="logger -t kaze-sync"
+depend() {
+	need net localmount
+}
+```
+
+- 服务的启停与重启 (`admin-password`, `install` 末尾的重启, 备份步骤) 按识别到的服务管理器分别使用 `/etc/init.d/kaze-sync`, `systemctl` 或 `rc-service`.
 
 来源: OpenWrt 源码 [sysupgrade](https://github.com/openwrt/openwrt/blob/main/package/base-files/files/sbin/sysupgrade), [base-files conffiles](https://github.com/openwrt/openwrt/blob/main/package/base-files/Makefile), [functions.sh](https://github.com/openwrt/openwrt/blob/main/package/base-files/files/lib/functions.sh), [procd.sh](https://github.com/openwrt/openwrt/blob/main/package/system/procd/files/procd.sh).
 
@@ -548,7 +594,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.4 备份
 
-`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻); 建议同时备份 `var/tls/` (很小), 否则还原后证书重新生成, 指纹变化, 全部客户端需重新注册; 还原后执行 `kaze-syncd install --new-epoch` 修正属主并更换服务端的 `epoch` (5.5): 还原使服务端的 `seq` 回到过去, 各客户端据此放弃已知的服务端状态并重新读取, 与服务端不一致的本地文件成为冲突副本; 完整步骤见 `docs/operations.md`. 备份步骤: `/etc/init.d/kaze-sync stop`, 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), `/etc/init.d/kaze-sync start` (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
+`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻); 建议同时备份 `var/tls/` (很小), 否则还原后证书重新生成, 指纹变化, 全部客户端需重新注册; 还原后执行 `kaze-syncd install --new-epoch` 修正属主并更换服务端的 `epoch` (5.5): 还原使服务端的 `seq` 回到过去, 各客户端据此放弃已知的服务端状态并重新读取, 与服务端不一致的本地文件成为冲突副本; 完整步骤见 `docs/operations.md`. 备份步骤: 停止服务 (OpenWrt `/etc/init.d/kaze-sync stop`, systemd `systemctl stop kaze-sync`, OpenRC `rc-service kaze-sync stop`), 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), 启动服务 (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
 
 ## 10. 语言与依赖
 
@@ -643,7 +689,7 @@ func CheckPortable(p string) error
 | 会话, 注册码, 设备状态三张表改为内存, `settings` 并入 `meta` | 约 60 |
 | 去掉服务端配置文件与 TOML 依赖, 参数由 `install` 存入 `meta` 或在 Web UI 中修改 | 约 55 |
 | 去掉 ACME 与 HSTS 逻辑及 `autocert` 依赖; 随机密码用 SHA-256, 去掉 bcrypt 依赖 | 约 50 |
-| 服务端安装只支持 OpenWrt (procd), 去掉 systemd 与 OpenRC 两套服务定义和探测 | 约 30 |
+| 服务端安装只支持 OpenWrt (procd), 去掉 systemd 与 OpenRC 两套服务定义和探测 (2026-11-04 按用户需求加回, 见下方新增表) | 约 30 |
 | 去掉 `kaze-syncd init`, `kaze-syncd uninstall`, `kaze-syncc autostart` 子命令 | 约 60 |
 | 错误种类从 7 种合并为 5 种 | 约 10 |
 | 合计 | 约 1030 |
@@ -659,7 +705,8 @@ func CheckPortable(p string) error
 | 按 IP 锁定 | 约 40 |
 | 全局规则层; `keep_days` 在 Web UI 修改并立即触发 GC | 约 35 |
 | 证书文件模式 | 约 10 |
-| 合计 | 约 625 |
+| 普通 Linux 服务端安装 (2026-11-04): 服务管理器识别, systemd unit, OpenRC 脚本, 两种用户创建, 按服务管理器启停 | 约 80 |
+| 合计 | 约 705 |
 
 考虑过但不加入: 通知的 "已读 / 忽略" 状态 (约 40 行加一张表, 会隐藏未解决的问题), 客户端或推送通知, 证书文件变化时自动重新加载 (约 10, 用续期工具重启代替), 两种 TLS 模式之间免重新注册的切换, 双因素认证 (约 100), 全局登录锁定 (约 20), 大批量删除保护 (约 60), 空目录同步 (约 150), 内容定义分块, Windows 拒绝写共享探测 (约 30), 配置修改历史, 客户端状态命令 (约 40).
 
@@ -670,7 +717,7 @@ func CheckPortable(p string) error
 主要风险:
 
 - 同步引擎的 bug 可能在客户端之间传播错误的删除或覆盖. 对策: 第 11 节的不变式与崩溃测试; 服务端版本作为最后防线; 先在数据副本上试运行.
-- 服务端是路由器: 公网访问需要公网 IPv4 或 IPv6 (运营商级 NAT 后无法从外部访问); 服务暴露在公网上, 依赖随机密码, 按 IP 锁定和以 `kaze-sync` 用户运行来限制风险.
+- 服务端在路由器上时: 公网访问需要公网 IPv4 或 IPv6 (运营商级 NAT 后无法从外部访问); 服务暴露在公网上, 依赖随机密码, 按 IP 锁定和以 `kaze-sync` 用户运行来限制风险.
 - sysupgrade: 已定数据放在单独挂载的数据盘上 (用户 2026-11-02), 升级镜像只改写系统盘, 不影响数据. 测试虚拟机中仍用单独的数据盘验证 sysupgrade 后服务恢复.
 - 256 KiB 块对分散的小写入仍有放大, 块文件数多 (1 TB 约 400 万个), GC 需按预算分多趟扫描块列表 (第 7 节), 数据量大时 GC 变慢但内存不变; 用真实数据库和真实数据量测量.
 - WAL 模式且长期打开的 SQLite 数据库只在应用关闭后同步, 这是有意的限制 (5.6).

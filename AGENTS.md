@@ -1,6 +1,6 @@
 # kaze-sync
 
-自托管文件同步服务: OpenWrt 上的服务端 `kaze-syncd`, Windows 与 Linux 客户端 `kaze-syncc`. 设计见 `docs/design.md`, 实施计划与验证方式见 `docs/plan.md`; 开工前先读这两份, 再以实际代码为准.
+自托管文件同步服务: OpenWrt 或普通 Linux (systemd, OpenRC) 上的服务端 `kaze-syncd`, Windows 与 Linux 客户端 `kaze-syncc`. 设计见 `docs/design.md`, 实施计划与验证方式见 `docs/plan.md`; 开工前先读这两份, 再以实际代码为准.
 
 - **首要目标: 低 CPU, 低内存, 低流量** (用户 2026-11-02): 这是本项目最大的特色, 设计与实现都先按它取舍, 服务端以 512 MB 内存的机器为目标; 细则见 `docs/design.md` 开头 "首要目标" 一节.
 - **轻量原则**: 每个功能, 页面, 命令, 配置项和表都必须由 `docs/design.md` "轻量原则" 列出的某项用户需求直接要求, 否则不做. 能用一种机制解决的不用两种.
