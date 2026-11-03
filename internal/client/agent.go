@@ -34,6 +34,7 @@ type Agent struct {
 	RetryAfter               time.Duration   // delay before running again after a failure or postponed work
 	SlowRetry                []time.Duration // delays of the retries for files in use; after them the periodic scan retries (design 5.7)
 	Debounce                 time.Duration   // quiet time after file events before scanning (design 5.2)
+	MaxWait                  time.Duration   // longest wait from the first pending event to the scan, however busy the folder (design 5.2)
 	AuthRetry                time.Duration   // delay before trying again after the server rejected the device token (design 2.5)
 
 	mu       sync.Mutex // guards cfg, runners, their fields below the line, and the poll state
@@ -72,6 +73,7 @@ type runner struct {
 	reset      bool // the server went back in time: forget its seqs
 	rewatch    bool // the watcher reported lost events: start a new one
 	debounceAt time.Time
+	firstAt    time.Time // when the oldest pending event arrived; zero when none is pending
 	retryAt    time.Time
 	slowTries  int // retries for files in use so far
 	nextFull   time.Time
@@ -82,6 +84,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.runners = map[int64]*runner{}
 	if a.Debounce == 0 {
 		a.Debounce = 2 * time.Second
+	}
+	if a.MaxWait == 0 {
+		a.MaxWait = 10 * time.Second
 	}
 	if a.AuthRetry == 0 {
 		a.AuthRetry = 10 * time.Minute
@@ -421,17 +426,29 @@ func (a *Agent) consume(r *runner) {
 		select {
 		case d := <-r.events:
 			a.mu.Lock()
-			if r.dirty == nil {
-				r.dirty = map[string]bool{}
-			}
-			r.dirty[d] = true
-			r.rewatch = r.rewatch || d == ""
-			r.debounceAt = time.Now().Add(a.Debounce)
+			a.noteEvent(r, d, time.Now())
 			a.mu.Unlock()
 			a.wake()
 		case <-r.done:
 			return
 		}
+	}
+}
+
+// noteEvent records a watcher hint and moves the scan time: trailing debounce, capped at MaxWait after the
+// first pending event so that a steady stream of writes cannot postpone the scan forever. The caller holds a.mu.
+func (a *Agent) noteEvent(r *runner, d string, now time.Time) {
+	if r.dirty == nil {
+		r.dirty = map[string]bool{}
+	}
+	if len(r.dirty) == 0 {
+		r.firstAt = now
+	}
+	r.dirty[d] = true
+	r.rewatch = r.rewatch || d == ""
+	r.debounceAt = now.Add(a.Debounce)
+	if limit := r.firstAt.Add(a.MaxWait); a.MaxWait > 0 && r.debounceAt.After(limit) {
+		r.debounceAt = limit
 	}
 }
 

@@ -264,3 +264,28 @@ func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
 		<-done
 	}
 }
+
+// A steady stream of events must not postpone the scan beyond MaxWait from the first pending event.
+func TestDebounceIsCappedByMaxWait(t *testing.T) {
+	a := &Agent{Debounce: 2 * time.Second, MaxWait: 10 * time.Second}
+	r := &runner{}
+	t0 := time.Unix(1000, 0)
+	for i := 0; i <= 30; i++ { // an event every second
+		a.noteEvent(r, "d", t0.Add(time.Duration(i)*time.Second))
+		if limit := t0.Add(10 * time.Second); r.debounceAt.After(limit) {
+			t.Fatalf("event %d: scan at +%v, beyond the cap", i, r.debounceAt.Sub(t0))
+		}
+	}
+	// a quiet folder still waits only Debounce
+	r2 := &runner{}
+	a.noteEvent(r2, "d", t0)
+	if got := r2.debounceAt.Sub(t0); got != 2*time.Second {
+		t.Fatalf("single event: scan at +%v, want +2s", got)
+	}
+	// after the dirty set is taken, the next burst starts a new window
+	r.dirty = nil
+	a.noteEvent(r, "d", t0.Add(100*time.Second))
+	if got := r.debounceAt.Sub(t0.Add(100 * time.Second)); got != 2*time.Second {
+		t.Fatalf("new burst: scan at +%v, want +2s", got)
+	}
+}
