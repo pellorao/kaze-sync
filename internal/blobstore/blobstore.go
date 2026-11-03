@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"kaze-sync/internal/proto"
 )
 
 // refreshAge is the age from which Use refreshes a block's modification time. It must be well below
@@ -20,7 +22,8 @@ const refreshAge = 10 * time.Minute
 
 var ErrHashMismatch = errors.New("blobstore: content does not match hash")
 
-type Hash [32]byte
+// Hash is the project's hash type, see proto.Hash.
+type Hash = proto.Hash
 
 // ParseHash parses 64 lowercase hexadecimal digits.
 func ParseHash(s string) (Hash, error) {
@@ -32,8 +35,6 @@ func ParseHash(s string) (Hash, error) {
 	copy(h[:], b)
 	return h, nil
 }
-
-func (h Hash) String() string { return hex.EncodeToString(h[:]) }
 
 func HashReader(r io.Reader) (Hash, int64, error) {
 	var h Hash
@@ -48,8 +49,13 @@ type Store struct {
 	mu  sync.RWMutex // Put and Use hold it shared; SweepBlobs holds it exclusively while it removes one blob
 }
 
+// Open creates the store's directories. They are never symbolic links: root runs Open (install) over a tree
+// the service user writes to, and MkdirAll would follow a link planted there.
 func Open(dir string) (*Store, error) {
 	for _, sub := range []string{"blobs", "tmp"} {
+		if fi, err := os.Lstat(filepath.Join(dir, sub)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return nil, fmt.Errorf("blobstore: %s is a symbolic link", filepath.Join(dir, sub))
+		}
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			return nil, err
 		}

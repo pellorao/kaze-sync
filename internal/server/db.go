@@ -52,7 +52,8 @@ photothumb.db
 *.unison
 .sync.ffs_db`
 
-// migrations[i] upgrades the global database (meta.db) from version i to i+1.
+// migrations[i] upgrades the global database (meta.db) from version i to i+1. Version 2 makes folder ids
+// never reused (AUTOINCREMENT) and adds the epoch (design 2.4): the folder ids and seqs the clients know belong to it.
 var migrations = []string{`
 CREATE TABLE folders(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, rules TEXT NOT NULL);
 CREATE TABLE devices(
@@ -63,6 +64,12 @@ CREATE TABLE mappings(
   PRIMARY KEY(device_id, folder_id));
 CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
 INSERT INTO meta VALUES('config_version', 1), ('keep_days', 30), ('global_rules', '` + defaultRules + `');
+`, `
+CREATE TABLE folders_new(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, rules TEXT NOT NULL);
+INSERT INTO folders_new SELECT id, name, rules FROM folders;
+DROP TABLE folders;
+ALTER TABLE folders_new RENAME TO folders;
+INSERT OR IGNORE INTO meta VALUES('epoch', lower(hex(randomblob(8))));
 `}
 
 // folderMigrations[i] upgrades a folder database (folders/<id>.db) from version i to i+1.

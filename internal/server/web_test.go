@@ -27,11 +27,11 @@ func TestLockoutAfterTenFailures(t *testing.T) {
 	if resp := e.login(c, "wrong"); resp.StatusCode != 429 {
 		t.Fatalf("11th attempt: %d", resp.StatusCode)
 	}
-	// Locked out even with the right password, and for device tokens too.
+	// Locked out even with the right password; device tokens are not subject to the lockout.
 	if resp := e.login(c, "secret"); resp.StatusCode != 429 {
 		t.Fatalf("right password while locked: %d", resp.StatusCode)
 	}
-	if status, _ := e.api("bad-token", "poll", proto.PollReq{}); status != 429 {
+	if status, _ := e.api("bad-token", "poll", proto.PollReq{}); status != 401 {
 		t.Fatalf("device API while locked: %d", status)
 	}
 	e.clk.Add(61 * time.Minute)
@@ -40,14 +40,25 @@ func TestLockoutAfterTenFailures(t *testing.T) {
 	}
 }
 
-func TestLockoutCountsDeviceTokensAndCodes(t *testing.T) {
+// Only the admin password and enrollment codes count for the lockout (design 4.4): a revoked device that keeps
+// asking neither locks out the administrator nor the other devices behind the same address.
+func TestLockoutCountsCodesNotDeviceTokens(t *testing.T) {
 	e := newEnv(t)
-	for i := 0; i < 5; i++ {
+	e.setAdminPassword("secret")
+	for i := 0; i < 30; i++ {
 		e.api("nope", "poll", proto.PollReq{})
+	}
+	if resp := e.login(e.webClient(), "secret"); resp.StatusCode != 303 {
+		t.Fatalf("login after 30 bad tokens: %d", resp.StatusCode)
+	}
+	for i := 0; i < 10; i++ {
 		e.api("", "enroll", proto.EnrollReq{Code: "WRONG", OS: "linux"})
 	}
-	if status, _ := e.api("nope", "poll", proto.PollReq{}); status != 429 {
-		t.Fatalf("status %d", status)
+	if status, _ := e.api("", "enroll", proto.EnrollReq{Code: "WRONG", OS: "linux"}); status != 429 {
+		t.Fatalf("enroll after 10 bad codes: %d", status)
+	}
+	if status, _ := e.api("nope", "poll", proto.PollReq{}); status != 401 {
+		t.Fatalf("a bad token from a locked address: %d", status)
 	}
 }
 

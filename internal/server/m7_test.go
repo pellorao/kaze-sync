@@ -21,7 +21,7 @@ import (
 // ageBlock makes a stored block look old (age) so that the grace period no longer protects it.
 func (e *env) ageBlock(h proto.Hash, age time.Duration) {
 	e.t.Helper()
-	x := blobstore.Hash(h).String()
+	x := h.String()
 	old := time.Now().Add(-age)
 	if err := os.Chtimes(filepath.Join(e.s.varDir, "blobs", x[:2], x[2:4], x), old, old); err != nil {
 		e.t.Fatal(err)
@@ -29,7 +29,7 @@ func (e *env) ageBlock(h proto.Hash, age time.Duration) {
 }
 
 func (e *env) hasBlock(h proto.Hash) bool {
-	ok, _ := e.s.blobs.Has(blobstore.Hash(h))
+	ok, _ := e.s.blobs.Has(h)
 	return ok
 }
 
@@ -311,9 +311,9 @@ func TestDeleteFolder(t *testing.T) {
 	if st, _ := e.get(c, "/folders/"+itoa(gone)); st != 404 {
 		t.Errorf("page of the deleted folder: %d", st)
 	}
-	// Its id is free again and the new folder starts empty.
-	if id := e.folder("again"); id != gone || e.fcount(id, `SELECT count(*) FROM files`) != 0 {
-		t.Fatalf("new folder id %d, want %d, empty", id, gone)
+	// Its id is never used again (clients may still hold state under it) and the new folder starts empty.
+	if id := e.folder("again"); id <= gone || e.fcount(id, `SELECT count(*) FROM files`) != 0 {
+		t.Fatalf("new folder id %d, want one above %d, empty", id, gone)
 	}
 }
 

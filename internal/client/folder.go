@@ -46,6 +46,7 @@ type Folder struct {
 	Stable  time.Duration // files modified more recently are left for the next scan
 	OS      string        // "windows" keeps the execute bit of the base
 
+	Epoch      string       // the server's epoch from the last poll, "" while unknown (design 5.5)
 	DeviceName string       // used in conflict copy names
 	CaseFold   bool         // the file system ignores case: Pull merges case-only renames
 	OnDir      func(string) // called for every directory a scan visits (the watcher adds it)
@@ -60,6 +61,8 @@ type Folder struct {
 	changed        bool                 // Pull changed the tree or the base since rejected was filled
 	rejected       map[string]rejection // files the server refused, until they change or something else changes
 	seen           int64                // latest server seq the last Pull read up to
+	epoch          string               // the epoch the local state belongs to
+	watched        map[string]bool      // the root's directories a scan has entered, so that a watcher has them
 }
 
 type rejection struct {
@@ -83,7 +86,31 @@ func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFo
 			db.setMeta("rules", rules)
 		}
 	}
-	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1}
+	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}}
+}
+
+// Reset forgets the server seqs this folder knows: the next Pull reads everything again (design 5.5).
+func (f *Folder) Reset() error {
+	f.seen = -1
+	return f.DB.forgetSeqs()
+}
+
+// checkEpoch resets the folder when the server's epoch is not the one the local state belongs to: the server was
+// restored or rebuilt, so its seqs mean something else. A state without an epoch (from before epochs) adopts the first.
+func (f *Folder) checkEpoch() error {
+	if f.Epoch == "" || f.Epoch == f.epoch {
+		return nil
+	}
+	if f.epoch != "" {
+		if err := f.Reset(); err != nil {
+			return err
+		}
+	}
+	if err := f.DB.setMeta("epoch", f.Epoch); err != nil {
+		return err
+	}
+	f.epoch = f.Epoch
+	return nil
 }
 
 // Report is the outcome of one Scan.
@@ -111,7 +138,10 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	f.errs, f.sink, f.retry, f.pendingUp = nil, &f.errs, false, 0
 	ok, err := f.checkRoot()
 	f.ready = ok && err == nil
-	if f.ready {
+	if err == nil {
+		err = f.checkEpoch()
+	}
+	if f.ready && err == nil {
 		err = f.scan(ctx, dirs, &rep)
 	}
 	f.finish(&rep)
@@ -196,10 +226,13 @@ type found struct {
 }
 
 // walk lists the files to sync below dir. Directories that cannot be read go
-// to failed, so nothing below them is taken for deleted.
-func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool) {
+// to failed, so nothing below them is taken for deleted. Directories for which skip says true are not entered.
+func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool, skip func(string) bool) {
 	if f.OnDir != nil {
 		f.OnDir(dir)
+	}
+	if dir != "" && !strings.Contains(dir, "/") {
+		f.watched[dir] = true
 	}
 	entries, err := f.FS.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -225,7 +258,9 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 		case e.IsSymlink:
 			f.note(p, proto.KindSkipped, "symbolic links are not synced")
 		case e.IsDir:
-			f.walk(p, files, failed)
+			if skip == nil || !skip(p) {
+				f.walk(p, files, failed, skip)
+			}
 		default:
 			busy := names[e.Name+"-wal"].Size > 0 || names[e.Name+"-journal"].Size > 0
 			files[p] = found{e, busy}
@@ -310,14 +345,20 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	files, failed := map[string]found{}, map[string]bool{}
 	var local map[string]localRow
 	var err error
-	if dirs = pruneDirs(dirs); len(dirs) == 0 {
-		f.walk("", files, failed)
+	dirs, rootOnly := pruneDirs(dirs)
+	if len(dirs) == 0 && !rootOnly {
+		f.walk("", files, failed, nil)
 		local, err = f.DB.all()
 	} else {
 		local = map[string]localRow{}
+		if rootOnly {
+			if err := f.walkRoot(files, failed, local); err != nil {
+				return err
+			}
+		}
 		for _, d := range dirs {
 			if !f.Matcher.ExcludedPath(d, true) && !builtinPath(d) {
-				f.walk(d, files, failed)
+				f.walk(d, files, failed, nil)
 			}
 			rows, err := f.DB.under(d)
 			if err != nil {
@@ -371,7 +412,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		if f.OS == "windows" {
 			exec = row.Exec // Windows does not know the bit: keep the base's
 		}
-		r := localRow{Path: p, Key: pp.Key(p), Hash: h.whole[:], Blocks: joinHashes(h.blocks), Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec}
+		r := localRow{Path: p, Key: pp.Key(p), Hash: h.whole[:], Blocks: proto.JoinHashes(h.blocks), Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec}
 		if have && bytes.Equal(row.Hash, r.Hash) {
 			r.Seq = row.Seq
 			puts = append(puts, r) // only the stat fields changed
@@ -412,20 +453,66 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	return err
 }
 
-// pruneDirs sorts dirs and drops the ones below another; a root among them
-// ("", "." or "/") means everything, returned as nil.
-func pruneDirs(dirs []string) []string {
-	var out []string
-	slices.Sort(dirs)
-	for _, d := range dirs {
-		if d == "." || d == "" {
-			return nil
-		}
-		if n := len(out); n == 0 || !strings.HasPrefix(d, out[n-1]+"/") {
-			out = append(out, d)
+// walkRoot examines the root for a hint "." (a change directly in it): its files, and the directories no scan has
+// entered yet (a new directory may hold files and has no watch yet). A change inside an entered directory comes
+// with that directory's own hint; the hourly scan covers a directory that cannot be watched. The rows in scope go
+// to local: the root's files and those below the directories walked or gone.
+func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local map[string]localRow) error {
+	listed, _ := f.FS.ReadDir("") // exact names: on a case-insensitive file system a case-only rename is a vanished directory too
+	isDir, scope := map[string]bool{}, map[string]bool{}
+	for _, e := range listed {
+		isDir[e.Name] = e.IsDir
+		if e.IsDir && !f.watched[e.Name] {
+			scope[e.Name] = true // walked now: its rows are in scope
 		}
 	}
-	return out
+	f.walk("", files, failed, func(p string) bool { return f.watched[p] })
+	rows, err := f.DB.rootFiles()
+	if err != nil {
+		return err
+	}
+	maps.Copy(local, rows)
+	gone, err := f.DB.topDirs()
+	if err != nil {
+		return err
+	}
+	for d := range f.watched {
+		gone[d] = true
+	}
+	for d := range gone {
+		if isDir[d] {
+			continue
+		}
+		delete(f.watched, d) // a directory of that name created later is a new one
+		scope[d] = true
+	}
+	for d := range scope {
+		rows, err := f.DB.under(d)
+		if err != nil {
+			return err
+		}
+		maps.Copy(local, rows)
+	}
+	return nil
+}
+
+// pruneDirs sorts dirs and drops the ones below another. "" (events may have been lost) or "/" means everything,
+// returned as nil. A "." (a change directly in the root) is not that: it is reported as rootOnly (see walkRoot).
+func pruneDirs(dirs []string) (out []string, rootOnly bool) {
+	slices.Sort(dirs)
+	for _, d := range dirs {
+		switch d {
+		case "", "/":
+			return nil, false
+		case ".":
+			rootOnly = true
+		default:
+			if n := len(out); n == 0 || !strings.HasPrefix(d, out[n-1]+"/") {
+				out = append(out, d)
+			}
+		}
+	}
+	return out, rootOnly
 }
 
 func builtinPath(p string) bool {
@@ -435,12 +522,4 @@ func builtinPath(p string) bool {
 		}
 	}
 	return false
-}
-
-func joinHashes(hs []proto.Hash) []byte {
-	b := make([]byte, 0, 32*len(hs))
-	for _, h := range hs {
-		b = append(b, h[:]...)
-	}
-	return b
 }

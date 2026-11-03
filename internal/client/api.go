@@ -19,6 +19,13 @@ import (
 	"kaze-sync/internal/proto"
 )
 
+// Timeouts that keep a silent server from holding a request (and with it a whole cycle) for good. The first is
+// above the long poll's 55 seconds; the second is how long a block download may go without a byte.
+var (
+	responseTimeout = 90 * time.Second
+	idleTimeout     = 60 * time.Second
+)
+
 var ErrUnauthorized = errors.New("server rejected the device token (revoked? enroll again)")
 
 // UpgradeError is the server's refusal of a client whose version is too old (HTTP 426); the message says what to do.
@@ -45,6 +52,7 @@ func httpError(path string, resp *http.Response, token string) error {
 // its name; without one the system roots apply. HTTPS_PROXY is honoured.
 func NewHTTPClient(fingerprint string) (*http.Client, error) {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = responseTimeout
 	if fingerprint != "" {
 		want, err := hex.DecodeString(strings.TrimPrefix(strings.ToLower(fingerprint), "sha256:"))
 		if err != nil || len(want) != sha256.Size {
@@ -154,8 +162,10 @@ func (a *API) Changes(ctx context.Context, folder, since int64) (proto.ChangesRe
 // proto.ReadBlock) and closes it.
 func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser, error) {
 	b, _ := json.Marshal(proto.BlocksGetReq{Hashes: hashes})
+	ctx, cancel := context.WithCancel(ctx)
 	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(a.Base, "/")+"/api/v1/blocks/get", bytes.NewReader(b))
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -163,11 +173,32 @@ func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser
 	req.Header.Set("Authorization", "Bearer "+a.Token)
 	resp, err := a.HC.Do(req)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
+		defer cancel()
 		defer resp.Body.Close()
 		return nil, httpError("blocks/get", resp, a.Token)
 	}
-	return resp.Body, nil
+	return &idleBody{rc: resp.Body, timer: time.AfterFunc(idleTimeout, cancel), cancel: cancel}, nil
+}
+
+// idleBody cancels the request when no byte arrives for idleTimeout.
+type idleBody struct {
+	rc     io.ReadCloser
+	timer  *time.Timer
+	cancel context.CancelFunc
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	n, err := b.rc.Read(p)
+	b.timer.Reset(idleTimeout)
+	return n, err
+}
+
+func (b *idleBody) Close() error {
+	b.timer.Stop()
+	defer b.cancel()
+	return b.rc.Close()
 }

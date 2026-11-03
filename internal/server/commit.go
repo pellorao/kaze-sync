@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
 	pp "kaze-sync/internal/proto/path"
 )
@@ -32,25 +31,9 @@ func (f *fileRow) entry() *proto.Entry {
 	e := &proto.Entry{Path: f.path, Seq: f.seq, Size: f.size, MtimeNs: f.mtimeNs, Exec: f.exec}
 	if f.hash != nil {
 		e.Hash = (*proto.Hash)(f.hash)
-		e.Blocks = splitBlocks(f.blocks)
+		e.Blocks = proto.SplitHashes(f.blocks)
 	}
 	return e
-}
-
-func splitBlocks(b []byte) []proto.Hash {
-	hs := make([]proto.Hash, len(b)/32)
-	for i := range hs {
-		copy(hs[i][:], b[32*i:])
-	}
-	return hs
-}
-
-func joinBlocks(hs []proto.Hash) []byte {
-	b := make([]byte, 0, 32*len(hs))
-	for _, h := range hs {
-		b = append(b, h[:]...)
-	}
-	return b
 }
 
 // badRequest marks errors caused by a malformed request.
@@ -153,7 +136,7 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 				continue
 			}
 			seen[b] = true
-			ok, err := s.blobs.Use(blobstore.Hash(b))
+			ok, err := s.blobs.Use(b)
 			if err != nil {
 				return proto.Result{}, err
 			}
@@ -181,7 +164,7 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	var size, mtime int64
 	var exec, isConflict bool
 	if op.Hash != nil {
-		hash, blocks, size, mtime, exec = op.Hash[:], joinBlocks(op.Blocks), op.Size, op.MtimeNs, op.Exec
+		hash, blocks, size, mtime, exec = op.Hash[:], proto.JoinHashes(op.Blocks), op.Size, op.MtimeNs, op.Exec
 		isConflict = pp.IsConflictName(op.Path)
 	}
 	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,

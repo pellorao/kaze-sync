@@ -8,7 +8,7 @@ import (
 	"database/sql"
 	"encoding/base32"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
@@ -167,8 +167,10 @@ func (s *Server) createFolder(name string) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return 0, err
 	}
-	if _, err := os.Stat(path); err == nil {
-		return 0, fmt.Errorf("%s exists already", path)
+	for _, suffix := range []string{"", "-wal", "-shm"} { // the id is new (never used again), so a file is a leftover of a crashed create or delete
+		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
 	}
 	db, err := OpenDB(path, true)
 	if err == nil {

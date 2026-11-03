@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"kaze-sync/internal/blobstore"
+	"kaze-sync/internal/proto"
 )
 
 // ExportOptions selects what Export writes: Folder is a name or id ("": every folder, each in a
@@ -116,8 +117,8 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 	}()
 	sum := sha256.New()
 	w := io.MultiWriter(f, sum)
-	for _, b := range splitBlocks(r.blocks) {
-		src, err := blobs.Open(blobstore.Hash(b))
+	for _, b := range proto.SplitHashes(r.blocks) {
+		src, err := blobs.Open(b)
 		if err != nil {
 			f.Close()
 			return err

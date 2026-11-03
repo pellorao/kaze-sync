@@ -245,3 +245,14 @@ func TestSweepRacesWithPutAndUse(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenRefusesSymbolicLinks(t *testing.T) {
+	dir, victim := t.TempDir(), t.TempDir()
+	os.Symlink(victim, filepath.Join(dir, "tmp"))
+	if _, err := Open(dir); err == nil {
+		t.Fatal("Open followed a symbolic link")
+	}
+	if entries, _ := os.ReadDir(victim); len(entries) != 0 {
+		t.Fatalf("the link target was written to: %v", entries)
+	}
+}

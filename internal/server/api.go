@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
 )
 
@@ -58,10 +57,6 @@ func versionOK(w http.ResponseWriter, r *http.Request) (int, bool) {
 
 func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.locked(r) {
-			http.Error(w, "too many failures", http.StatusTooManyRequests)
-			return
-		}
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var d device
 		if ok {
@@ -73,8 +68,8 @@ func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.H
 				return
 			}
 		}
-		if !ok {
-			s.authFailed(r, "device token")
+		if !ok { // not counted for the lockout: a 256-bit token cannot be guessed, and a revoked device keeps asking (design 4.4)
+			slog.Warn("device token rejected", "ip", clientIP(r))
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -176,9 +171,10 @@ func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 	defer s.pollEnd(d.id)
 	timer := time.NewTimer(s.PollTimeout)
 	defer timer.Stop()
+	epoch := MetaString(s.db, "epoch")
 	for {
 		ch := s.waitCh() // taken before reading the state so no change is missed
-		resp := proto.PollResp{Cursors: s.cursors(d.id)}
+		resp := proto.PollResp{Cursors: s.cursors(d.id), Epoch: epoch}
 		news := metaInt(s.db, "config_version") != req.ConfigVersion
 		for id, seq := range resp.Cursors {
 			if have, ok := req.Cursors[id]; !ok || have != seq {
@@ -346,7 +342,7 @@ func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 			break
 		}
 		if err == nil {
-			err = s.blobs.Put(blobstore.Hash(h), bytes.NewReader(data))
+			err = s.blobs.Put(h, bytes.NewReader(data))
 		}
 		if err != nil {
 			http.Error(w, "bad block packet: "+err.Error(), http.StatusBadRequest)
@@ -368,7 +364,7 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 		return
 	}
 	for _, h := range req.Hashes {
-		if ok, err := s.blobs.Has(blobstore.Hash(h)); err != nil || !ok {
+		if ok, err := s.blobs.Has(h); err != nil || !ok {
 			http.Error(w, "missing block "+h.String(), http.StatusNotFound)
 			return
 		}
@@ -376,7 +372,7 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	buf := make([]byte, proto.BlockSize)
 	for _, h := range req.Hashes {
-		f, err := s.blobs.Open(blobstore.Hash(h))
+		f, err := s.blobs.Open(h)
 		if err == nil {
 			var n int
 			n, err = io.ReadFull(f, buf)

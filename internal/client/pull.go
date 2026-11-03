@@ -34,6 +34,9 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		f.finish(&rep)
 		return rep, nil
 	}
+	if err := f.checkEpoch(); err != nil {
+		return rep, err
+	}
 	cursor := f.DB.metaInt("cursor")
 	since, held := cursor, int64(0)
 	var err error
@@ -226,7 +229,7 @@ func (f *Folder) applyLive(ctx context.Context, e proto.Entry) (applied, error) 
 	}
 	var src *blockSrc
 	if have {
-		src = &blockSrc{row.Path, splitHashes(row.Blocks), row.Size}
+		src = &blockSrc{row.Path, proto.SplitHashes(row.Blocks), row.Size}
 	}
 	err = f.fetch(ctx, &e, src, place.Expect{Exists: exists, Size: st.Size, MtimeNs: st.MtimeNs})
 	switch {

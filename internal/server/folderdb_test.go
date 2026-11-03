@@ -57,16 +57,23 @@ func TestFolderDatabasesAreIndependent(t *testing.T) {
 
 func TestCreateFolderIsAtomic(t *testing.T) {
 	e := newEnv(t)
-	// A stale database file at the id the folder would get makes the creation fail without a folder row.
+	// A leftover database file at the id the folder would get is replaced (the id is new: design 2.3).
 	path := FolderDBPath(e.s.varDir, 1)
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte("stale"), 0o600)
-	if _, err := e.s.createFolder("docs"); err == nil {
-		t.Fatal("created over a stale database")
+	if _, err := e.s.createFolder("docs"); err != nil {
+		t.Fatalf("createFolder over a leftover: %v", err)
 	}
-	if e.count(`SELECT count(*) FROM folders`) != 0 {
+	// What cannot be removed makes the creation fail without a folder row.
+	blocked := FolderDBPath(e.s.varDir, 2)
+	os.MkdirAll(filepath.Join(blocked, "x"), 0o700)
+	if _, err := e.s.createFolder("more"); err == nil {
+		t.Fatal("created over an unremovable path")
+	}
+	if e.count(`SELECT count(*) FROM folders`) != 1 {
 		t.Fatal("folder row left behind")
 	}
+	os.RemoveAll(blocked)
 	// A missing database is never recreated implicitly.
 	os.Remove(path)
 	if _, err := e.s.folderDB(7); err == nil {

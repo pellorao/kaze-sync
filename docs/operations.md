@@ -54,10 +54,12 @@ mkdir -p /mnt/data/kaze-sync/var
 tar xf /backup/meta.tar -C /mnt/data/kaze-sync/var
 tar xf /backup/blobs.tar -C /mnt/data/kaze-sync/var
 ./kaze-syncd export /tmp/check --data /mnt/data/kaze-sync       # 可选: 先确认数据可读, 见下
-./kaze-syncd install --data /mnt/data/kaze-sync                  # 修正属主, 启动服务
+./kaze-syncd install --data /mnt/data/kaze-sync --new-epoch      # 修正属主, 更换历史标识, 启动服务
 ```
 
-`install` 把 `var/` 下的目录, 数据库和证书交给服务用户 (块文件保持 root 所有, 只读即可); 管理员密码, 设备和映射都在 `meta.db` 里, 客户端不需要重新注册, 重启 agent 即可重新连上. 因为 `meta.db` 与各文件夹库必须取自同一时刻, 备份时不要只还原其中一部分.
+`--new-epoch` 必须在还原备份时使用 (原地回滚到旧备份同样): 还原使服务端的版本号回到过去, 它让各客户端放弃已知的服务端状态并从头读取一次 (设计 5.5). 客户端不需要任何操作; 备份之后在客户端上新增的文件会重新上传; 同一路径上内容与备份不同的文件, 客户端版本变成冲突副本 (不会丢失), 取备份中的版本; 备份之后在客户端上删除的文件会被取回; 内容一致的无变化. 不带该选项时客户端只能发现版本号回退了的文件夹, 其余可能静默不一致. 平时升级执行 `install` 不要带它.
+
+`install` 把 `var/` 下的目录, 数据库和证书交给服务用户 (块文件保持 root 所有, 只读即可); 管理员密码, 设备和映射都在 `meta.db` 里, 客户端不需要重新注册, 也不必重启 agent. 因为 `meta.db` 与各文件夹库必须取自同一时刻, 备份时不要只还原其中一部分.
 
 ## 导出为普通文件
 

@@ -5,11 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
 
 	"kaze-sync/internal/blobstore"
+	"kaze-sync/internal/proto"
 )
 
 // GC schedule (design 7).
@@ -21,9 +23,7 @@ const (
 // GCMemoryBudget bounds the memory of the reference array of one GC pass (design 7).
 const GCMemoryBudget = 64 << 20
 
-const hashLen = 32
-
-type hash = [hashLen]byte
+const hashLen = proto.HashLen
 
 // refSource lists the blocks referenced by one folder: count is an upper bound
 // of the number of references, each calls visit with every blocks value (a
@@ -68,7 +68,7 @@ func gcPasses(refs, budget int64) int {
 	return int(max(1, min(256, k)))
 }
 
-func cmpHash(a, b hash) int {
+func cmpHash(a, b proto.Hash) int {
 	if x, y := binary.BigEndian.Uint64(a[:8]), binary.BigEndian.Uint64(b[:8]); x != y {
 		if x < y {
 			return -1
@@ -81,13 +81,13 @@ func cmpHash(a, b hash) int {
 // collectRefs returns the sorted, distinct referenced hashes whose first byte is
 // in [lo, hi), stored in refs[:0] (grown if it is too small, never truncated:
 // dropping a reference would let GC delete a live block).
-func collectRefs(sources []refSource, lo, hi int, refs []hash) ([]hash, error) {
+func collectRefs(sources []refSource, lo, hi int, refs []proto.Hash) ([]proto.Hash, error) {
 	refs = refs[:0]
 	for _, src := range sources {
 		err := src.each(func(blocks []byte) error {
 			for ; len(blocks) >= hashLen; blocks = blocks[hashLen:] {
 				if b := int(blocks[0]); b >= lo && b < hi {
-					refs = append(refs, hash(blocks[:hashLen]))
+					refs = append(refs, proto.Hash(blocks[:hashLen]))
 				}
 			}
 			return nil
@@ -118,7 +118,7 @@ func sweepPasses(sources []refSource, budget int64, sweep func(lo, hi int, refer
 	k := gcPasses(total, budget)
 	// One array serves every pass. Its size is the even share of a pass plus a margin for the
 	// uneven spread of hashes over first bytes; collectRefs grows it in the rare case it is short.
-	refs := make([]hash, 0, min(total, total/int64(k)+total/64+1024))
+	refs := make([]proto.Hash, 0, min(total, total/int64(k)+total/64+1024))
 	for p := 0; p < k; p++ {
 		lo, hi := p*256/k, (p+1)*256/k
 		var err error
@@ -126,7 +126,7 @@ func sweepPasses(sources []refSource, budget int64, sweep func(lo, hi int, refer
 			return p, err
 		}
 		err = sweep(lo, hi, func(h blobstore.Hash) bool {
-			_, found := slices.BinarySearchFunc(refs, hash(h), cmpHash)
+			_, found := slices.BinarySearchFunc(refs, h, cmpHash)
 			return found
 		})
 		if err != nil {
@@ -141,7 +141,12 @@ type gcStats struct{ versions, blobs, tmp, passes int }
 // gc removes the versions older than keep_days, then the blocks no file or version references and the
 // leftovers in tmp/ (design 7). It must not run twice at once: use requestGC.
 func (s *Server) gc() (st gcStats, err error) {
-	cutoff := s.now().Add(-time.Duration(max(metaInt(s.db, "keep_days"), 1)) * 24 * time.Hour).Unix()
+	// A keep_days that cannot be read must not default to a short retention: this deletes for good.
+	var days int64
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key='keep_days'`).Scan(&days); err != nil || days < 1 {
+		return st, fmt.Errorf("gc: keep_days unreadable or below 1: %d %v", days, err)
+	}
+	cutoff := s.now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
 	ids, err := queryAll(s.db, func(rows *sql.Rows, id *int64) error { return rows.Scan(id) }, `SELECT id FROM folders`)
 	if err != nil {
 		return st, err

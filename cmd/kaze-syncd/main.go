@@ -17,7 +17,7 @@ import (
 
 const usage = `usage:
   kaze-syncd run --data DIR
-  kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE] [--wan]
+  kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE] [--wan] [--new-epoch]
   kaze-syncd admin-password [--data DIR]
   kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "YYYY-MM-DD HH:MM[:SS]" (UTC)]`
 
@@ -40,6 +40,7 @@ func main() {
 		fs.StringVar(&o.Cert, "cert", "", "certificate file (instead of the self-signed one)")
 		fs.StringVar(&o.Key, "key", "", "private key file")
 		fs.BoolVar(&o.WAN, "wan", false, "open the port on the WAN zone of the firewall")
+		fs.BoolVar(&o.NewEpoch, "new-epoch", false, "after restoring a backup: make the clients read everything again")
 	}
 	var export server.ExportOptions
 	var at string

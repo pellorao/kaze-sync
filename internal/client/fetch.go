@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"kaze-sync/internal/blobstore"
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/client/place"
 	"kaze-sync/internal/proto"
@@ -44,14 +43,6 @@ type blockSrc struct {
 	size   int64
 }
 
-func splitHashes(b []byte) []proto.Hash {
-	hs := make([]proto.Hash, len(b)/32)
-	for i := range hs {
-		copy(hs[i][:], b[32*i:])
-	}
-	return hs
-}
-
 func consistent(r localRow, st cfs.Entry) bool {
 	return !st.IsDir && st.Size == r.Size && st.MtimeNs == r.MtimeNs
 }
@@ -64,7 +55,7 @@ func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expec
 	if rows, err := f.DB.byHash(e.Hash[:], 8); err == nil {
 		for _, r := range rows {
 			if st, err := f.FS.Stat(r.Path); err == nil && consistent(r, st) {
-				src = &blockSrc{r.Path, splitHashes(r.Blocks), r.Size}
+				src = &blockSrc{r.Path, proto.SplitHashes(r.Blocks), r.Size}
 				break
 			}
 		}
@@ -89,14 +80,14 @@ func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expec
 
 func (f *Folder) placeEntry(ctx context.Context, e *proto.Entry, src *blockSrc, expect place.Expect) error {
 	open := func(offset int64) (io.ReadCloser, error) { return newBlockReader(ctx, f, e, src, offset), nil }
-	if err := place.Place(f.FS, e.Path, blobstore.Hash(*e.Hash), open, place.Meta{MtimeNs: e.MtimeNs, Exec: e.Exec}, expect); err != nil {
+	if err := place.Place(f.FS, e.Path, *e.Hash, open, place.Meta{MtimeNs: e.MtimeNs, Exec: e.Exec}, expect); err != nil {
 		return err
 	}
 	st, err := f.FS.Stat(e.Path)
 	if err != nil {
 		return err
 	}
-	return f.DB.apply([]localRow{{Path: e.Path, Key: pp.Key(e.Path), Seq: e.Seq, Hash: e.Hash[:], Blocks: joinHashes(e.Blocks),
+	return f.DB.apply([]localRow{{Path: e.Path, Key: pp.Key(e.Path), Seq: e.Seq, Hash: e.Hash[:], Blocks: proto.JoinHashes(e.Blocks),
 		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec}}, nil)
 }
 

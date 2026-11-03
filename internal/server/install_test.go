@@ -399,3 +399,30 @@ func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
 		t.Error("block files are chowned one by one")
 	}
 }
+
+// root hands var/ to the service user, which can plant symbolic links there: the real Chown must not follow
+// them (a dangling link would fail with os.Chown), and a link in place of blobs/ stops the install.
+func TestInstallDoesNotFollowSymbolicLinks(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	os.Symlink(filepath.Join(dir, "nowhere"), link)
+	if err := NewInstaller().Chown(link, os.Getuid(), os.Getgid()); err != nil {
+		t.Fatalf("Chown follows the link: %v", err)
+	}
+
+	f := newFakeSystem(t)
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(dir, "victim")
+	os.Mkdir(victim, 0o700)
+	blobs := filepath.Join(f.data, "var", "blobs")
+	os.RemoveAll(blobs)
+	os.Symlink(victim, blobs)
+	if err := f.install(InstallOptions{}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("install over a linked blobs directory: %v", err)
+	}
+	if entries, _ := os.ReadDir(victim); len(entries) != 0 {
+		t.Fatalf("the link target was written to: %v", entries)
+	}
+}

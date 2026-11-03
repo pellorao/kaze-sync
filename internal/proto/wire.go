@@ -8,8 +8,12 @@ import (
 	"io"
 )
 
-// Hash is a SHA-256 value; in JSON it is 64 lowercase hexadecimal digits.
-type Hash [32]byte
+// HashLen is the size of a Hash in bytes.
+const HashLen = 32
+
+// Hash is a SHA-256 value; in JSON it is 64 lowercase hexadecimal digits. It is the one hash type of the
+// project: the block store and the garbage collector use it too.
+type Hash [HashLen]byte
 
 func (h Hash) String() string { return hex.EncodeToString(h[:]) }
 
@@ -23,17 +27,38 @@ func (h *Hash) UnmarshalText(b []byte) error {
 	return err
 }
 
+// SplitHashes decodes a concatenation of hashes, the way both databases store a file's block list.
+func SplitHashes(b []byte) []Hash {
+	hs := make([]Hash, len(b)/HashLen)
+	for i := range hs {
+		copy(hs[i][:], b[HashLen*i:])
+	}
+	return hs
+}
+
+// JoinHashes is the inverse of SplitHashes.
+func JoinHashes(hs []Hash) []byte {
+	b := make([]byte, 0, HashLen*len(hs))
+	for _, h := range hs {
+		b = append(b, h[:]...)
+	}
+	return b
+}
+
 // Limits enforced at the server's entrance.
 const (
 	MaxJSONBody  = 4 << 20
 	MaxBlockBody = 64 << 20
 	MaxCommitOps = 1000
-	PollTimeoutS = 55
+	// MaxCommitBlocks bounds the block hashes of one commit: each takes about 67 bytes of JSON, so this stays far below
+	// MaxJSONBody. One file with more blocks than this is committed alone.
+	MaxCommitBlocks = 20000
+	PollTimeoutS    = 55
 	// AgentVersion is the protocol version of this client, bumped on every change of the device API; clients send it in
 	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
 	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
 	// (design 9.3). A request without the header comes from a client older than the header: version 1.
-	AgentVersion    = 2
+	AgentVersion    = 3
 	MinAgentVersion = 2
 	VersionHeader   = "Kaze-Agent-Version"
 )
@@ -100,6 +125,7 @@ type PollReq struct {
 
 type PollResp struct {
 	Cursors map[int64]int64 `json:"cursors"`          // folder id -> latest seq, for every folder mapped to the device
+	Epoch   string          `json:"epoch"`            // identifies the server's history; a client that sees it change reads every folder again
 	Config  *Config         `json:"config,omitempty"` // present when the client's version differs
 }
 

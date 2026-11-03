@@ -30,12 +30,13 @@ type Installer struct {
 	Run        func(name string, args ...string) error     // runs a command
 	SameDevice func(path string) (bool, error)             // is path on the root file system?
 	Lookup     func(name string) (uid, gid int, err error) // the service user's ids
-	Chown      func(path string, uid, gid int) error
+	Chown      func(path string, uid, gid int) error       // must not follow symbolic links: the service user can plant them below var/
 }
 
 type InstallOptions struct {
 	Data, Listen, Cert, Key string
 	WAN                     bool
+	NewEpoch                bool // after restoring a backup: make the clients read everything again (design 9.4)
 }
 
 // Layout of the installation (design 2.3, 9.1): everything that depends on
@@ -54,7 +55,7 @@ const (
 func NewInstaller() *Installer {
 	self, _ := os.Executable()
 	return &Installer{
-		Root: "/", Self: self, Out: os.Stdout, SameDevice: SameDevice, Chown: os.Chown,
+		Root: "/", Self: self, Out: os.Stdout, SameDevice: SameDevice, Chown: os.Lchown,
 		Run: func(name string, args ...string) error {
 			out, err := exec.Command(name, args...).CombinedOutput()
 			if err != nil {
@@ -230,6 +231,11 @@ func (in *Installer) initState(db *sql.DB, data string, o InstallOptions) (liste
 	}
 	if err := migrateFolders(db, data); err != nil {
 		return "", "", err
+	}
+	if o.NewEpoch {
+		if err := SetMeta(db, "epoch", randomBase32(13)); err != nil {
+			return "", "", err
+		}
 	}
 	listen = o.Listen
 	if listen == "" {

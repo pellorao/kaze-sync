@@ -34,14 +34,17 @@ type Agent struct {
 	RetryAfter               time.Duration   // delay before running again after a failure or postponed work
 	SlowRetry                []time.Duration // delays of the retries for files in use; after them the periodic scan retries (design 5.7)
 	Debounce                 time.Duration   // quiet time after file events before scanning (design 5.2)
+	AuthRetry                time.Duration   // delay before trying again after the server rejected the device token (design 2.5)
 
 	mu       sync.Mutex // guards cfg, runners, their fields below the line, and the poll state
 	cfg      proto.Config
 	runners  map[int64]*runner
 	kick     chan struct{}
-	polled   chan struct{} // a cycle finished
+	applied  chan struct{} // signalled when applyConfig has run
 	failures int           // consecutive cycles that failed
 	cancel   context.CancelFunc
+	wg       sync.WaitGroup // the folder tasks running
+	epoch    string         // the server's epoch from the last poll
 	pollAt   time.Time
 	sig      string    // status sent with the running poll
 	statusAt time.Time // when to try again to report a changed status
@@ -61,11 +64,13 @@ type runner struct {
 	scanned    bool
 	busy       bool
 	seen       int64 // the server's latest seq this runner has read up to; -1 unknown
-	acked      int64 // the latest seq the server announced; stands in for seen while the folder cannot be pulled
+	acked      int64 // the latest seq the server announced; stands in for seen while that news is handled or cannot be
 	ready      bool  // the last scan found the sync root in order
 	dirty      map[string]bool
 	full       bool // a full scan is due
 	pull       bool
+	reset      bool // the server went back in time: forget its seqs
+	rewatch    bool // the watcher reported lost events: start a new one
 	debounceAt time.Time
 	retryAt    time.Time
 	slowTries  int // retries for files in use so far
@@ -73,16 +78,20 @@ type runner struct {
 }
 
 func (a *Agent) Run(ctx context.Context) error {
-	a.kick, a.polled = make(chan struct{}, 1), make(chan struct{}, 1)
+	a.kick, a.applied = make(chan struct{}, 1), make(chan struct{}, 1)
 	a.runners = map[int64]*runner{}
 	if a.Debounce == 0 {
 		a.Debounce = 2 * time.Second
+	}
+	if a.AuthRetry == 0 {
+		a.AuthRetry = 10 * time.Minute
 	}
 	if a.SlowRetry == nil {
 		a.SlowRetry = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 	}
 	if err := readJSON(filepath.Join(a.Dir, "config.json"), &a.cfg); err == nil {
 		slog.Info("using cached configuration", "version", a.cfg.Version)
+		a.dropStale()
 	}
 	go a.pollLoop(ctx)
 	for {
@@ -91,6 +100,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.statusChanged()
 		select {
 		case <-ctx.Done():
+			a.wg.Wait()
 			a.closeAll()
 			return nil
 		case <-a.kick:
@@ -110,13 +120,24 @@ func (a *Agent) pollLoop(ctx context.Context) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		a.mu.Lock()
+		wait := a.unplanned()
+		a.mu.Unlock()
+		if wait { // the server answers at once for a folder without a cursor: give the loop a moment to create its runner
+			select {
+			case <-ctx.Done():
+			case <-a.applied:
+			case <-time.After(time.Second):
+			}
+		}
+		a.mu.Lock()
 		req := proto.PollReq{Cursors: map[int64]int64{}, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
 		for id, r := range a.runners {
-			switch {
-			case r.seen >= 0:
-				req.Cursors[id] = r.seen
-			case !r.ready && r.acked >= 0: // nothing to read until the folder is usable: do not wake for its news
-				req.Cursors[id] = r.acked
+			cur := r.seen
+			if (r.busy || r.pull || !r.ready) && r.acked >= 0 {
+				cur = max(cur, r.acked) // news that is being handled, or cannot be until the folder is usable, must not wake the poll again
+			}
+			if cur >= 0 {
+				req.Cursors[id] = cur
 			}
 		}
 		pctx, cancel := context.WithCancel(ctx)
@@ -131,26 +152,25 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		case cancelled: // restarted to report a changed status
 			continue
 		case err != nil:
+			wait := backoff
 			if ue := (*UpgradeError)(nil); errors.As(err, &ue) {
-				slog.Error("client too old, sync is stopped until kaze-syncc is upgraded", "err", err, "retry_in", backoff)
+				slog.Error("client too old, sync is stopped until kaze-syncc is upgraded", "err", err, "retry_in", wait)
+			} else if errors.Is(err, ErrUnauthorized) { // revoked: asking often only adds load (design 2.5)
+				wait = a.AuthRetry
+				slog.Error("sync is stopped, the server does not accept this device", "err", err, "retry_in", wait)
 			} else {
-				slog.Warn("poll failed", "err", err, "retry_in", backoff)
+				slog.Warn("poll failed", "err", err, "retry_in", wait)
 			}
 			select {
 			case <-ctx.Done():
-			case <-time.After(backoff):
+			case <-time.After(wait):
 			}
 			backoff = min(2*backoff, time.Minute)
 			continue
 		}
 		backoff = time.Second
-		if !a.handlePoll(resp) {
+		if !a.handlePoll(req, resp) {
 			continue
-		}
-		select { // the next poll would return at once: wait until the news is handled
-		case <-ctx.Done():
-		case <-a.polled:
-		case <-time.After(30 * time.Second):
 		}
 		a.mu.Lock()
 		n := a.failures
@@ -164,8 +184,8 @@ func (a *Agent) pollLoop(ctx context.Context) {
 	}
 }
 
-// handlePoll takes in a poll answer and reports whether it carried news.
-func (a *Agent) handlePoll(resp proto.PollResp) bool {
+// handlePoll takes in the answer to a poll request and reports whether it carried news.
+func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 	news := false
 	if resp.Config != nil {
 		if err := writeJSON(filepath.Join(a.Dir, "config.json"), resp.Config); err != nil {
@@ -177,13 +197,25 @@ func (a *Agent) handlePoll(resp proto.PollResp) bool {
 		news = true
 	}
 	a.mu.Lock()
+	if resp.Epoch != a.epoch { // another server history: every folder reads again (Folder.checkEpoch decides)
+		a.epoch = resp.Epoch
+		for _, r := range a.runners {
+			r.pull = true
+		}
+		news = true
+	}
 	for id, r := range a.runners {
 		if seq, ok := resp.Cursors[id]; ok {
-			if !r.ready && r.seen < 0 {
-				r.acked = seq // a folder that cannot be pulled has no news for us; it pulls when it becomes ready
+			if have, ok := req.Cursors[id]; ok && seq < have { // the server has less than we knew: a restored backup
+				slog.Warn("the server's latest seq is behind ours; reading the folder again", "folder", id, "server", seq, "ours", have)
+				r.reset, r.pull, r.seen, r.acked, news = true, true, -1, seq, true // the next poll carries the server's seq, not the stale one
 				continue
 			}
-			if seq != r.seen {
+			if seq == r.seen {
+				continue
+			}
+			r.acked = seq
+			if r.ready || r.seen >= 0 { // a folder that cannot be pulled has no news for us; it pulls when it becomes ready
 				r.pull, news = true, true
 			}
 		}
@@ -233,16 +265,22 @@ type task struct {
 	dirs       []string
 	full, scan bool
 	pull       bool
+	reset      bool
 	retry      bool // run because a retry was due
 }
 
-// cycle runs the due work of all folders concurrently.
+// cycle starts the due work of the folders that are not busy, each as a task of its own: a long upload of one
+// folder holds up no other (design 3). A finished task wakes the loop, which then plans again.
 func (a *Agent) cycle(ctx context.Context) {
 	now := time.Now()
 	var tasks []task
 	a.mu.Lock()
 	for _, r := range a.runners {
-		t := task{r: r, full: r.full || (!r.nextFull.IsZero() && !now.Before(r.nextFull)), pull: r.pull}
+		if r.busy {
+			continue
+		}
+		r.f.Epoch = a.epoch
+		t := task{r: r, full: r.full || (!r.nextFull.IsZero() && !now.Before(r.nextFull)), pull: r.pull, reset: r.reset}
 		retry := !r.retryAt.IsZero() && !now.Before(r.retryAt)
 		t.retry = retry
 		if len(r.dirty) > 0 && !now.Before(r.debounceAt) {
@@ -261,7 +299,7 @@ func (a *Agent) cycle(ctx context.Context) {
 		if t.full {
 			t.dirs = nil
 		}
-		r.full, r.pull, r.retryAt, r.busy = false, false, time.Time{}, true
+		r.full, r.pull, r.reset, r.retryAt, r.busy = false, false, false, time.Time{}, true
 		tasks = append(tasks, t)
 	}
 	a.mu.Unlock()
@@ -269,27 +307,42 @@ func (a *Agent) cycle(ctx context.Context) {
 		return
 	}
 	a.statusChanged()
-	var wg sync.WaitGroup
 	for _, t := range tasks {
-		wg.Add(1)
+		a.wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer a.wg.Done()
 			a.work(ctx, t)
+			a.statusChanged()
+			a.wake()
 		}()
 	}
-	wg.Wait()
-	select {
-	case a.polled <- struct{}{}:
-	default:
-	}
-	a.statusChanged()
 }
 
 func (a *Agent) work(ctx context.Context, t task) {
 	r, f := t.r, t.r.f
 	var rep Report
 	var err error
-	if t.scan {
+	if t.reset {
+		if err = f.Reset(); err != nil {
+			slog.Warn("cannot reset the folder state", "folder", r.cfg.ID, "err", err)
+		}
+	}
+	a.mu.Lock()
+	old := r.w
+	if r.rewatch && old != nil { // lost events, or a watcher that stopped (Windows, after the root went away): a new one, before the full scan
+		r.w = nil
+	} else {
+		old = nil
+	}
+	r.rewatch = false
+	a.mu.Unlock()
+	if old != nil {
+		old.Close()
+		if f.Ready() {
+			a.startWatch(r)
+		}
+	}
+	if t.scan && err == nil {
 		if rep, err = f.Scan(ctx, t.dirs...); err != nil && ctx.Err() == nil {
 			slog.Warn("scan failed", "folder", r.cfg.ID, "err", err)
 		}
@@ -316,6 +369,9 @@ func (a *Agent) work(ctx context.Context, t task) {
 	}
 	if err != nil || rep.Retry {
 		r.retryAt = now.Add(a.RetryAfter)
+		if errors.Is(err, ErrUnauthorized) {
+			r.retryAt = now.Add(a.AuthRetry)
+		}
 		a.failures = map[bool]int{true: a.failures + 1, false: a.failures}[err != nil]
 	} else {
 		a.failures = 0
@@ -337,7 +393,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 		}
 	}
 	if err != nil {
-		r.pull = r.pull || t.pull
+		r.pull, r.reset = r.pull || t.pull, r.reset || t.reset
 	}
 }
 
@@ -357,23 +413,26 @@ func (a *Agent) startWatch(r *runner) {
 		}
 		w.Add(d) // fails when the inotify limit is reached: the hourly scan still covers it
 	}
-	go func() {
-		for {
-			select {
-			case d := <-r.events:
-				a.mu.Lock()
-				if r.dirty == nil {
-					r.dirty = map[string]bool{}
-				}
-				r.dirty[d] = true
-				r.debounceAt = time.Now().Add(a.Debounce)
-				a.mu.Unlock()
-				a.wake()
-			case <-r.done:
-				return
+}
+
+// consume turns the watcher's hints into the runner's dirty set until the runner stops.
+func (a *Agent) consume(r *runner) {
+	for {
+		select {
+		case d := <-r.events:
+			a.mu.Lock()
+			if r.dirty == nil {
+				r.dirty = map[string]bool{}
 			}
+			r.dirty[d] = true
+			r.rewatch = r.rewatch || d == ""
+			r.debounceAt = time.Now().Add(a.Debounce)
+			a.mu.Unlock()
+			a.wake()
+		case <-r.done:
+			return
 		}
-	}()
+	}
 }
 
 // nextWake is how long the loop may sleep.
@@ -382,6 +441,9 @@ func (a *Agent) nextWake() time.Duration {
 	defer a.mu.Unlock()
 	next := time.Now().Add(time.Hour)
 	for _, r := range a.runners {
+		if r.busy { // its task wakes the loop when it ends
+			continue
+		}
 		for _, t := range []time.Time{r.retryAt, r.nextFull} {
 			if !t.IsZero() && t.Before(next) {
 				next = t
@@ -398,7 +460,23 @@ func (a *Agent) nextWake() time.Duration {
 }
 
 // applyConfig starts, restarts and stops folder runners to match the configuration (design 3.5).
+// unplanned reports whether a configured folder has no runner yet; the caller holds a.mu.
+func (a *Agent) unplanned() bool {
+	for _, fc := range a.cfg.Folders {
+		if a.runners[fc.ID] == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Agent) applyConfig() {
+	defer func() {
+		select {
+		case a.applied <- struct{}{}:
+		default:
+		}
+	}()
 	a.mu.Lock()
 	cfg := a.cfg
 	a.mu.Unlock()
@@ -411,8 +489,14 @@ func (a *Agent) applyConfig() {
 			continue
 		}
 		a.mu.Lock()
-		delete(a.runners, id)
+		busy := r.busy
+		if !busy {
+			delete(a.runners, id)
+		}
 		a.mu.Unlock()
+		if busy { // its task finishes first and wakes the loop, which comes back here
+			continue
+		}
 		a.stop(r, want[id].Path != r.cfg.Path) // a changed path is a new mapping; the old one is dropped
 	}
 	for id, fc := range want {
@@ -427,10 +511,30 @@ func (a *Agent) applyConfig() {
 		}
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
-		a.mu.Lock()
-		a.runners[id] = &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
+		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
 			seen: -1, acked: -1, full: true, pull: true, nextFull: time.Now().Add(a.ScanInterval)}
+		a.mu.Lock()
+		a.runners[id] = r
 		a.mu.Unlock()
+		go a.consume(r)
+	}
+}
+
+// dropStale removes the state databases of folders that are not in the configuration: a mapping removed while
+// this agent was not running to forget it would leave one, and a later folder must not start from its cursor.
+func (a *Agent) dropStale() {
+	have := map[string]bool{}
+	for _, fc := range a.cfg.Folders {
+		have["folder-"+itoa(fc.ID)+".db"] = true
+	}
+	names, _ := filepath.Glob(filepath.Join(a.Dir, "folder-*.db"))
+	for _, p := range names {
+		if !have[filepath.Base(p)] {
+			slog.Info("removing the state of a folder that is no longer mapped", "file", filepath.Base(p))
+			for _, sfx := range []string{"", "-wal", "-shm"} {
+				os.Remove(p + sfx)
+			}
+		}
 	}
 }
 

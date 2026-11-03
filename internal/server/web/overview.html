@@ -32,7 +32,7 @@
 <table>
 <tr><th>名称</th><th>文件数</th><th>总大小</th></tr>
 {{range .Folders}}<tr>
-<td><a href="/folders/{{.ID}}">{{.Name}}</a></td><td>{{.Files}}</td><td>{{size .Bytes}}</td>
+<td><a href="/folders/{{.ID}}">{{.Name}}</a></td>{{if .Err}}<td colspan="2" class="err">无法读取: {{.Err}}</td>{{else}}<td>{{.Files}}</td><td>{{size .Bytes}}</td>{{end}}
 </tr>{{else}}<tr><td colspan="3" class="muted">还没有文件夹</td></tr>{{end}}
 </table>
 <form method="post" action="/folders/new">

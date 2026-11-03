@@ -30,8 +30,8 @@ func TestGCPasses(t *testing.T) {
 	}
 }
 
-func hashesOf(rng *rand.Rand, n int) []hash {
-	out := make([]hash, n)
+func hashesOf(rng *rand.Rand, n int) []proto.Hash {
+	out := make([]proto.Hash, n)
 	for i := range out {
 		for j := 0; j < hashLen; j += 8 {
 			v := rng.Uint64()
@@ -43,7 +43,7 @@ func hashesOf(rng *rand.Rand, n int) []hash {
 	return out
 }
 
-func memSource(lists ...[]hash) refSource {
+func memSource(lists ...[]proto.Hash) refSource {
 	var n int64
 	for _, l := range lists {
 		n += int64(len(l))
@@ -72,7 +72,7 @@ func TestCollectRefsRangeSortDedup(t *testing.T) {
 	if err != nil || len(all) != 2000 || !slices.IsSortedFunc(all, cmpHash) {
 		t.Fatalf("all: %d refs, sorted=%v, %v", len(all), slices.IsSortedFunc(all, cmpHash), err)
 	}
-	part, _ := collectRefs([]refSource{src}, 64, 128, make([]hash, 0, 4))
+	part, _ := collectRefs([]refSource{src}, 64, 128, make([]proto.Hash, 0, 4))
 	for _, h := range part {
 		if h[0] < 64 || h[0] >= 128 {
 			t.Fatalf("hash %x outside the range", h[0])
@@ -116,12 +116,12 @@ func TestSweepPassesRemovesOnlyUnreferenced(t *testing.T) {
 				continue
 			}
 			doomed = append(doomed, h)
-			x := blobstore.Hash(h).String()
+			x := h.String()
 			os.Chtimes(filepath.Join(e.s.varDir, "blobs", x[:2], x[2:4], x), old, old)
 		}
 		// Referenced blobs are old too: age alone must not remove them.
 		for _, h := range kept {
-			x := blobstore.Hash(h).String()
+			x := h.String()
 			os.Chtimes(filepath.Join(e.s.varDir, "blobs", x[:2], x[2:4], x), old, old)
 		}
 		var srcs []refSource
@@ -142,21 +142,13 @@ func TestSweepPassesRemovesOnlyUnreferenced(t *testing.T) {
 			t.Fatalf("budget %d: %d passes", budget, passes)
 		}
 		for h, want := range map[bool][]proto.Hash{true: append(slices.Clone(kept), fresh...), false: doomed} {
-			for _, x := range h2(want) {
+			for _, x := range want {
 				if ok, _ := e.s.blobs.Has(x); ok != h {
 					t.Fatalf("budget %d: blob %s present=%v, want %v", budget, x, ok, h)
 				}
 			}
 		}
 	}
-}
-
-func h2(hs []proto.Hash) []blobstore.Hash {
-	out := make([]blobstore.Hash, len(hs))
-	for i, h := range hs {
-		out[i] = blobstore.Hash(h)
-	}
-	return out
 }
 
 // synthetic is a source of n pseudo-random hashes that stores none of them, so a

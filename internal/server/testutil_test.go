@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
 )
 
@@ -82,7 +81,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) block(content []byte) proto.Hash {
 	e.t.Helper()
 	h := proto.Hash(sha256.Sum256(content))
-	if err := e.s.blobs.Put(blobstore.Hash(h), bytes.NewReader(content)); err != nil {
+	if err := e.s.blobs.Put(h, bytes.NewReader(content)); err != nil {
 		e.t.Fatal(err)
 	}
 	return h

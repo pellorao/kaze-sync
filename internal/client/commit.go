@@ -70,13 +70,27 @@ func order(items []*item) {
 func (f *Folder) commitAll(ctx context.Context, items []*item, rep *Report) error {
 	order(items)
 	for rest := items; len(rest) > 0; {
-		n := min(len(rest), proto.MaxCommitOps)
+		n := chunkLen(rest)
 		if err := f.commitChunk(ctx, rest[:n], rep); err != nil {
 			return err
 		}
 		rest = rest[n:]
 	}
 	return nil
+}
+
+// chunkLen is how many leading items go into one commit: at most MaxCommitOps ops and, unless it is the first one
+// alone, MaxCommitBlocks block hashes, so that the request body stays below MaxJSONBody.
+func chunkLen(items []*item) int {
+	n, blocks := 0, 0
+	for n < len(items) && n < proto.MaxCommitOps {
+		blocks += len(items[n].op.Blocks)
+		if n > 0 && blocks > proto.MaxCommitBlocks {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 // commitChunk commits up to MaxCommitOps ops, uploading missing blocks and

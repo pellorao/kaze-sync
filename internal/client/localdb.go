@@ -83,6 +83,29 @@ func (l *localDB) byHash(h []byte, limit int) ([]localRow, error) {
 	return out, err
 }
 
+// rootFiles returns the rows of the files directly in the root.
+func (l *localDB) rootFiles() (map[string]localRow, error) {
+	return l.query(`SELECT ` + localCols + ` FROM local WHERE instr(path, '/') = 0`)
+}
+
+// topDirs returns the names of the root's directories that have rows below them.
+func (l *localDB) topDirs() (map[string]bool, error) {
+	rows, err := l.db.Query(`SELECT DISTINCT substr(path, 1, instr(path, '/') - 1) FROM local WHERE instr(path, '/') > 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out[d] = true
+	}
+	return out, rows.Err()
+}
+
 func (l *localDB) all() (map[string]localRow, error) { return l.under("") }
 
 func (l *localDB) query(q string, args ...any) (map[string]localRow, error) {
@@ -122,6 +145,23 @@ func (l *localDB) apply(puts []localRow, dels []string) error {
 			r.Path, r.Key, r.Seq, r.Hash, r.Blocks, r.Size, r.MtimeNs, r.Exec); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// forgetSeqs makes the next Pull read the server's state from the start and drops the base seq of every row, so
+// that no entry of a server with another history is taken for an echo of ours (design 5.5).
+func (l *localDB) forgetSeqs() error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE local SET seq=0`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES('cursor', 0)`); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
