@@ -21,7 +21,7 @@ import (
 	"kaze-sync/internal/blobstore"
 )
 
-// Installer installs and maintains the server on OpenWrt. Its fields are the
+// Installer installs and maintains the server on OpenWrt, systemd and OpenRC systems. Its fields are the
 // seams that tests replace; New fills in the real ones.
 type Installer struct {
 	Root       string                                      // "/" on a router; the prefix of /etc paths
@@ -47,7 +47,7 @@ const (
 	VarDir      = "var" // everything the service writes; <data> and the binary stay root's (0755)
 	DBFile      = "meta.db"
 	TLSDir      = "tls"
-	initPath    = "/etc/init.d/" + serviceName
+	initPath    = "/etc/init.d/" + serviceName // procd and OpenRC script
 	rcLink      = "/etc/rc.d/S99" + serviceName
 	fwSection   = "firewall.kaze_sync"
 )
@@ -79,7 +79,16 @@ func (in *Installer) say(format string, a ...any) { fmt.Fprintf(in.Out, format+"
 
 var safePath = regexp.MustCompile(`^/[A-Za-z0-9._/-]*$`)
 
-const initScript = `#!/bin/sh /etc/rc.common
+// service describes how one service manager runs kaze-syncd (design 9.1): the
+// probe file that identifies it, the definition file with its text (%[1]s is
+// the data directory), and the commands that enable and restart the service.
+type service struct {
+	probe, file, text string
+	enable, restart   [][]string
+}
+
+var (
+	procd = service{probe: "/etc/openwrt_release", file: initPath, text: `#!/bin/sh /etc/rc.common
 START=99
 USE_PROCD=1
 start_service() {
@@ -90,7 +99,48 @@ start_service() {
 	procd_set_param stderr 1
 	procd_close_instance
 }
-`
+`, enable: [][]string{{initPath, "enable"}}, restart: [][]string{{initPath, "restart"}}}
+
+	systemd = service{probe: "/run/systemd/system", file: "/etc/systemd/system/" + serviceName + ".service", text: `[Unit]
+Description=kaze-sync server
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=%[1]s
+
+[Service]
+ExecStart=%[1]s/` + binName + ` run --data %[1]s
+User=kaze-sync
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`, enable: [][]string{{"systemctl", "daemon-reload"}, {"systemctl", "enable", serviceName}}, restart: [][]string{{"systemctl", "restart", serviceName}}}
+
+	openrc = service{probe: "/sbin/openrc-run", file: initPath, text: `#!/sbin/openrc-run
+description="kaze-sync server"
+supervisor=supervise-daemon
+command=%[1]s/` + binName + `
+command_args="run --data %[1]s"
+command_user=kaze-sync
+respawn_delay=5
+output_logger="logger -t kaze-sync"
+error_logger="logger -t kaze-sync"
+depend() {
+	need net localmount
+}
+`, enable: [][]string{{"rc-update", "add", serviceName, "default"}}, restart: [][]string{{"rc-service", serviceName, "restart"}}}
+)
+
+// detect picks the service manager in the order of design 9.1.
+func (in *Installer) detect() (*service, error) {
+	for _, s := range []*service{&procd, &systemd, &openrc} {
+		if _, err := os.Stat(in.path(s.probe)); err == nil {
+			return s, nil
+		}
+	}
+	return nil, errors.New("no supported service manager found (OpenWrt, systemd or OpenRC)")
+}
 
 // Install installs or upgrades the server (design 9.1); it can run repeatedly.
 func (in *Installer) Install(o InstallOptions) error {
@@ -109,10 +159,19 @@ func (in *Installer) Install(o InstallOptions) error {
 			return fmt.Errorf("certificate: %w", err)
 		}
 	}
-	if same, err := in.SameDevice(data); err != nil {
+	svc, err := in.detect()
+	if err != nil {
 		return err
-	} else if same {
-		return fmt.Errorf("%s is on the root file system; mount the data disk first", data)
+	}
+	if svc != &procd && o.WAN {
+		return errors.New("--wan only configures the OpenWrt firewall; open the port yourself")
+	}
+	if svc == &procd {
+		if same, err := in.SameDevice(data); err != nil {
+			return err
+		} else if same {
+			return fmt.Errorf("%s is on the root file system; mount the data disk first", data)
+		}
 	}
 	if err := os.MkdirAll(data, 0o755); err != nil {
 		return err
@@ -120,7 +179,7 @@ func (in *Installer) Install(o InstallOptions) error {
 	if err := in.copySelf(data); err != nil {
 		return err
 	}
-	if err := in.createUser(); err != nil {
+	if err := in.createUser(svc); err != nil {
 		return err
 	}
 	state := filepath.Join(data, VarDir)
@@ -139,21 +198,24 @@ func (in *Installer) Install(o InstallOptions) error {
 	if err := in.chownData(data); err != nil {
 		return err
 	}
-	if err := in.writeInit(data); err != nil {
+	if err := in.writeService(svc, data); err != nil {
 		return err
 	}
-	if err := in.keepAcrossSysupgrade(); err != nil {
-		return err
-	}
-	if err := in.firewall(listen, o.WAN); err != nil {
-		return err
-	}
-	for _, cmd := range []string{"enable", "restart"} {
-		if err := in.Run(initPath, cmd); err != nil {
+	if svc == &procd {
+		if err := in.keepAcrossSysupgrade(); err != nil {
+			return err
+		}
+		if err := in.firewall(listen, o.WAN); err != nil {
 			return err
 		}
 	}
+	if err := in.runAll(append(svc.enable, svc.restart...)); err != nil {
+		return err
+	}
 	in.say("installed in %s, listening on %s", data, listen)
+	if svc != &procd {
+		in.say("open this TCP port in the cloud security group or the local firewall")
+	}
 	if fp != "" {
 		in.say("certificate fingerprint: %s", fp)
 	} else {
@@ -198,11 +260,26 @@ func sameFile(a, b string) bool {
 	return err1 == nil && err2 == nil && os.SameFile(fa, fb)
 }
 
-// createUser adds the kaze-sync user and group with OpenWrt's /lib/functions.sh helpers.
-func (in *Installer) createUser() error {
-	return in.Run("sh", "-c", `. /lib/functions.sh
+// createUser adds the kaze-sync user and group: with OpenWrt's /lib/functions.sh
+// helpers there, elsewhere with useradd, or busybox adduser (Alpine) without it.
+func (in *Installer) createUser(svc *service) error {
+	if svc == &procd {
+		return in.Run("sh", "-c", `. /lib/functions.sh
 user_exists kaze-sync || user_add kaze-sync
 group_exists kaze-sync || group_add kaze-sync "$(id -u kaze-sync)"`)
+	}
+	return in.Run("sh", "-c", `id -u kaze-sync >/dev/null 2>&1 && exit 0
+if command -v useradd >/dev/null; then useradd --system --no-create-home --shell /bin/false kaze-sync
+else addgroup -S kaze-sync && adduser -S -D -H -G kaze-sync -s /sbin/nologin kaze-sync; fi`)
+}
+
+func (in *Installer) runAll(cmds [][]string) error {
+	for _, c := range cmds {
+		if err := in.Run(c[0], c[1:]...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateFolders migrates the database of every folder; a missing one is an error, never recreated.
@@ -309,15 +386,19 @@ func (in *Installer) chownData(data string) error {
 
 func (in *Installer) path(p string) string { return filepath.Join(in.Root, p) }
 
-func (in *Installer) writeInit(data string) error {
-	p := in.path(initPath)
+func (in *Installer) writeService(svc *service, data string) error {
+	p := in.path(svc.file)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, []byte(fmt.Sprintf(initScript, data)), 0o755); err != nil {
+	mode := os.FileMode(0o644) // a systemd unit; scripts are executable
+	if strings.HasPrefix(svc.text, "#!") {
+		mode = 0o755
+	}
+	if err := os.WriteFile(p, []byte(fmt.Sprintf(svc.text, data)), mode); err != nil {
 		return err
 	}
-	return os.Chmod(p, 0o755)
+	return os.Chmod(p, mode)
 }
 
 // keepAcrossSysupgrade lists the init script and its enable link in /etc/sysupgrade.conf.
@@ -395,9 +476,13 @@ func (in *Installer) AdminPassword(data string) error {
 		return err
 	}
 	in.say("new admin password (shown once): %s", pw)
-	if _, err := os.Stat(in.path(initPath)); err != nil {
+	svc, err := in.detect()
+	if err == nil {
+		_, err = os.Stat(in.path(svc.file))
+	}
+	if err != nil {
 		in.say("service not installed; start it with: %s/%s run --data %s", data, binName, data)
 		return nil
 	}
-	return in.Run(initPath, "restart")
+	return in.runAll(svc.restart)
 }

@@ -37,6 +37,7 @@ func newFakeSystem(t *testing.T) *fakeSystem {
 	f := &fakeSystem{t: t, owners: map[string]int{}, root: filepath.Join(dir, "root"), data: filepath.Join(dir, "mnt", "kaze-sync")}
 	self := filepath.Join(dir, "self-binary")
 	os.WriteFile(self, []byte("binary v1"), 0o755)
+	f.useManager(&procd)
 	f.in = &Installer{
 		Root: f.root, Self: self, Out: &f.out,
 		Run: func(name string, args ...string) error {
@@ -52,6 +53,16 @@ func newFakeSystem(t *testing.T) *fakeSystem {
 		Chown:      func(p string, uid, gid int) error { f.chowned = append(f.chowned, p); f.owners[p] = uid; return nil },
 	}
 	return f
+}
+
+// useManager makes the fake root look like a system run by svc only.
+func (f *fakeSystem) useManager(svc *service) {
+	for _, s := range []*service{&procd, &systemd, &openrc} {
+		os.RemoveAll(filepath.Join(f.root, s.probe))
+	}
+	p := filepath.Join(f.root, svc.probe)
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, nil, 0o755)
 }
 
 func (f *fakeSystem) install(o InstallOptions) error {
@@ -152,6 +163,78 @@ func TestInstallRefusesRootFilesystem(t *testing.T) {
 	}
 	if len(f.cmds) != 0 {
 		t.Fatalf("commands ran: %v", f.cmds)
+	}
+}
+
+func TestInstallOnOtherLinux(t *testing.T) {
+	for _, c := range []struct {
+		svc      *service
+		file     string
+		mode     os.FileMode
+		wantText []string
+		wantCmds []string
+	}{
+		{&systemd, "etc/systemd/system/kaze-sync.service", 0o644,
+			[]string{"ExecStart=%[1]s/kaze-syncd run --data %[1]s", "RequiresMountsFor=%[1]s", "User=kaze-sync", "Restart=on-failure"},
+			[]string{"systemctl daemon-reload", "systemctl enable kaze-sync", "systemctl restart kaze-sync"}},
+		{&openrc, "etc/init.d/kaze-sync", 0o755,
+			[]string{"supervisor=supervise-daemon", "command=%[1]s/kaze-syncd", `command_args="run --data %[1]s"`, "command_user=kaze-sync", "respawn_delay=5"},
+			[]string{"rc-update add kaze-sync default", "rc-service kaze-sync restart"}},
+	} {
+		f := newFakeSystem(t)
+		f.useManager(c.svc)
+		f.overlay = true // not checked outside OpenWrt: the data directory may be on the root file system
+		if err := f.install(InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		text, _ := os.ReadFile(filepath.Join(f.root, c.file))
+		for _, w := range c.wantText {
+			if w = strings.ReplaceAll(w, "%[1]s", f.data); !strings.Contains(string(text), w) {
+				t.Errorf("%s lacks %q", c.file, w)
+			}
+		}
+		if fi, _ := os.Stat(filepath.Join(f.root, c.file)); fi.Mode().Perm() != c.mode {
+			t.Errorf("%s mode %v", c.file, fi.Mode())
+		}
+		if !f.hasCmd("useradd --system") || !f.hasCmd("adduser -S -D -H -G kaze-sync") {
+			t.Errorf("user creation missing: %v", f.cmds)
+		}
+		if f.hasCmd("user_add") || f.hasCmd("uci") {
+			t.Errorf("OpenWrt steps ran: %v", f.cmds)
+		}
+		if _, err := os.Stat(filepath.Join(f.root, "etc/sysupgrade.conf")); err == nil {
+			t.Error("sysupgrade.conf written")
+		}
+		if got := strings.Join(f.cmds[len(f.cmds)-len(c.wantCmds):], "|"); got != strings.Join(c.wantCmds, "|") {
+			t.Errorf("commands %v, want %v", f.cmds, c.wantCmds)
+		}
+		if !strings.Contains(f.out.String(), "open this TCP port") {
+			t.Errorf("no firewall hint:\n%s", f.out.String())
+		}
+		f.cmds = nil
+		if err := f.in.AdminPassword(f.data); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.cmds) != 1 || f.cmds[0] != c.wantCmds[len(c.wantCmds)-1] {
+			t.Errorf("admin-password commands %v", f.cmds)
+		}
+	}
+}
+
+func TestInstallRefusesWANAndUnknownManager(t *testing.T) {
+	f := newFakeSystem(t)
+	f.useManager(&systemd)
+	if err := f.install(InstallOptions{WAN: true}); err == nil || !strings.Contains(err.Error(), "--wan") {
+		t.Fatalf("--wan on systemd: %v", err)
+	}
+	for _, s := range []*service{&procd, &systemd, &openrc} {
+		os.RemoveAll(filepath.Join(f.root, s.probe))
+	}
+	if err := f.install(InstallOptions{}); err == nil || !strings.Contains(err.Error(), "no supported service manager") {
+		t.Fatalf("unknown manager: %v", err)
+	}
+	if _, err := os.Stat(f.data); err == nil || len(f.cmds) != 0 {
+		t.Fatalf("something was installed: %v", f.cmds)
 	}
 }
 

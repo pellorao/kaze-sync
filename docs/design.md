@@ -528,7 +528,7 @@ start_service() {
 命令相同: `./kaze-syncd install --data /var/lib/kaze-sync` (路径由用户选择), 之后 `admin-password`. 与 OpenWrt 的差别:
 
 - 数据目录可以在根文件系统上 (VPS 通常只有一块盘, 系统升级不改写数据); 不做设备号检查. 数据盘未挂载时 `run` 找不到 `meta.db` 而退出, 与 OpenWrt 相同.
-- 系统用户 `kaze-sync`: systemd 系统用 `useradd --system --no-create-home --shell /bin/false kaze-sync`; Alpine 用 busybox 的 `addgroup -S kaze-sync` 与 `adduser -S -D -H -G kaze-sync -s /sbin/nologin kaze-sync`. 用户已存在时跳过.
+- 系统用户 `kaze-sync`: 用户已存在时跳过; 系统有 `useradd` 时用 `useradd --system --no-create-home --shell /bin/false kaze-sync`, 否则用 busybox 的 `addgroup -S kaze-sync` 与 `adduser -S -D -H -G kaze-sync -s /sbin/nologin kaze-sync`. 按命令是否存在选择, 不按服务管理器, 所以非 Alpine 的 OpenRC 系统 (如 Devuan) 也能安装.
 - 不配置防火墙: 带 `--wan` 时报错退出. 安装结束时打印端口, 并提示在云厂商安全组或本机防火墙中放行该 TCP 端口.
 - 没有 `sysupgrade.conf` 相关步骤.
 - systemd: 写入 `/etc/systemd/system/kaze-sync.service`, 执行 `systemctl daemon-reload`, `systemctl enable kaze-sync` 和 `systemctl restart kaze-sync`; 日志进 journald (`journalctl -u kaze-sync`):
@@ -550,7 +550,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-- OpenRC: 写入 `/etc/init.d/kaze-sync` (权限 0755), 执行 `rc-update add kaze-sync default` 和 `rc-service kaze-sync restart`; `supervise-daemon` 在进程退出后重启它; 日志经 `logger` 进 syslog (Alpine 默认为 `/var/log/messages`). `output_logger` 与 `respawn_delay` 的可用版本在实施时按 OpenRC 文档核实:
+- OpenRC: 写入 `/etc/init.d/kaze-sync` (权限 0755), 执行 `rc-update add kaze-sync default` 和 `rc-service kaze-sync restart`; `supervise-daemon` 在进程退出后重启它; 日志经 `logger` 进 syslog (Alpine 默认为 `/var/log/messages`). `output_logger`, `error_logger` 与 `respawn_delay` 在 OpenRC 0.63.2 (Alpine 3.24) 的 `supervise-daemon` 上实测可用 (M8); `supervise-daemon` 默认 30 分钟内连续重启 5 次后放弃, 与 procd 的默认 (5 次) 相当, 不另设:
 
 ```sh
 #!/sbin/openrc-run
