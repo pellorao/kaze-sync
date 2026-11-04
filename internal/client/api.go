@@ -61,8 +61,9 @@ func httpError(path string, resp *http.Response, token string) error {
 }
 
 // NewHTTPClient returns a client for the server. With a fingerprint
-// ("sha256:<hex>") only the certificate with that hash is accepted, whatever
-// its name; without one the system roots apply. HTTPS_PROXY is honoured.
+// ("sha256:<hex>") only the certificate with that hash, or one signed by the
+// CA certificate with that hash, is accepted, whatever its name; without one
+// the system roots apply. HTTPS_PROXY is honoured.
 func NewHTTPClient(fingerprint string) (*http.Client, error) {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.ResponseHeaderTimeout = responseTimeout
@@ -72,20 +73,41 @@ func NewHTTPClient(fingerprint string) (*http.Client, error) {
 			return nil, fmt.Errorf("invalid fingerprint %q", fingerprint)
 		}
 		tr.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true, // replaced by the pin below
-			MinVersion:         tls.VersionTLS12,
-			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
-				if len(raw) == 0 {
-					return errors.New("server sent no certificate")
-				}
-				if sum := sha256.Sum256(raw[0]); !bytes.Equal(sum[:], want) {
-					return errors.New("server certificate does not match the pinned fingerprint")
-				}
-				return nil
-			},
+			InsecureSkipVerify:    true, // replaced by the pin below
+			MinVersion:            tls.VersionTLS12,
+			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error { return checkPin(raw, want) },
 		}
 	}
 	return &http.Client{Transport: tr}, nil
+}
+
+// checkPin accepts a chain whose first certificate has the pinned hash (self-signed server), or whose
+// first certificate is signed by a certificate in the chain with that hash (local CA mode, design 2.5).
+// The name is not checked, as for the pinned certificate itself.
+func checkPin(raw [][]byte, want []byte) error {
+	if len(raw) == 0 {
+		return errors.New("server sent no certificate")
+	}
+	if sum := sha256.Sum256(raw[0]); bytes.Equal(sum[:], want) {
+		return nil
+	}
+	for _, r := range raw[1:] {
+		if sum := sha256.Sum256(r); !bytes.Equal(sum[:], want) {
+			continue
+		}
+		ca, err1 := x509.ParseCertificate(r)
+		leaf, err2 := x509.ParseCertificate(raw[0])
+		if err1 != nil || err2 != nil {
+			break
+		}
+		pool := x509.NewCertPool()
+		pool.AddCert(ca)
+		if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+			return fmt.Errorf("server certificate is not valid under the pinned CA: %w", err)
+		}
+		return nil
+	}
+	return errors.New("server certificate does not match the pinned fingerprint")
 }
 
 // API talks to the device API of one server.

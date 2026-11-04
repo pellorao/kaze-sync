@@ -1,4 +1,4 @@
-// Command kaze-syncd is the kaze-sync server: run, install, admin-password, export.
+// Command kaze-syncd is the kaze-sync server: run, install, ca, admin-password, export.
 package main
 
 import (
@@ -18,7 +18,8 @@ import (
 
 const usage = `usage:
   kaze-syncd run --data DIR
-  kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE] [--wan] [--new-epoch]
+  kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE | --ca [--san NAMES]] [--wan] [--new-epoch]
+  kaze-syncd ca [--data DIR] [--enable] [--san NAMES] [--export FILE|-]
   kaze-syncd admin-password [--data DIR]
   kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "YYYY-MM-DD HH:MM[:SS]" (UTC)]`
 
@@ -34,7 +35,7 @@ func main() {
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
-	case "run", "install", "admin-password", "export":
+	case "run", "install", "admin-password", "export", "ca":
 	default:
 		exitUsage("unknown command " + cmd)
 	}
@@ -42,7 +43,7 @@ func main() {
 	fs.SetOutput(io.Discard)
 	exe, _ := os.Executable()
 	def := "" // run and install need an explicit directory; admin-password defaults to the binary's
-	if cmd == "admin-password" || cmd == "export" {
+	if cmd == "admin-password" || cmd == "export" || cmd == "ca" {
 		def = filepath.Dir(exe)
 	}
 	data := fs.String("data", def, "data directory")
@@ -51,8 +52,16 @@ func main() {
 		fs.StringVar(&o.Listen, "listen", "", "listen address, kept from the first install when omitted")
 		fs.StringVar(&o.Cert, "cert", "", "certificate file (instead of the self-signed one)")
 		fs.StringVar(&o.Key, "key", "", "private key file")
+		fs.BoolVar(&o.CA, "ca", false, "use a local CA and a server certificate signed by it")
+		fs.StringVar(&o.SAN, "san", "", "extra host names and IP addresses for the server certificate, comma separated (with --ca)")
 		fs.BoolVar(&o.WAN, "wan", false, "open the port on the WAN zone of the firewall")
 		fs.BoolVar(&o.NewEpoch, "new-epoch", false, "after restoring a backup: make the clients read everything again")
+	}
+	var caOpts server.CAOptions
+	if cmd == "ca" {
+		fs.BoolVar(&caOpts.Enable, "enable", false, "switch an installation that is not in CA mode")
+		fs.StringVar(&caOpts.SAN, "san", "", "extra host names and IP addresses for the server certificate, comma separated")
+		fs.StringVar(&caOpts.Export, "export", "", "write the CA certificate to this file (- for the output)")
 	}
 	var export server.ExportOptions
 	var at string
@@ -93,6 +102,9 @@ func main() {
 			}
 		}
 		err = server.NewInstaller().Export(export)
+	case "ca":
+		caOpts.Data = *data
+		err = server.NewInstaller().CA(caOpts)
 	case "admin-password":
 		err = server.NewInstaller().AdminPassword(*data)
 	}

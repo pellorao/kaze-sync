@@ -35,6 +35,8 @@ type Installer struct {
 
 type InstallOptions struct {
 	Data, Listen, Cert, Key string
+	CA                      bool   // local CA mode (design 2.5)
+	SAN                     string // extra names and addresses for the CA-signed certificate, comma separated; kept when empty
 	WAN                     bool
 	NewEpoch                bool // after restoring a backup: make the clients read everything again (design 9.4)
 }
@@ -176,6 +178,9 @@ func (in *Installer) Install(o InstallOptions) error {
 	if (o.Cert == "") != (o.Key == "") {
 		return errors.New("--cert and --key go together")
 	}
+	if o.CA && o.Cert != "" {
+		return errors.New("--ca and --cert exclude each other")
+	}
 	if o.Cert != "" {
 		if !filepath.IsAbs(o.Cert) || !filepath.IsAbs(o.Key) {
 			return errors.New("--cert and --key must be absolute paths")
@@ -215,8 +220,9 @@ func (in *Installer) Install(o InstallOptions) error {
 	if err != nil {
 		return err
 	}
-	listen, fp, err := in.initState(db, state, o)
+	listen, fp, err := in.initState(db, data, o)
 	certFiles := []string{MetaString(db, "cert"), MetaString(db, "key")}
+	caMode := MetaString(db, "tls") == "ca"
 	db.Close()
 	if err != nil {
 		return err
@@ -244,6 +250,9 @@ func (in *Installer) Install(o InstallOptions) error {
 	}
 	if fp != "" {
 		in.say("certificate fingerprint: %s", fp)
+		if caMode {
+			in.say("local CA mode: clients pin the CA fingerprint above; get the CA certificate to trust in browsers with: %s/%s ca --data %s --export ca.pem", data, binName, data)
+		}
 	} else {
 		in.say("using the certificate files given; clients enroll without --fingerprint")
 	}
@@ -328,7 +337,8 @@ func migrateFolders(db *sql.DB, varDir string) error {
 }
 
 // initState migrates the database and decides the listen address and certificate.
-func (in *Installer) initState(db *sql.DB, data string, o InstallOptions) (listen, fingerprint string, err error) {
+func (in *Installer) initState(db *sql.DB, root string, o InstallOptions) (listen, fingerprint string, err error) {
+	data := filepath.Join(root, VarDir)
 	if err := Migrate(db); err != nil {
 		return "", "", err
 	}
@@ -358,6 +368,21 @@ func (in *Installer) initState(db *sql.DB, data string, o InstallOptions) (liste
 			if err := SetMeta(db, k, v); err != nil {
 				return "", "", err
 			}
+		}
+	}
+	if o.CA || (MetaString(db, "tls") == "ca" && o.Cert == "") { // --ca also leaves certificate-file mode
+		c, err := SetupCA(db, root, o.SAN, o.SAN != "")
+		if err != nil {
+			return "", "", err
+		}
+		return listen, CAFingerprint(c), nil
+	}
+	if o.SAN != "" {
+		return "", "", errors.New("--san needs --ca")
+	}
+	if o.Cert != "" {
+		if err := SetMeta(db, "tls", ""); err != nil { // --cert leaves CA mode
+			return "", "", err
 		}
 	}
 	if MetaString(db, "cert") != "" {
@@ -394,6 +419,25 @@ func (in *Installer) chownData(data string) error {
 	if err := os.Chmod(state, 0o700); err != nil {
 		return err
 	}
+	// The CA (design 2.5) stays root's: the service signs nothing and must not read the key.
+	if ca := filepath.Join(data, CADir); dirExists(ca) {
+		if err := os.Chmod(ca, 0o700); err != nil {
+			return err
+		}
+		ents, err := os.ReadDir(ca)
+		if err != nil {
+			return err
+		}
+		paths := []string{ca}
+		for _, e := range ents {
+			paths = append(paths, filepath.Join(ca, e.Name()))
+		}
+		for _, p := range paths {
+			if err := in.Chown(p, 0, 0); err != nil {
+				return err
+			}
+		}
+	}
 	// Everything below var/ but the blocks themselves (read-only, world-readable): this also repairs a
 	// tree that root restored from a backup (design 9.4).
 	return filepath.WalkDir(state, func(p string, d fs.DirEntry, err error) error {
@@ -408,6 +452,11 @@ func (in *Installer) chownData(data string) error {
 		}
 		return nil
 	})
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func (in *Installer) path(p string) string { return filepath.Join(in.Root, p) }

@@ -48,7 +48,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 /mnt/data/kaze-sync/kaze-syncd admin-password          # server: 只显示一次管理员密码
 ```
 
-`install` 做的事: 把自己复制到 `<data>/kaze-syncd`; 创建系统用户 `kaze-sync`; 创建并迁移数据库; 生成自签名证书; 在 20000 到 59999 之间随机选一个 TCP 端口 (之后每次执行都保持不变); 写入并启用 `procd` 服务 `/etc/init.d/kaze-sync` 并启动; 把服务文件加入 `/etc/sysupgrade.conf`, 让 `sysupgrade` 保留它们. 它会打印端口和证书指纹 (`sha256:...`). 请记下这两项, 注册客户端时要用.
+`install` 做的事: 把自己复制到 `<data>/kaze-syncd`; 创建系统用户 `kaze-sync`; 创建并迁移数据库; 生成自签名证书 (带 `--ca` 时生成本地 CA 和由它签发的证书); 在 20000 到 59999 之间随机选一个 TCP 端口 (之后每次执行都保持不变); 写入并启用 `procd` 服务 `/etc/init.d/kaze-sync` 并启动; 把服务文件加入 `/etc/sysupgrade.conf`, 让 `sysupgrade` 保留它们. 它会打印端口和证书指纹 (`sha256:...`). 请记下这两项, 注册客户端时要用.
 
 选项:
 
@@ -57,6 +57,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 | `--data DIR` | 必填. 绝对路径, 只能由字母, 数字和 `. _ - /` 组成 |
 | `--listen :PORT` | 指定监听地址, 代替随机端口; 之后的执行沿用 |
 | `--cert FILE --key FILE` | 使用自己的证书, 代替自签名证书 (2.4 节) |
+| `--ca [--san NAMES]` | 使用本地 CA 和由它签发的证书, 浏览器可以信任它 (2.4 节) |
 | `--wan` | 只用于 OpenWrt: 添加名为 `kaze-sync` 的防火墙规则, 允许 WAN 区域访问该端口. 不带 `--wan` 时, 会删除之前留下的这条规则 |
 | `--new-epoch` | 只在还原备份之后使用 (第 14 节) |
 
@@ -87,7 +88,18 @@ systemd 单元带加固选项 (服务只能写 `<data>/var`). 自己的修改请
 ### 2.4 端口, 证书与防火墙
 
 - **自签名证书 (默认).** 公网和局域网都适用, 有效期 100 年. 客户端按指纹固定证书, 与地址和主机名无关. 浏览器第一次访问时会警告证书, 把它显示的指纹与 `install` 打印的核对后, 接受一次例外.
-- **自己的证书.** `--cert /path/fullchain.pem --key /path/key.pem` (绝对路径, 安装时检查). 之后浏览器和客户端按系统根证书校验, 客户端注册时不带 `--fingerprint`. 服务以用户 `kaze-sync` 运行, 启动时自己读取这两个文件, 所以该用户必须能读这两个文件, 并能进入它们上面的每一级目录. `install` 本身以 root 运行, 不检查这一点: 服务用户读不了时, `install` 照常成功, 但服务每次启动都会退出, 日志里是 `permission denied` (服务管理器可能短暂显示为已启动). 例如用 `chgrp kaze-sync key.pem && chmod 640 key.pem` 修复 (对其他人关闭的目录再加 `chgrp kaze-sync <目录> && chmod 750 <目录>`), 然后重启服务. 服务端不监视这些文件: 每次续期后要重启服务 (用 acme.sh 时把重启命令写进 `--reloadcmd`). 之后的 `install` 沿用证书模式, 不能切回自签名. 两种模式之间切换需要所有客户端重新注册.
+- **自己的证书.** `--cert /path/fullchain.pem --key /path/key.pem` (绝对路径, 安装时检查). 之后浏览器和客户端按系统根证书校验, 客户端注册时不带 `--fingerprint`. 服务以用户 `kaze-sync` 运行, 启动时自己读取这两个文件, 所以该用户必须能读这两个文件, 并能进入它们上面的每一级目录. `install` 本身以 root 运行, 不检查这一点: 服务用户读不了时, `install` 照常成功, 但服务每次启动都会退出, 日志里是 `permission denied` (服务管理器可能短暂显示为已启动). 例如用 `chgrp kaze-sync key.pem && chmod 640 key.pem` 修复 (对其他人关闭的目录再加 `chgrp kaze-sync <目录> && chmod 750 <目录>`), 然后重启服务. 服务端不监视这些文件: 每次续期后要重启服务 (用 acme.sh 时把重启命令写进 `--reloadcmd`). 之后的 `install` 沿用证书模式, 不能切回自签名. 模式之间切换需要所有客户端重新注册.
+- **本地 CA (浏览器信任, 恢复自动填充密码).** `--ca` 让服务端生成自己的证书颁发机构 (CA) 和由它签发的服务端证书. 浏览器对自签名证书显示警告, 也因此不提供填充已保存的密码; 在你的电脑上信任这个 CA 之后, 页面被视为安全, Chrome, Edge 和 Firefox 会重新自动填充密码. 证书覆盖的名称有 `localhost`, `127.0.0.1`, `::1`, 服务器的主机名和 `--listen` 里的主机; 你在浏览器里输入的地址或名称用 `--san` 追加 (逗号分隔, 例如 `--san 192.168.1.1,nas.example.org`, 改列表时重复执行 `install`). 请只用这些名称打开 Web UI, 否则浏览器会再次警告. CA 放在 `<data>/ca/`, 只有 root 能读; 服务本身读不到 CA 私钥. 客户端固定的是 CA 的指纹 (`install` 打印的那个, 注册对话框里也显示它), 所以客户端所在的电脑不需要信任任何东西. 要让浏览器信任这个 CA, 导出它的证书 (不含任何机密), 在每台使用 Web UI 的电脑上导入:
+
+  ```bash
+  /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # 在服务器上
+  ```
+
+  - **Windows (Chrome 和 Edge)**: `certutil -user -addstore Root ca.pem`. Windows 会弹出一次确认安装根证书的对话框, 选 **是**. 证书进入当前用户的存储区, 不需要管理员权限. 重启浏览器.
+  - **Linux 系统存储**: `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Chrome 和 Chromium 用自己的存储: `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (软件包 `libnss3-tools`).
+  - **Firefox**: 设置, 隐私与安全, 证书, 查看证书, 证书颁发机构, 导入, 并勾选 "信任由此证书颁发机构来标识网站". (Windows 上的 Firefox 也可以读 Windows 存储: 在 `about:config` 里把 `security.enterprise_roots.enabled` 设为 true.)
+
+  谁拿到 `ca-key.pem`, 谁就能签发你的电脑会信任的证书, 所以请保护好 `<data>/ca/`, 也要把它放进备份 (第 14 节). 服务端证书有效期两年, 剩余不足 90 天时续期: 由 `install`, 由 `kaze-syncd ca --data <data>` (以 root), 或在服务以 CA 私钥属主身份运行时由服务自己完成. 服务运行中会在一分钟内用上续期后的证书, 不需要重启. CA 默认属于 root, 此时请用每月一次的定时任务执行 `kaze-syncd ca --data <data>` (`0 4 1 * * /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync`); 忘了的话, 服务在最后 30 天内会在日志里警告. 之后的 `install` 沿用 CA 模式. 从自签名或证书文件模式切换用 `install --ca`; 与其他切换一样, 所有客户端都要重新注册 (对能直接改的客户端, 也可以把 CA 指纹填进它的 `device.json` 的 `fingerprint` 字段并重启).
 - **端口.** 默认随机, 避免被扫描到; 用 `--listen :PORT` 指定. 始终是 HTTPS, Web UI 与客户端协议共用它.
 - 忘记端口或指纹时, 用同一个 `--data` 再执行一次 `install` (可以重复执行, 会打印这两项), 或在服务端日志里找 `listening` 那一行.
 
@@ -304,13 +316,14 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 ## 14. 服务端的备份与还原
 
-服务端不是备份: 版本与数据在同一块盘上 (不过客户端上有每个文件夹的普通文件副本). 为防止整盘损坏, 请备份 `<data>/var/meta.db`, `<data>/var/folders/`, `<data>/var/blobs/`, 以及很小的 `<data>/var/tls/` (没有它, 还原后的服务端会生成新证书, 指纹变化, 所有客户端都要重新注册). `meta.db` 与各文件夹库必须取自同一时刻, 所以复制它们时要停止服务, 并避开垃圾回收运行的时刻. 块写入后不再改变, 可以在服务运行时复制, 也可以增量复制. 备份放在另一块盘或另一台机器上. 命令如下 (以 systemd 为例, 其他服务管理器换成各自的停止和启动命令):
+服务端不是备份: 版本与数据在同一块盘上 (不过客户端上有每个文件夹的普通文件副本). 为防止整盘损坏, 请备份 `<data>/var/meta.db`, `<data>/var/folders/`, `<data>/var/blobs/`, 以及很小的 `<data>/var/tls/`, 本地 CA 模式下还有 `<data>/ca/` (没有它们, 还原后的服务端会生成新证书或新 CA, 指纹变化, 所有客户端都要重新注册, 浏览器也要重新信任新 CA). `meta.db` 与各文件夹库必须取自同一时刻, 所以复制它们时要停止服务, 并避开垃圾回收运行的时刻. 块写入后不再改变, 可以在服务运行时复制, 也可以增量复制. 备份放在另一块盘或另一台机器上. 命令如下 (以 systemd 为例, 其他服务管理器换成各自的停止和启动命令):
 
 ```bash
 systemctl stop kaze-sync                                                          # server
 cd /var/lib/kaze-sync/var && tar cf /backup/meta.tar meta.db folders tls
 systemctl start kaze-sync                                                         # 停机只有几秒钟
 tar cf /backup/blobs.tar blobs
+tar cf /backup/ca.tar -C /var/lib/kaze-sync ca                                     # 仅本地 CA 模式
 ```
 
 **还原** (到新机器, 或原地回滚), 使用同一版本或更新版本的 `kaze-syncd`:
@@ -319,6 +332,7 @@ tar cf /backup/blobs.tar blobs
 mkdir -p /var/lib/kaze-sync/var                                                    # server
 tar xf /backup/meta.tar  -C /var/lib/kaze-sync/var
 tar xf /backup/blobs.tar -C /var/lib/kaze-sync/var
+tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                     # 仅本地 CA 模式
 ./kaze-syncd export /tmp/check --data /var/lib/kaze-sync                           # 可选: 先确认数据可读
 ./kaze-syncd install --data /var/lib/kaze-sync --new-epoch                         # 修正属主, 更换历史标识, 启动服务
 ```
@@ -427,7 +441,7 @@ rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据�
 | `enroll` 提示 `too many failures` (HTTP 429), 或登录页返回 429 | 一小时内失败 10 次会把该 IP 锁定一小时. 等待, 或在服务端执行 `admin-password`, 它重启服务并清除所有锁定 |
 | `enroll` 提示 `cannot register device` | 已有同名设备. 先吊销它, 或用另一个名称添加设备 |
 | `enroll` 报证书错误 | 指纹不符: 从对话框重新复制命令 (`install` 和日志中的 `listening` 行也有指纹); 或者服务端用的是你自己的证书, 此时必须去掉 `--fingerprint` |
-| 浏览器警告证书 | 自签名证书的正常现象; 核对指纹后接受一次 |
+| 浏览器警告证书, 或不自动填充已保存的密码 | 自签名证书的正常现象; 核对指纹后接受一次. 想去掉警告并恢复密码填充, 用本地 CA (2.4 节); 用了它仍警告, 说明这台电脑还没信任该 CA, 或浏览器里的地址不在证书的名称里 (`--san`) |
 | 忘记管理员密码, 端口或指纹 | 见 2.5 节和 2.4 节 |
 | 服务启动后马上退出, 日志里是证书或私钥的 `permission denied` | 服务用户 `kaze-sync` 读不了你自己的证书文件, 或进不了它们所在的目录 (2.4 节) |
 | 重启后服务端没有启动 | 数据盘没有挂载. 服务端此时会退出, 而不是新建一个空库; 挂载磁盘后启动服务 |

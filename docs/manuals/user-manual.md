@@ -48,7 +48,7 @@ Copy `kaze-syncd` to the router, then as root:
 /mnt/data/kaze-sync/kaze-syncd admin-password          # server: shows the admin password once
 ```
 
-What `install` does: copies itself to `<data>/kaze-syncd`; creates the system user `kaze-sync`; creates and migrates the databases; generates a self-signed certificate; picks a random TCP port between 20000 and 59999 (kept on later runs); writes and enables the `procd` service `/etc/init.d/kaze-sync` and starts it; adds the service files to `/etc/sysupgrade.conf` so that `sysupgrade` keeps them. It prints the port and the certificate fingerprint (`sha256:...`). Write both down; you need them to enroll clients.
+What `install` does: copies itself to `<data>/kaze-syncd`; creates the system user `kaze-sync`; creates and migrates the databases; generates a self-signed certificate (or, with `--ca`, a local CA and a certificate it signs); picks a random TCP port between 20000 and 59999 (kept on later runs); writes and enables the `procd` service `/etc/init.d/kaze-sync` and starts it; adds the service files to `/etc/sysupgrade.conf` so that `sysupgrade` keeps them. It prints the port and the certificate fingerprint (`sha256:...`). Write both down; you need them to enroll clients.
 
 Options:
 
@@ -57,6 +57,7 @@ Options:
 | `--data DIR` | Required. Absolute path made of letters, digits and `. _ - /` |
 | `--listen :PORT` | Listen address instead of the random port; remembered for later runs |
 | `--cert FILE --key FILE` | Use your own certificate instead of the self-signed one (section 2.4) |
+| `--ca [--san NAMES]` | Use a local CA and a certificate signed by it, which browsers can trust (section 2.4) |
 | `--wan` | OpenWrt only: add a firewall rule named `kaze-sync` that accepts the port from the WAN zone. Without `--wan`, a rule left over from an earlier run is removed |
 | `--new-epoch` | Only after restoring a backup (section 14) |
 
@@ -87,7 +88,18 @@ The systemd unit is hardened (the service may only write below `<data>/var`). Ad
 ### 2.4 Port, certificate and firewall
 
 - **Self-signed certificate (default).** Works for the internet and for a LAN alike. Valid for 100 years. Clients pin the certificate by its fingerprint, so the address and host name do not matter. Your browser will warn about the certificate once; compare the fingerprint it shows with the one `install` printed, then accept the exception.
-- **Your own certificate.** `--cert /path/fullchain.pem --key /path/key.pem` (absolute paths, checked at install time). Browsers and clients then validate it against the system roots and clients enroll without `--fingerprint`. The service runs as user `kaze-sync` and reads these files itself at start, so that user must be able to read both files and to enter every directory above them. `install` itself runs as root and does not check this: if the service user cannot read them, `install` succeeds, but the service exits at every start with `permission denied` in its log (the service manager may still report it as started for a moment). Fix it with, for example, `chgrp kaze-sync key.pem && chmod 640 key.pem` (and `chgrp kaze-sync <dir> && chmod 750 <dir>` for a directory that is closed to others), then restart the service. The server does not watch the files: after each renewal restart the service (for acme.sh, put the restart command in `--reloadcmd`). Later `install` runs keep certificate mode; there is no switch back to self-signed. Switching between the two modes needs every client to be enrolled again.
+- **Your own certificate.** `--cert /path/fullchain.pem --key /path/key.pem` (absolute paths, checked at install time). Browsers and clients then validate it against the system roots and clients enroll without `--fingerprint`. The service runs as user `kaze-sync` and reads these files itself at start, so that user must be able to read both files and to enter every directory above them. `install` itself runs as root and does not check this: if the service user cannot read them, `install` succeeds, but the service exits at every start with `permission denied` in its log (the service manager may still report it as started for a moment). Fix it with, for example, `chgrp kaze-sync key.pem && chmod 640 key.pem` (and `chgrp kaze-sync <dir> && chmod 750 <dir>` for a directory that is closed to others), then restart the service. The server does not watch the files: after each renewal restart the service (for acme.sh, put the restart command in `--reloadcmd`). Later `install` runs keep certificate mode; there is no switch back to self-signed. Switching between the modes needs every client to be enrolled again.
+- **Local CA (browsers trust it, with saved passwords).** `--ca` makes the server create its own certificate authority (CA) and a server certificate signed by it. Browsers show a warning for a self-signed certificate and, for that reason, do not offer to fill in saved passwords; once the CA is trusted on your computer, the page counts as secure and Chrome, Edge and Firefox fill in the password again. The certificate names are `localhost`, `127.0.0.1`, `::1`, the host name of the server and the host of `--listen`; add the address or name you type in the browser with `--san` (comma separated, for example `--san 192.168.1.1,nas.example.org`; repeat `install` to change the list). Open the Web UI only by one of these names, otherwise the browser warns again. The CA lives in `<data>/ca/`, readable by root only; the service cannot read the CA key. Clients pin the CA fingerprint (the one `install` prints; the enrollment dialog shows it as well), so the client machines do not need to trust anything. To trust the CA in your browser, export its certificate (it contains no secret) and import it on each computer where you use the Web UI:
+
+  ```bash
+  /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # on the server
+  ```
+
+  - **Windows (Chrome and Edge)**: `certutil -user -addstore Root ca.pem`. Windows asks once to confirm the installation of the root certificate; answer **Yes**. It goes into the current user's store, no administrator is needed. Restart the browser.
+  - **Linux, system store**: `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Chrome and Chromium use their own store: `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (package `libnss3-tools`).
+  - **Firefox**: Settings, Privacy & Security, Certificates, View Certificates, Authorities, Import, and tick "Trust this CA to identify websites". (Firefox on Windows can also read the Windows store: set `security.enterprise_roots.enabled` to true in `about:config`.)
+
+  Whoever has `ca-key.pem` can make certificates your computers trust, so keep `<data>/ca/` private and in the backup (section 14). The server certificate is valid for two years and is renewed when fewer than 90 days remain: by `install`, by `kaze-syncd ca --data <data>` (as root), or by the service itself when it runs as the owner of the CA key. The running service picks up a renewed certificate within a minute, without a restart. With the default root-owned CA, run `kaze-syncd ca --data <data>` from a monthly cron job (`0 4 1 * * /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync`); if you forget, the service logs a warning during the last 30 days. Later `install` runs keep CA mode. From self-signed or certificate-file mode, switch with `install --ca`; as with the other switches, every client must enroll again (or, for a client you can edit, put the CA fingerprint into the `fingerprint` field of its `device.json` and restart it).
 - **Port.** Random by default so that it is not found by scanning; `--listen :PORT` sets it. It is always HTTPS, and the Web UI and the client protocol share it.
 - If you forget the port or the fingerprint, run `install` again with the same `--data` (it is safe to repeat; it prints both), or look for the line `listening` in the server log.
 
@@ -304,13 +316,14 @@ Without `--folder`, each folder is exported to `DIR/<folder name>`; with `--fold
 
 ## 14. Backup and restore of the server
 
-The server is not a backup: versions live on the same disk as the data (the clients, however, hold ordinary copies of every folder). To protect against disk loss, back up `<data>/var/meta.db`, `<data>/var/folders/` and `<data>/var/blobs/`, plus the small `<data>/var/tls/` (without it the restored server creates a new certificate, its fingerprint changes and every client must enroll again). `meta.db` and the folder databases must come from the same moment, so stop the service while copying them, and avoid the time garbage collection runs. The blocks never change after being written, so they can be copied while the service runs and incrementally. Keep the backup on another disk or machine. The commands (with systemd shown; use your service manager's stop and start):
+The server is not a backup: versions live on the same disk as the data (the clients, however, hold ordinary copies of every folder). To protect against disk loss, back up `<data>/var/meta.db`, `<data>/var/folders/` and `<data>/var/blobs/`, plus the small `<data>/var/tls/` and, in local CA mode, `<data>/ca/` (without them the restored server creates a new certificate or a new CA, its fingerprint changes and every client must enroll again, and the browsers must trust the new CA). `meta.db` and the folder databases must come from the same moment, so stop the service while copying them, and avoid the time garbage collection runs. The blocks never change after being written, so they can be copied while the service runs and incrementally. Keep the backup on another disk or machine. The commands (with systemd shown; use your service manager's stop and start):
 
 ```bash
 systemctl stop kaze-sync                                                          # server
 cd /var/lib/kaze-sync/var && tar cf /backup/meta.tar meta.db folders tls
 systemctl start kaze-sync                                                         # downtime: seconds
 tar cf /backup/blobs.tar blobs
+tar cf /backup/ca.tar -C /var/lib/kaze-sync ca                                     # only in local CA mode
 ```
 
 **Restore** (on a new machine, or in place to roll back), with a `kaze-syncd` of the same or a newer version:
@@ -319,6 +332,7 @@ tar cf /backup/blobs.tar blobs
 mkdir -p /var/lib/kaze-sync/var                                                    # server
 tar xf /backup/meta.tar  -C /var/lib/kaze-sync/var
 tar xf /backup/blobs.tar -C /var/lib/kaze-sync/var
+tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                     # only in local CA mode
 ./kaze-syncd export /tmp/check --data /var/lib/kaze-sync                           # optional: check the data reads
 ./kaze-syncd install --data /var/lib/kaze-sync --new-epoch                         # fixes owners, new history id, starts the service
 ```
@@ -427,7 +441,7 @@ The client log records startup, warnings and errors, and is moved to `kaze-syncc
 | `enroll` says `too many failures` (HTTP 429), or the sign-in page answers 429 | 10 failed attempts within an hour lock that IP for one hour. Wait, or run `admin-password` on the server, which restarts the service and clears all lockouts |
 | `enroll` says `cannot register device` | A device with that name already exists. Revoke it, or add the device under another name |
 | `enroll` fails with a certificate error | The fingerprint does not match: copy the command again from the dialog (`install` prints it too, and so does the `listening` log line), or the server uses your own certificate and `--fingerprint` must be left out |
-| Browser warns about the certificate | Expected for the self-signed certificate; compare the fingerprint, accept once |
+| Browser warns about the certificate, or does not fill in saved passwords | Expected for the self-signed certificate; compare the fingerprint, accept once. To remove the warning and get password filling, use a local CA (section 2.4); with it, the warning means the CA is not trusted on this computer yet or the address in the browser is not among the certificate names (`--san`) |
 | Forgot the admin password, port or fingerprint | Section 2.5 and section 2.4 |
 | The service exits right after starting and the log says `permission denied` on the certificate or key | The service user `kaze-sync` cannot read your own certificate files or enter their directory (section 2.4) |
 | Server does not start after a reboot | The data disk was not mounted. The server then exits instead of creating an empty database; mount the disk and start the service |

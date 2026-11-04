@@ -83,7 +83,7 @@ func exitUsage(problem string) {
 func enroll(dir string, args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fp := fs.String("fingerprint", "", "pinned certificate fingerprint (self-signed servers)")
+	fp := fs.String("fingerprint", "", "pinned certificate or CA fingerprint (self-signed and local-CA servers)")
 	noAuto := fs.Bool("no-autostart", false, "do not configure autostart")
 	// Flags may follow the positional arguments.
 	var pos []string

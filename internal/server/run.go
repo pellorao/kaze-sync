@@ -17,14 +17,28 @@ func Run(ctx context.Context, data string) error {
 		return err
 	}
 	defer s.Close()
-	var cert tls.Certificate
+	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
 	if certFile, keyFile := MetaString(s.db, "cert"), MetaString(s.db, "key"); certFile != "" {
-		cert, err = tls.LoadX509KeyPair(certFile, keyFile)
-	} else if cert, err = EnsureSelfSigned(filepath.Join(data, VarDir, TLSDir)); err == nil {
+		var cert tls.Certificate
+		if cert, err = tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+			return err
+		}
+		tlsConf.Certificates = []tls.Certificate{cert}
+	} else if MetaString(s.db, "tls") == "ca" {
+		cs, err := NewCertSource(serverPEMPath(data))
+		if err != nil {
+			return err
+		}
+		tlsConf.GetCertificate = cs.GetCertificate
+		s.Fingerprint = CAFingerprint(cs.Current())
+		go s.certLoop(ctx, data)
+	} else {
+		cert, err := EnsureSelfSigned(filepath.Join(data, VarDir, TLSDir))
+		if err != nil {
+			return err
+		}
+		tlsConf.Certificates = []tls.Certificate{cert}
 		s.Fingerprint = Fingerprint(cert)
-	}
-	if err != nil {
-		return err
 	}
 	ln, err := net.Listen("tcp", MetaString(s.db, "listen"))
 	if err != nil {
@@ -32,7 +46,7 @@ func Run(ctx context.Context, data string) error {
 	}
 	srv := &http.Server{
 		Handler:           s.Handler(),
-		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
+		TLSConfig:         tlsConf,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
@@ -50,4 +64,19 @@ func Run(ctx context.Context, data string) error {
 		return err
 	}
 	return nil
+}
+
+// certLoop renews the CA-signed server certificate when this process may sign, and warns when it may not
+// and the certificate is about to expire.
+func (s *Server) certLoop(ctx context.Context, data string) {
+	for {
+		if _, err := CheckServerCert(s.db, data, time.Now()); err != nil {
+			slog.Error("server certificate check failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(certCheckGap):
+		}
+	}
 }

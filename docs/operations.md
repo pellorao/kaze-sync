@@ -77,7 +77,7 @@ mount | grep /mnt/data                 # 确认已挂载
 
 ## 备份与还原
 
-必须备份 `var/meta.db`, `var/folders/` 和 `var/blobs/`; 另外建议备份 `var/tls/` (自签名证书和私钥, 很小): 没有它, 还原后会生成新证书, 指纹变化, 全部客户端需要重新注册. 备份放在另一块盘或另一台机器上.
+必须备份 `var/meta.db`, `var/folders/` 和 `var/blobs/`; 另外建议备份 `var/tls/` (自签名证书和私钥, 很小) 以及本地 CA 模式下的 `<data>/ca/` (CA 私钥): 没有它们, 还原后会生成新证书或新 CA, 指纹变化, 全部客户端需要重新注册. 备份放在另一块盘或另一台机器上.
 
 备份 (以 `/mnt/data/kaze-sync` 与目标目录 `/backup` 为例), 避开 GC 运行的时刻; 下面写 OpenWrt 的启停命令, systemd 换成 `systemctl stop|start kaze-sync`, OpenRC 换成 `rc-service kaze-sync stop|start`:
 
@@ -86,6 +86,7 @@ mount | grep /mnt/data                 # 确认已挂载
 cd /mnt/data/kaze-sync/var && tar cf /backup/meta.tar meta.db folders tls     # 停服务后 WAL 已合并
 /etc/init.d/kaze-sync start                                                   # 停机只有几秒钟
 tar cf /backup/blobs.tar blobs                                                # 块写入后不再修改, 可增量复制
+tar cf /backup/ca.tar -C /mnt/data/kaze-sync ca                              # 仅本地 CA 模式
 ```
 
 还原到新机器 (新数据盘已挂载, 已有同一版本或更新版本的 `kaze-syncd`):
@@ -94,6 +95,7 @@ tar cf /backup/blobs.tar blobs                                                # 
 mkdir -p /mnt/data/kaze-sync/var
 tar xf /backup/meta.tar -C /mnt/data/kaze-sync/var
 tar xf /backup/blobs.tar -C /mnt/data/kaze-sync/var
+tar xf /backup/ca.tar    -C /mnt/data/kaze-sync                              # 仅本地 CA 模式
 ./kaze-syncd export /tmp/check --data /mnt/data/kaze-sync       # 可选: 先确认数据可读, 见下
 ./kaze-syncd install --data /mnt/data/kaze-sync --new-epoch      # 修正属主, 更换历史标识, 启动服务
 ```

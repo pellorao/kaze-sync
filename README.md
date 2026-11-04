@@ -14,7 +14,7 @@ It is:
 - **Two-way sync of several folders per device**, for example `D:\Docs` and `E:\Photos` on Windows, `~/Docs` on Linux. Large files such as a 1 GB SQLite database sync efficiently.
 - **Safe against mistakes.** Every overwrite or delete keeps the old content on the server (30 days by default). You can restore a file version, a deleted file, or a whole directory as of a point in time. Concurrent edits never lose data: the later change becomes a conflict copy.
 - **Centrally configured.** Folders, per-device paths, exclusion rules (`.gitignore` syntax, global and per folder), retention, notifications and restores are all in one Web UI. Clients have no settings to edit.
-- **Reachable from the internet.** The server uses a random high port, a self-signed certificate pinned by fingerprint (or your own certificate), a random admin password and lockout after failed attempts. Clients only connect out, so they work behind NAT.
+- **Reachable from the internet.** The server uses a random high port, a self-signed certificate pinned by fingerprint (or your own certificate, or a local CA that your browser can trust), a random admin password and lockout after failed attempts. Clients only connect out, so they work behind NAT.
 
 It is not: a file-sharing, multi-user or collaboration service; a backup (versions live on the same disk as the data, although every client holds ordinary copies); a service with a file viewer or download in the browser; a macOS, mobile or non-x86-64 server solution. The full list is in the manual (section 18).
 
