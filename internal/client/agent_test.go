@@ -359,3 +359,25 @@ func TestUnopenableFolderStateDoesNotSpinThePoll(t *testing.T) {
 		t.Fatalf("%d polls in a few seconds: the poll spins", n)
 	}
 }
+
+// A task is reported as "syncing" only after it has run for syncingAfter: a scan of a file rewritten every half
+// minute lasts a fraction of a second, and reporting it keeps the overview on "syncing" until the next poll restart.
+func TestSyncingIsReportedForLongTasksOnly(t *testing.T) {
+	a := &Agent{runners: map[int64]*runner{1: {busy: true, busyAt: time.Now()}}}
+	if st := a.states()[0].State; st != "idle" {
+		t.Fatalf("a task that has just started is reported as %q", st)
+	}
+	a.runners[1].busyAt = time.Now().Add(-syncingAfter - time.Second)
+	if st := a.states()[0].State; st != "syncing" {
+		t.Fatalf("a long task is reported as %q", st)
+	}
+	a.runners[1].busy = false
+	if st := a.states()[0].State; st != "idle" {
+		t.Fatalf("an idle folder is reported as %q", st)
+	}
+	// The loop wakes when a running task turns three seconds old, to send the new status.
+	a.runners[1].busy, a.runners[1].busyAt = true, time.Now()
+	if w := a.nextWake(); w > syncingAfter || w < syncingAfter-time.Second {
+		t.Fatalf("next wake in %v, want about %v", w, syncingAfter)
+	}
+}

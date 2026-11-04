@@ -29,6 +29,11 @@ type openFail struct {
 // statusEvery is the shortest time between two restarts of the long poll to report a changed status (design 3.6).
 const statusEvery = 10 * time.Second
 
+// syncingAfter is how long a task runs before the status says "syncing". A scan after a file event takes a fraction
+// of a second; reporting it would restart the poll twice (busy, idle) and show "syncing" for about statusEvery after
+// each tiny task (a file rewritten every 30 seconds made the overview say syncing half of the time, 2026-11-05).
+const syncingAfter = 3 * time.Second
+
 // Agent runs the sync loop (design 2.1): the long poll keeps the
 // configuration and the server's news current, and every mapped folder is
 // scanned and pulled on start, after file events (debounced), when the server
@@ -75,10 +80,11 @@ type runner struct {
 	lastSynced int64
 	scanned    bool
 	busy       bool
-	seen       int64    // the server's latest seq this runner has read up to; -1 unknown
-	acked      int64    // the latest seq the server announced; stands in for seen while that news is handled or cannot be
-	ready      bool     // the last scan found the sync root in order
-	s          schedule // when to scan and pull (schedule.go)
+	busyAt     time.Time // when the running task started
+	seen       int64     // the server's latest seq this runner has read up to; -1 unknown
+	acked      int64     // the latest seq the server announced; stands in for seen while that news is handled or cannot be
+	ready      bool      // the last scan found the sync root in order
+	s          schedule  // when to scan and pull (schedule.go)
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -131,7 +137,7 @@ func (a *Agent) states() []proto.FolderState {
 		if r.scanned {
 			st.State, st.PendingUp, st.PendingDown, st.Errors = r.report.State, r.report.PendingUp, r.report.PendingDown, r.report.Errors
 		}
-		if r.busy {
+		if r.busy && time.Since(r.busyAt) >= syncingAfter {
 			st.State = "syncing"
 		}
 		out = append(out, st)
@@ -181,7 +187,7 @@ func (a *Agent) cycle(ctx context.Context) {
 			continue
 		}
 		slog.Debug("task planned", "folder", r.cfg.ID, "dirs", p.dirs, "full", p.full, "scan", p.scan, "pull", p.pull, "retry", p.retry)
-		r.busy = true
+		r.busy, r.busyAt = true, now
 		tasks = append(tasks, task{r, p})
 	}
 	a.mu.Unlock()
@@ -304,7 +310,10 @@ func (a *Agent) nextWake() time.Duration {
 	defer a.mu.Unlock()
 	next := time.Now().Add(time.Hour)
 	for _, r := range a.runners {
-		if r.busy { // its task wakes the loop when it ends
+		if r.busy { // its task wakes the loop when it ends; a long one is reported as syncing
+			if t := r.busyAt.Add(syncingAfter); t.After(time.Now()) && t.Before(next) {
+				next = t
+			}
 			continue
 		}
 		if t := r.s.next(); !t.IsZero() && t.Before(next) {
