@@ -130,18 +130,67 @@ func earliestRecord(db *sql.DB, p string) (int64, error) {
 	return first.Int64, err
 }
 
+// importIdle is how long a folder must go without a new file for the first upload of a device to count as finished
+// (seconds). The server is not told when a client's first scan ends, so the end is read off the data: the first
+// upload creates files in a burst, whose last file is followed by a quiet time.
+const importIdle = 120
+
+// importEnd is the unix time the initial import of a folder finished: the time the last path of the first burst
+// first appeared, the paths whose first records follow one another less than importIdle apart. A burst still going
+// on (its last path is younger than importIdle) has not finished: 0. Only the first appearance of a path counts, so
+// rewrites of the files (churn) do not hide the quiet time that follows the import.
+func importEnd(db *sql.DB, now int64) (int64, error) {
+	rows, err := db.Query(`SELECT min(created_at) t FROM (SELECT path, created_at FROM files WHERE hash IS NOT NULL
+		UNION ALL SELECT path, created_at FROM versions WHERE hash IS NOT NULL) GROUP BY path ORDER BY t`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var last int64
+	for rows.Next() {
+		var t int64
+		if err := rows.Scan(&t); err != nil {
+			return 0, err
+		}
+		if last != 0 && t-last > importIdle {
+			return last, nil
+		}
+		last = t
+	}
+	if err := rows.Err(); err != nil || last == 0 || now-last <= importIdle {
+		return 0, err
+	}
+	return last, nil
+}
+
+// restoreNote says how a time before the history was moved (design 7): to the end of the folder's initial import
+// (Import), or to the first record of the path, which is later when the path was created after the import; At is
+// that time, 0 when the time was not moved.
+type restoreNote struct {
+	At     int64
+	Import bool
+}
+
 // restoreDiff calls visit for every file at p or below it whose content at time at differs from the current one:
 // old is what it held then, nowGone says that it has no content now (deleted or never there). A time before the
-// first record is taken as the first record (design 7): there is no older state to restore, and "no difference"
-// would be wrong. first is the time of that record when the time was moved to it, else 0; none says that there is no record at all.
-func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRow, nowGone bool) error) (first int64, none bool, err error) {
+// first record is taken as the end of the folder's initial import (design 7): that is the first state the
+// folder was complete in, and "no difference" would be wrong. Files created after the import count as absent
+// then and are not touched. none says that there is no record at all.
+func restoreDiff(db *sql.DB, p string, at time.Time, now int64, visit func(old, cur *fileRow, nowGone bool) error) (note restoreNote, none bool, err error) {
 	earliest, err := earliestRecord(db, p)
 	if err != nil || earliest == 0 {
-		return 0, err == nil, err
+		return restoreNote{}, err == nil, err
 	}
 	t := at.Unix()
 	if t < earliest {
-		t, first = earliest, earliest
+		imp, err := importEnd(db, now)
+		if err != nil {
+			return restoreNote{}, false, err
+		}
+		t, note = earliest, restoreNote{At: earliest} // a path created after the import starts at its own first record
+		if imp >= earliest {
+			t, note = imp, restoreNote{At: imp, Import: true}
+		}
 	}
 	err = stateAt(db, p, t, func(v *fileRow) error {
 		var cur fileRow
@@ -153,7 +202,7 @@ func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRo
 		}
 		return visit(v, &cur, err != nil || cur.hash == nil)
 	})
-	return first, false, err
+	return note, false, err
 }
 
 // restoreDirAt brings back what a path (a directory, or one file) held at a point in time, as device "web": paths
@@ -177,7 +226,7 @@ func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, f
 		ops = ops[:0]
 		return err
 	}
-	_, _, err = restoreDiff(db, p, at, func(v, cur *fileRow, _ bool) error {
+	_, _, err = restoreDiff(db, p, at, s.now().Unix(), func(v, cur *fileRow, _ bool) error {
 		e := v.entry()
 		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
 		if len(ops) == proto.MaxCommitOps {
@@ -200,18 +249,18 @@ type previewItem struct {
 }
 
 // restorePreview runs the query of restoreDirAt without committing: the number of files it would restore and the
-// first previewLimit of them; first and none are as for restoreDiff.
-func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, first int64, none bool, err error) {
+// first previewLimit of them; note and none are as for restoreDiff.
+func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, note restoreNote, none bool, err error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
-		return 0, nil, 0, false, err
+		return 0, nil, restoreNote{}, false, err
 	}
-	first, none, err = restoreDiff(db, p, at, func(v, _ *fileRow, gone bool) error {
+	note, none, err = restoreDiff(db, p, at, s.now().Unix(), func(v, _ *fileRow, gone bool) error {
 		if n++; n <= previewLimit {
 			items = append(items, previewItem{v.path, gone})
 		}
 		return nil
 	})
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	return n, items, first, none, err
+	return n, items, note, none, err
 }

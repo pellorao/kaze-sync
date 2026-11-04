@@ -351,7 +351,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return bad(http.StatusBadRequest, "", "时间格式无效")
 	}
-	n, items, first, none, err := s.restorePreview(f.ID, p, at)
+	n, items, note, none, err := s.restorePreview(f.ID, p, at)
 	if err != nil {
 		return err
 	}
@@ -363,7 +363,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": first, "None": none})
+	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
 }
 
 // deleteFolder removes a folder that no device maps, with its database. Its blocks go at the next GC.

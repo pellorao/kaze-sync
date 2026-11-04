@@ -24,12 +24,12 @@
 <form class="card" method="post" action="/rules">
 <div class="card-h"><h2>全局排除规则</h2><span class="muted small">所有文件夹共用; 文件夹规则接在其后, 可用 ! 覆盖</span></div>
 <div class="card-b">
-<div class="ruleedit" data-ruleedit><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="14" spellcheck="false" wrap="off" aria-label="全局排除规则">{{.Rules}}</textarea></div>
+<div class="ruleedit" data-ruleedit data-saved="{{.SavedRules}}"><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="14" spellcheck="false" wrap="off" aria-label="全局排除规则">{{.Rules}}</textarea></div>
 <div class="rule-errs" aria-live="polite" data-ruleerrs>{{range .RuleErrs}}<div class="err-msg" data-line="{{.Line}}">第 {{.Line}} 行: {{.Msg}}</div>{{end}}</div>
 {{with index .Errs "rules"}}<span class="err-msg">{{.}}</span>{{end}}
 <p class="muted small">gitignore 语法: <code>#</code> 注释, <code>!</code> 取反, 结尾 <code>/</code> 只匹配目录, 含 <code>/</code> 的模式相对文件夹根, <code>**</code> 任意层级.</p>
-{{template "hits" .Hits}}</div>
-<div class="card-f">{{with .Hits}}<button class="btn danger">保存并删除 {{.Total}} 个文件</button>{{else}}<button class="btn primary">保存</button>{{end}}</div>
+<div data-hitsbox>{{template "hits" .Hits}}</div></div>
+<div class="card-f">{{template "rulesgo" .Hits}}</div>
 </form>
 </div>
 {{end}}

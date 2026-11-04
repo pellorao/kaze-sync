@@ -178,6 +178,8 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /settings/timezone":           s.saveTimeZone,
 		"POST /rules":                       s.saveGlobalRules,
 		"POST /rules/validate":              s.validateRules,
+		"POST /rules/preview":               s.previewGlobalRules,
+		"POST /folders/{id}/rules/preview":  s.previewFolderRules,
 		"GET /devices/{id}":                 s.devicePageH,
 		"POST /devices/{id}/mapping":        s.saveMapping,
 		"POST /devices/{id}/revoke":         s.revoke,
@@ -545,7 +547,7 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, ds *dialog
 	if ds != nil && ds.dialog == "rules" {
 		rules = r.PostForm.Get("rules")
 	}
-	s.show(w, r, ds, "settings", "设置", map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "TimeZone": MetaString(s.db, "time_zone")})
+	s.show(w, r, ds, "settings", "设置", map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "SavedRules": MetaString(s.db, "global_rules"), "TimeZone": MetaString(s.db, "time_zone")})
 	return nil
 }
 
@@ -626,9 +628,11 @@ func (s *Server) ruleHits(folder int64, name, global, own string) ([]ruleHit, er
 	return out, rows.Err()
 }
 
-// hitsToken identifies a list of hits: the confirmation of a save is valid for exactly the files the person saw.
-func hitsToken(hits []ruleHit) string {
+// hitsToken identifies a preview: the rule text and the list of hits. A save is valid for exactly the rules and the
+// files the person saw (no table: the server recomputes it at the save).
+func hitsToken(text string, hits []ruleHit) string {
 	h := sha256.New()
+	fmt.Fprintf(h, "%d\n%s\n", len(text), text)
 	for _, x := range hits {
 		fmt.Fprintf(h, "%d\x00%s\n", x.Folder, x.Path)
 	}
@@ -636,17 +640,19 @@ func hitsToken(hits []ruleHit) string {
 }
 
 // hitsView is what the page shows of the hits: the number, the first few paths and the token to confirm them.
+// Changed says that the files differ from the ones the person previewed.
 type hitsView struct {
-	Total int
-	Paths []string
-	More  int
-	Token string
+	Total   int
+	Paths   []string
+	More    int
+	Token   string
+	Changed bool
 }
 
 const hitsShown = 10
 
-func newHitsView(hits []ruleHit, withFolder bool) *hitsView {
-	v := &hitsView{Total: len(hits), Token: hitsToken(hits)}
+func newHitsView(text string, hits []ruleHit, withFolder bool) *hitsView {
+	v := &hitsView{Total: len(hits), Token: hitsToken(text, hits)}
 	for _, h := range hits[:min(len(hits), hitsShown)] {
 		if withFolder {
 			v.Paths = append(v.Paths, h.Name+": "+h.Path)
@@ -690,10 +696,12 @@ func (s *Server) deleteHits(hits []ruleHit) int {
 // saveRules validates rule text (the trust boundary, design 3.2), stores it with write (whose last
 // argument is the text and whose other arguments are args) and, when it changed, pushes the new configuration.
 // A refused text comes back as the page behind the dialog (page), with the errors listed under the text.
-// Files on the server that the new rules cover are deleted by the save (design 8.3), so the first POST only lists them
-// (the dialog comes back with the files and a confirmation token) and the POST that carries the token saves.
+// Files on the server that the new rules cover are deleted by the save (design 8.3), so the person previews first
+// (rulesPreview, which hands out a token for the text and the files) and the POST that carries the token saves. A POST
+// with no token (no script in the browser) is answered with that preview and saves with the next one. A token that does
+// not match what the server finds now (files came in or went since) saves nothing: the refreshed preview comes back.
 func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, dialog, back, read, write string, impact func(text string) ([]ruleHit, bool, error), args ...any) error {
-	text := strings.TrimRight(strings.ReplaceAll(r.FormValue("rules"), "\r\n", "\n"), "\n")
+	text := ruleText(r)
 	if len(text) > maxRulesText {
 		return fieldErr(page, http.StatusBadRequest, dialog, "rules", "规则太长")
 	}
@@ -711,8 +719,10 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 		if hits, withFolder, err = impact(text); err != nil {
 			return err
 		}
-		if len(hits) > 0 && r.FormValue("confirm") != hitsToken(hits) {
-			return &dialogState{status: http.StatusConflict, dialog: dialog, page: page, extra: map[string]any{"Hits": newHitsView(hits, withFolder)}}
+		if confirm := r.FormValue("confirm"); confirm != hitsToken(text, hits) && (confirm != "" || len(hits) > 0) {
+			v := newHitsView(text, hits, withFolder)
+			v.Changed = confirm != ""
+			return &dialogState{status: http.StatusConflict, dialog: dialog, page: page, extra: map[string]any{"Hits": v}}
 		}
 	}
 	err := s.configChange(func(tx *sql.Tx) (bool, error) {
@@ -731,6 +741,33 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil
+}
+
+// ruleText is the text of a rule box in a request, as saveRules and the preview take it.
+func ruleText(r *http.Request) string {
+	return strings.TrimRight(strings.ReplaceAll(r.FormValue("rules"), "\r\n", "\n"), "\n")
+}
+
+// rulesPreview answers the rule boxes when the person asks to preview: the files on the server that the text in the
+// box would delete, as the fragment of the "hits" template (also for none), with the token that a save must carry.
+// Nothing is stored.
+func (s *Server) rulesPreview(impact func(text string) ([]ruleHit, bool, error)) handler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		r.Body = http.MaxBytesReader(w, r.Body, 2*maxRulesText)
+		text := ruleText(r)
+		if len(text) > maxRulesText {
+			return bad(http.StatusBadRequest, "/", "规则太长")
+		}
+		if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
+			return bad(http.StatusBadRequest, "/", "规则有错误")
+		}
+		hits, withFolder, err := impact(text)
+		if err != nil {
+			return err
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		return s.tmpl["settings"].ExecuteTemplate(w, "hits", newHitsView(text, hits, withFolder))
+	}
 }
 
 // validateRules answers the rule boxes while the user types: the errors of the same parser that saveRules uses, so
@@ -782,9 +819,9 @@ func (s *Server) configChange(change func(tx *sql.Tx) (bool, error)) error {
 	return nil
 }
 
-func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
-	// The new global rules act on every folder, each with its own rules after them.
-	impact := func(text string) (all []ruleHit, _ bool, _ error) {
+// globalImpact lists the files that new global rules would delete: they act on every folder, each with its own rules after them.
+func (s *Server) globalImpact() func(text string) ([]ruleHit, bool, error) {
+	return func(text string) (all []ruleHit, _ bool, _ error) {
 		fols, err := queryAll(s.db, func(rows *sql.Rows, f *folderRow) error { return rows.Scan(&f.ID, &f.Name, &f.Rules) }, `SELECT id, name, rules FROM folders ORDER BY name`)
 		for _, f := range fols {
 			hits, herr := s.ruleHits(f.ID, f.Name, text, f.Rules)
@@ -795,7 +832,18 @@ func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
 		}
 		return all, true, err
 	}
-	return s.saveRules(w, r, s.settingsPage, "rules", "/settings?ok=rules", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`, impact)
+}
+
+func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
+	return s.saveRules(w, r, s.settingsPage, "rules", "/settings?ok=rules", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`, s.globalImpact())
+}
+
+// folderImpact lists the files that new rules of a folder would delete.
+func (s *Server) folderImpact(f folderRow) func(text string) ([]ruleHit, bool, error) {
+	return func(text string) ([]ruleHit, bool, error) {
+		hits, err := s.ruleHits(f.ID, f.Name, MetaString(s.db, "global_rules"), text)
+		return hits, false, err
+	}
 }
 
 func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
@@ -803,11 +851,19 @@ func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	impact := func(text string) ([]ruleHit, bool, error) {
-		hits, err := s.ruleHits(f.ID, f.Name, MetaString(s.db, "global_rules"), text)
-		return hits, false, err
+	return s.saveRules(w, r, s.folderPage, "dlg-rules", "/folders/"+strconv.FormatInt(f.ID, 10)+"?ok=rules", `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, s.folderImpact(f), f.ID)
+}
+
+func (s *Server) previewFolderRules(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
 	}
-	return s.saveRules(w, r, s.folderPage, "dlg-rules", "/folders/"+strconv.FormatInt(f.ID, 10)+"?ok=rules", `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, impact, f.ID)
+	return s.rulesPreview(s.folderImpact(f))(w, r)
+}
+
+func (s *Server) previewGlobalRules(w http.ResponseWriter, r *http.Request) error {
+	return s.rulesPreview(s.globalImpact())(w, r)
 }
 
 type deviceRow struct {

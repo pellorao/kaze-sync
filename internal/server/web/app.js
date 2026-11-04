@@ -79,7 +79,7 @@
     const c = e.target.closest("[data-close]");
     if (!c) return;
     const d = c.closest("dialog");
-    if (d.leave) d.leave(); else d.close(); // a dialog with unsaved edits asks first (d.leave)
+    if (d.leave && !("discard" in c.dataset)) d.leave(); else d.close(); // Esc on a dialog with unsaved edits asks first (d.leave); the cancel button is the answer already
   });
   document.addEventListener("close", (e) => { // a dialog the URL opened takes its parameters with it, so reload does not reopen it
     const names = e.target.dataset && e.target.dataset.clear;
@@ -454,7 +454,55 @@
       ta.setAttribute("aria-invalid", errs.size ? "true" : "false");
       draw();
     }, 300);
-    ta.addEventListener("input", () => { draw(); validate(); });
+    ta.addEventListener("input", () => { draw(); validate(); preview.edited(); });
+    // One main button: "预览" while the rules differ from what was previewed, then "保存" (or "保存并删除 N 个文件").
+    // The server checks the token of the preview at the save. Without script the button saves and the server answers
+    // with the preview first, as it does for a save without a token.
+    const form = box.closest("form"), go = $("[data-rulesgo]", form), hitsBox = $("[data-hitsbox]", form);
+    const saved0 = (box.dataset.saved || "").replace(/^\n/, "");
+    const preview = (() => {
+      let shown = hitsBox.firstElementChild ? ta.value : null, asking = 0; // the text the preview on the page is for
+      const label = () => {
+        const h = $("[data-hits]", hitsBox), n = h ? +h.dataset.hits : 0;
+        go.className = "btn " + (shown === ta.value && n ? "danger" : "primary");
+        go.textContent = shown === ta.value ? (n ? `保存并删除 ${n} 个文件` : "保存") : (ta.value === saved0 ? "保存" : "预览");
+        go.disabled = false;
+      };
+      const self = {
+        edited() { // the box changed: an old preview is out of date
+          asking++;
+          if (shown !== ta.value) { shown = null; hitsBox.replaceChildren(); }
+          label();
+        },
+        async ask() {
+          const mine = ++asking, text = ta.value;
+          go.disabled = true;
+          let html;
+          try {
+            const r = await fetch(form.getAttribute("action") + "/preview", { method: "POST", body: new URLSearchParams({ rules: text }), credentials: "same-origin" });
+            html = r.ok ? await r.text() : null;
+          } catch (e) { html = null; }
+          if (mine !== asking) return;
+          if (html === null) { // the rules are invalid or the server is out of reach: the errors list says which
+            hitsBox.replaceChildren(el("div", { class: "err-msg" }, "无法预览, 请检查规则后重试"));
+            shown = null;
+          } else {
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            hitsBox.replaceChildren(...Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)));
+            shown = text;
+          }
+          label();
+        },
+        needed: () => shown !== ta.value && ta.value !== saved0,
+      };
+      return self;
+    })();
+    go.addEventListener("click", (e) => {
+      if (!preview.needed()) return;
+      e.preventDefault();
+      preview.ask();
+    });
+    preview.edited();
     // Edits that were not saved are lost when the dialog closes (cancel, Esc), after asking. The text to go back to
     // is the saved one: after a refused save the textarea holds the refused text, not the saved one. A textarea
     // drops one leading newline of its source, the attribute does not.
@@ -466,6 +514,7 @@
       dlg.addEventListener("close", () => {
         seq++; // a validation still under way would show errors of the discarded text
         ta.value = saved;
+        preview.edited();
         errs = new Map();
         list.replaceChildren();
         ta.setAttribute("aria-invalid", "false");
@@ -498,9 +547,12 @@
         return o === "GMT" ? "+00:00" : o.replace("GMT", "");
       } catch (e) { return ""; }
     };
-    const names = [...new Set(["UTC", ...zones, saved || browserTZ])];
-    const width = Math.max(...names.map((z) => z.length));
-    sel.replaceChildren(...names.map((z) => el("option", { value: z }, z.padEnd(width, "\u00a0") + "\u00a0\u00a0" + offset(z))));
+    // Sorted by the offset as a number (-12:00 before +05:30 before +14:00), then by name.
+    const minutes = (o) => { const m = /^([+-])(\d\d):(\d\d)$/.exec(o); return m ? (m[1] === "-" ? -1 : 1) * (+m[2] * 60 + +m[3]) : 0; };
+    const names = [...new Set(["UTC", ...zones, saved || browserTZ])].map((z) => ({ z, o: offset(z) }))
+      .sort((a, b) => minutes(a.o) - minutes(b.o) || (a.z < b.z ? -1 : a.z > b.z ? 1 : 0));
+    const width = Math.max(...names.map((n) => n.z.length));
+    sel.replaceChildren(...names.map((n) => el("option", { value: n.z }, n.z.padEnd(width, "\u00a0") + "\u00a0\u00a0" + n.o)));
     sel.value = saved || browserTZ;
     const update = () => {
       const fixed = radios.find((r) => r.checked).value === "fixed";

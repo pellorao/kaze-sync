@@ -514,19 +514,19 @@ func TestRestoreBeforeTheFirstRecordUsesTheFirstRecord(t *testing.T) {
 		_, page := e.get(c, base+"/restore-preview?"+url.Values{"path": {path}, "time": {at}}.Encode())
 		return page
 	}
-	// The whole folder: the state at its first record, which holds a only.
+	// The whole folder: the state at the end of its initial import, which holds a only.
 	page := preview("", long)
 	if !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, ">a<") || strings.Contains(page, ">b<") ||
-		!strings.Contains(page, "最早记录为") || !strings.Contains(page, `datetime="`+first.Format("2006-01-02T15:04:05Z")+`"`) {
+		!strings.Contains(page, "首次导入完成于") || !strings.Contains(page, `datetime="`+first.Format("2006-01-02T15:04:05Z")+`"`) {
 		t.Fatalf("folder:\n%s", page)
 	}
 	// One file: its own first record, not the folder's.
 	page = preview("b", long)
-	if !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, `datetime="`+b1.Format("2006-01-02T15:04:05Z")+`"`) {
+	if !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, "最早记录为") || !strings.Contains(page, `datetime="`+b1.Format("2006-01-02T15:04:05Z")+`"`) {
 		t.Fatalf("file b:\n%s", page)
 	}
 	// A time inside the history carries no note.
-	if page = preview("", first.Add(10*time.Minute).Format("2006-01-02 15:04:05")); strings.Contains(page, "最早记录为") || !strings.Contains(page, `data-count="1"`) {
+	if page = preview("", first.Add(10*time.Minute).Format("2006-01-02 15:04:05")); strings.Contains(page, "最早记录为") || strings.Contains(page, "首次导入") || !strings.Contains(page, `data-count="1"`) {
 		t.Fatalf("inside the history:\n%s", page)
 	}
 	// The restore does what the preview says.
@@ -625,5 +625,78 @@ func TestListingChangedOnlyForWhatThePageShows(t *testing.T) {
 	q := url.Values{"since": {itoa(since)}, "deleted": {"1"}, "d": {"sub", "other", "fresh"}}
 	if _, body := e.get(c, "/folders/"+itoa(f)+"/changed?"+q.Encode()); strings.Contains(body, `"changed":true`) {
 		t.Fatalf("deleted files are shown: %s", body)
+	}
+}
+
+// The first upload of a folder takes many commits. A time before the folder's history is taken as the end of that
+// upload, not as its first commit (which held one file), and a file created afterwards is not part of that state
+// (user 2026-11-05: projects at 7 days ago said "no difference").
+func TestRestoreBeforeTheHistoryUsesTheEndOfTheInitialImport(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	f := e.folder("Docs")
+	base := "/folders/" + itoa(f)
+	names := []string{"a", "b", "c", "d", "dir/e", "dir/f"}
+	for _, n := range names { // the import: one commit every 10 s
+		e.commit(f, e.op(n, 0, n+"1"))
+		e.clk.Add(10 * time.Second)
+	}
+	end := e.clk.Now().Add(-10 * time.Second)
+	e.clk.Add(30 * time.Minute) // quiet: the import is over
+	e.commit(f, e.op("late", 0, "l1"))
+	e.clk.Add(time.Minute)
+	e.commit(f, e.op("late", 7, "l2"), e.op("a", 1, "a2"), e.op("dir/e", 5, "e2"))
+	e.clk.Add(time.Minute)
+	e.commit(f, proto.Op{Path: "d", BaseSeq: 4}) // deleted
+	long := end.Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	preview := func(path string) string {
+		_, page := e.get(c, base+"/restore-preview?"+url.Values{"path": {path}, "time": {long}}.Encode())
+		return page
+	}
+	// The whole folder: a and dir/e changed, d is gone; "late" did not exist at the import end, c, b and dir/f are as they were.
+	page := preview("")
+	if !strings.Contains(page, `data-count="3"`) || !strings.Contains(page, "首次导入完成于") || !strings.Contains(page, `datetime="`+end.Format("2006-01-02T15:04:05Z")+`"`) ||
+		strings.Contains(page, ">late<") || strings.Contains(page, ">b<") {
+		t.Fatalf("folder:\n%s", page)
+	}
+	// A directory of the import, the same state.
+	if page = preview("dir"); !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, "首次导入完成于") {
+		t.Fatalf("dir:\n%s", page)
+	}
+	// A file created after the import starts at its own first record.
+	late := end.Add(30*time.Minute + 10*time.Second) // the clock after the quiet time; the file is created then
+	if page = preview("late"); !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, "最早记录为") || strings.Contains(page, "首次导入") || !strings.Contains(page, `datetime="`+late.Format("2006-01-02T15:04:05Z")+`"`) {
+		t.Fatalf("late:\n%s", page)
+	}
+	// The restore does what the preview says and touches nothing else.
+	before := e.nextSeq(f)
+	e.post(c, base+"/restore-dir", url.Values{"path": {""}, "time": {long}})
+	if got := e.nextSeq(f) - before; got != 3 {
+		t.Fatalf("the restore changed %d files, want 3", got)
+	}
+	h := e.block([]byte("l2"))
+	if got := e.fcount(f, `SELECT count(*) FROM files WHERE path='late' AND hash=?`, h[:]); got != 1 {
+		t.Fatal("late was touched")
+	}
+}
+
+// An import that has not gone quiet yet is not finished: the time falls back to the first record.
+func TestRestoreDuringTheInitialImportUsesTheFirstRecord(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	f := e.folder("Docs")
+	first := e.clk.Now()
+	for _, n := range []string{"a", "b", "c"} {
+		e.commit(f, e.op(n, 0, n+"1"))
+		e.clk.Add(10 * time.Second)
+	}
+	e.commit(f, e.op("a", 1, "a2"))
+	_, page := e.get(c, "/folders/"+itoa(f)+"/restore-preview?"+url.Values{"time": {first.Add(-time.Hour).Format("2006-01-02 15:04:05")}}.Encode())
+	if !strings.Contains(page, "最早记录为") || strings.Contains(page, "首次导入") || !strings.Contains(page, `data-count="1"`) {
+		t.Fatalf("page:\n%s", page)
 	}
 }

@@ -54,7 +54,10 @@
 <div class="notif-f">通知由当前状态算出, 原因消除后自动消失.</div>{{end}}
 
 
-{{define "hits"}}{{with .}}<div class="preview hits"><div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>保存后服务端上命中这些规则的 <b class="num">{{.Total}}</b> 个文件会立即删除 (进入版本历史, 保留期内可恢复). 各设备上的本地文件保留, 之后不再同步.</span></div>
+{{define "hits"}}{{with .}}<div class="preview hits">{{if .Changed}}<div class="preview-h warn" data-changed>{{icon "warn"}}<span>命中文件有变化, 请再核对.</span></div>{{end}}
+{{if .Total}}<div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>预览, 尚未生效: 保存后服务端上命中这些规则的 <b class="num">{{.Total}}</b> 个文件会立即删除 (进入版本历史, 保留期内可恢复). 各设备上的本地文件保留, 之后不再同步.</span></div>
 <ul>{{range .Paths}}<li><span class="p">{{.}}</span></li>{{end}}</ul>
 {{if gt .More 0}}<div class="more-n">还有 {{.More}} 个</div>{{end}}
+{{else}}<div class="preview-h" data-hits="0">{{icon "info"}}<span>预览, 尚未生效: 没有命中服务端文件.</span></div>{{end}}
 <input type="hidden" name="confirm" value="{{.Token}}"></div>{{end}}{{end}}
+{{define "rulesgo"}}{{if and . .Total}}<button class="btn danger" data-rulesgo>保存并删除 {{.Total}} 个文件</button>{{else}}<button class="btn primary" data-rulesgo>保存</button>{{end}}{{end}}
