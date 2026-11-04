@@ -38,7 +38,7 @@ svg.i.lg { width: 18px; height: 18px; }
 .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }
 .icon-btn:hover, .icon-btn.on { color: var(--fg); background: var(--hover); }
 .icon-btn.on { border-color: var(--line); }
-.badge { position: absolute; top: 2px; right: 0; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font: 600 11px/17px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
+.badge { position: absolute; top: -3px; right: -9px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font: 600 11px/17px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
 .badge.warn { background: var(--warn); }
 
 /* page */
@@ -240,6 +240,30 @@ th.act { width: 40px; }
 }
 .sm-meta { padding-left: 24px; }
 
+/* the exclusion-rule editor: a highlighted layer behind a transparent textarea; classes only (CSP) */
+.ruleedit { position: relative; font: 13px/20px var(--mono); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.ruleedit:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.ruleedit pre, .ruleedit textarea { margin: 0; padding: 6px 10px; border: 0; font: inherit; line-height: 20px; tab-size: 4; white-space: pre; letter-spacing: 0; word-spacing: 0; }
+.ruleedit textarea { position: relative; display: block; width: 100%; background: transparent; resize: vertical; overflow: auto; box-shadow: none; border-radius: 6px; height: auto; }
+.ruleedit pre { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--fg); background: none; }
+.ruleedit.js textarea { color: transparent; caret-color: var(--fg); }
+.ruleedit.js textarea::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); color: transparent; }
+.ruleedit .l { display: block; min-height: 20px; }
+.ruleedit .l.c { color: var(--muted); }
+.ruleedit .l.e { color: #f0a0a6; background: color-mix(in srgb, var(--danger) 18%, transparent); text-decoration: underline wavy var(--danger); text-underline-offset: 3px; }
+.ruleedit .l.cur { box-shadow: inset 2px 0 0 var(--accent); }
+.rule-errs { display: grid; gap: 2px; }
+.rule-errs .err-msg.cur { text-decoration: underline; }
+/* an icon next to text sits on the text's centre line, whatever the box it is in */
+.cnt, .tag, .btn, .nitem .msg, .stat, .stl, td a:has(svg.i), .notice-link, .fname { display: inline-flex; align-items: center; gap: 6px; }
+.stat, .stl { display: flex; gap: 8px; flex-wrap: wrap; }
+.stl { gap: 6px; }
+.cnt { gap: 4px; vertical-align: middle; line-height: 1; }
+.cnt svg.i, .tag svg.i { vertical-align: 0; }
+.fname { display: flex; }
+svg.i { vertical-align: middle; }
+.nitem .ic svg { display: block; }
+
 </style>
 </head>
 <body>
@@ -248,7 +272,7 @@ th.act { width: 40px; }
 <main>
 <div class="head"><h1>Web UI 样稿</h1></div>
 <p class="muted">静态页面, 只展示布局与状态, 按钮不起作用 (导航链接可以点). 数据都是虚构的. 设计说明见 <code>docs/design.md</code> 第 4 节. 每页左下角的虚线框是样稿说明, 不属于界面. 窄屏 (手机) 下的效果可把浏览器窗口缩窄查看.</p>
-<section class="card"><table><thead><tr><th>页面</th><th>看点</th></tr></thead><tbody><tr><td><a href="overview.html">总览, 通知浮窗打开</a></td><td class="muted">铃铛计数, 按文件夹分组的通知, 文件夹表与设备表</td></tr><tr><td><a href="folder.html">文件夹页, 上下文菜单打开</a></td><td class="muted">以文件列表为中心; 已删除, 冲突副本, 占用中, 未同步 (符号链接) 各种行</td></tr><tr><td><a href="restore.html">恢复到某一时刻</a></td><td class="muted">从菜单打开; 时间输入, 快捷按钮, 时区说明, 预览</td></tr><tr><td><a href="versions.html">版本历史</a></td><td class="muted">来源设备列保留在这里; 行内确认恢复</td></tr><tr><td><a href="folder-top.html">文件夹顶层</a></td><td class="muted">"排除规则" 按钮只在这里出现</td></tr><tr><td><a href="rules.html">文件夹排除规则对话框</a></td><td class="muted">规则文本, 逐行错误, 只读的全局规则</td></tr><tr><td><a href="device.html">设备页</a></td><td class="muted">映射表, 行菜单打开</td></tr><tr><td><a href="enroll.html">注册命令对话框</a></td><td class="muted">添加设备之后</td></tr><tr><td><a href="settings.html">设置页</a></td><td class="muted">时区, 版本保留, 全局排除规则</td></tr><tr><td><a href="login.html">登录页</a></td><td class="muted"></td></tr></tbody></table></section>
+<section class="card"><table><thead><tr><th>页面</th><th>看点</th></tr></thead><tbody><tr><td><a href="overview.html">总览, 通知浮窗打开</a></td><td class="muted">铃铛计数, 按文件夹分组的通知, 文件夹表与设备表</td></tr><tr><td><a href="folder.html">文件夹页, 上下文菜单打开</a></td><td class="muted">以文件列表为中心; 已删除, 冲突副本, 占用中, 未同步 (符号链接) 各种行</td></tr><tr><td><a href="restore.html">恢复到某一时刻</a></td><td class="muted">从菜单打开; 时间输入, 快捷按钮, 时区说明, 预览</td></tr><tr><td><a href="versions.html">版本历史</a></td><td class="muted">来源设备列保留在这里; 行内确认恢复</td></tr><tr><td><a href="folder-top.html">文件夹顶层</a></td><td class="muted">"排除规则" 按钮只在这里出现</td></tr><tr><td><a href="rules.html">文件夹排除规则对话框</a></td><td class="muted">规则文本 (语法高亮), 逐行错误, 只读的全局规则</td></tr><tr><td><a href="device.html">设备页</a></td><td class="muted">映射表, 行菜单打开</td></tr><tr><td><a href="enroll.html">注册命令对话框</a></td><td class="muted">添加设备之后</td></tr><tr><td><a href="settings.html">设置页</a></td><td class="muted">时区, 版本保留, 全局排除规则</td></tr><tr><td><a href="login.html">登录页</a></td><td class="muted"></td></tr></tbody></table></section>
 <p class="muted small" style="margin-top:16px">实现时样式与脚本是 <code>/static/</code> 下的外部文件 (CSP <code>default-src 'self'</code>); 样稿为了能直接双击打开, 把样式内联在每个文件里.</p>
 </main>
 

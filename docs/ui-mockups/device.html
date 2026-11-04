@@ -38,7 +38,7 @@ svg.i.lg { width: 18px; height: 18px; }
 .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }
 .icon-btn:hover, .icon-btn.on { color: var(--fg); background: var(--hover); }
 .icon-btn.on { border-color: var(--line); }
-.badge { position: absolute; top: 2px; right: 0; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font: 600 11px/17px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
+.badge { position: absolute; top: -3px; right: -9px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font: 600 11px/17px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
 .badge.warn { background: var(--warn); }
 
 /* page */
@@ -240,6 +240,30 @@ th.act { width: 40px; }
 }
 .sm-meta { padding-left: 24px; }
 
+/* the exclusion-rule editor: a highlighted layer behind a transparent textarea; classes only (CSP) */
+.ruleedit { position: relative; font: 13px/20px var(--mono); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.ruleedit:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.ruleedit pre, .ruleedit textarea { margin: 0; padding: 6px 10px; border: 0; font: inherit; line-height: 20px; tab-size: 4; white-space: pre; letter-spacing: 0; word-spacing: 0; }
+.ruleedit textarea { position: relative; display: block; width: 100%; background: transparent; resize: vertical; overflow: auto; box-shadow: none; border-radius: 6px; height: auto; }
+.ruleedit pre { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--fg); background: none; }
+.ruleedit.js textarea { color: transparent; caret-color: var(--fg); }
+.ruleedit.js textarea::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); color: transparent; }
+.ruleedit .l { display: block; min-height: 20px; }
+.ruleedit .l.c { color: var(--muted); }
+.ruleedit .l.e { color: #f0a0a6; background: color-mix(in srgb, var(--danger) 18%, transparent); text-decoration: underline wavy var(--danger); text-underline-offset: 3px; }
+.ruleedit .l.cur { box-shadow: inset 2px 0 0 var(--accent); }
+.rule-errs { display: grid; gap: 2px; }
+.rule-errs .err-msg.cur { text-decoration: underline; }
+/* an icon next to text sits on the text's centre line, whatever the box it is in */
+.cnt, .tag, .btn, .nitem .msg, .stat, .stl, td a:has(svg.i), .notice-link, .fname { display: inline-flex; align-items: center; gap: 6px; }
+.stat, .stl { display: flex; gap: 8px; flex-wrap: wrap; }
+.stl { gap: 6px; }
+.cnt { gap: 4px; vertical-align: middle; line-height: 1; }
+.cnt svg.i, .tag svg.i { vertical-align: 0; }
+.fname { display: flex; }
+svg.i { vertical-align: middle; }
+.nitem .ic svg { display: block; }
+
 </style>
 </head>
 <body>
@@ -264,10 +288,10 @@ th.act { width: 40px; }
 <thead><tr><th>文件夹</th><th>本机路径</th><th class="hide-sm">允许接管</th><th>状态</th><th></th></tr></thead>
 <tbody>
 <tr><td><a href="folder.html"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-folder"/></svg> Docs</a></td><td class="mono small">/home/alex/Docs</td><td class="hide-sm">否</td>
-<td><span class="st-ok">已同步</span> <span class="muted num small"><time title="Asia/Shanghai">2026-11-03 22:50:40</time></span> <span class="cnt warn"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-warn"/></svg>3</span></td>
+<td><div class="stat"><span class="st-ok">已同步</span> <span class="muted num small"><time title="Asia/Shanghai">2026-11-03 22:50:40</time></span> <span class="cnt warn"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-warn"/></svg>3</span></div></td>
 <td class="act"><button class="more" aria-label="Docs 映射的操作" aria-haspopup="menu"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-more"/></svg></button></td></tr>
 <tr class="menu-open"><td><a href="folder.html"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-folder"/></svg> Code</a></td><td class="mono small">/home/alex/code</td><td class="hide-sm">是</td>
-<td><span class="st-err">有错误</span> <span class="muted num small"><time title="Asia/Shanghai">2026-11-03 22:44:18</time></span> <span class="cnt err"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-err"/></svg>1</span></td>
+<td><div class="stat"><span class="st-err">有错误</span> <span class="muted num small"><time title="Asia/Shanghai">2026-11-03 22:44:18</time></span> <span class="cnt err"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-err"/></svg>1</span></div></td>
 <td class="act"><button class="more on" aria-label="Code 映射的操作" aria-haspopup="menu"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-more"/></svg></button></td></tr>
 </tbody></table></section>
 </main>
