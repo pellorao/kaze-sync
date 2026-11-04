@@ -256,3 +256,31 @@ func TestOpenRefusesSymbolicLinks(t *testing.T) {
 		t.Fatalf("the link target was written to: %v", entries)
 	}
 }
+
+func TestWriterStoresEveryBlockByWait(t *testing.T) {
+	s := newStore(t)
+	w := s.NewWriter()
+	var hs []Hash
+	for i := 0; i < 100; i++ { // more than the writer has in flight
+		data := []byte(strings.Repeat("block ", i+1))
+		h := hashOf(t, data)
+		hs = append(hs, h)
+		if err := w.Put(h, bytes.NewReader(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Put(hashOf(t, []byte("a")), strings.NewReader("b")); !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("mismatch: %v", err)
+	}
+	if err := w.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hs {
+		if ok, _ := s.Has(h); !ok {
+			t.Errorf("%s missing after Wait", h)
+		}
+	}
+	if n := tmpCount(s); n != 0 {
+		t.Errorf("%d temporary files left", n)
+	}
+}

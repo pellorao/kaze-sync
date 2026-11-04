@@ -336,21 +336,32 @@ func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 	body := http.MaxBytesReader(w, r.Body, proto.MaxBlockBody)
 	stored := 0
 	buf := make([]byte, proto.BlockSize)
+	bw := s.blobs.NewWriter()
+	var rerr error
 	for {
 		h, data, err := proto.ReadBlock(body, buf)
 		if err == io.EOF {
 			break
 		}
 		if err == nil {
-			err = s.blobs.Put(h, bytes.NewReader(data))
+			err = bw.Put(h, bytes.NewReader(data))
 		}
 		if err != nil {
-			http.Error(w, "bad block packet: "+err.Error(), http.StatusBadRequest)
-			return
+			rerr = err
+			break
 		}
 		stored++
 	}
-	writeJSON(w, map[string]int{"stored": stored})
+	werr := bw.Wait() // the blocks that arrived completely are stored even when the rest is bad
+	switch {
+	case rerr != nil:
+		http.Error(w, "bad block packet: "+rerr.Error(), http.StatusBadRequest)
+	case werr != nil:
+		slog.Error("blocks", "err", werr)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	default:
+		writeJSON(w, map[string]int{"stored": stored})
+	}
 }
 
 // blocksGet returns the requested blocks as a block packet.
