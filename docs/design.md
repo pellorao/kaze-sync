@@ -311,7 +311,7 @@ Web UI 是唯一的通知渠道, 客户端不发出任何通知. 通知不是单
 - 单个管理员. `kaze-syncd admin-password` 在服务端执行: 生成新的随机密码 (20 个 base32 字符, 100 bit), 替换旧密码 (只存 SHA-256), 显示一次, 然后重启服务, 由此清除所有会话和锁定 (两者都在内存中). 忘记密码时就用它重置. 不允许用户自选密码: 随机密码的强度使在线猜测在任何速率下都不可行, 也排除了密码复用; 因此慢哈希 (bcrypt) 不必要.
 - 失败锁定: 管理员登录和注册码的每次认证失败按来源 IP (IPv6 按 /64) 计数, 1 小时内 10 次失败后该 IP 的登录与注册请求被拒绝 1 小时 (429), 成功登录清零, 失败均记日志. 设备令牌的失败既不计数也不触发锁定 (只记警告日志): 令牌是 256 bit 随机数, 无法猜中; 若计入, 同一 NAT 之后一台被吊销的设备会以重试的频率锁住该出口 IP 的管理员登录和其他设备. 被吊销的设备由客户端自己降频: 收到 401 后约 10 分钟才再试一次 (2.5). 不做全局锁定: 100 bit 的密码和 60 bit, 15 分钟有效, 一次性的注册码即使面对大量 IP 也无法穷举, 全局锁定只会给攻击者一个让管理员无法登录的杠杆.
 - 会话: 32 字节随机令牌, Cookie `__Host-kaze-sync`, `Secure; HttpOnly; SameSite=Strict; Path=/`; 绝对有效期 7 天, 不滑动续期; 登出即失效. `/events` 与恢复预览同样需要会话; 会话失效后 SSE 请求被重定向, 页面随之跳转到登录页 (4.1).
-- CSRF: Go 1.25 标准库的 `http.CrossOriginProtection` (检查 `Sec-Fetch-Site` 与 `Origin`) 加 `SameSite=Strict`, 不需要表单令牌. 改变状态的操作仍然只用 POST 表单, 上下文菜单和对话框不引入新的写入方式.
+- CSRF: Go 标准库 (1.25 起) 的 `http.CrossOriginProtection` (检查 `Sec-Fetch-Site` 与 `Origin`) 加 `SameSite=Strict`, 不需要表单令牌. 改变状态的操作仍然只用 POST 表单, 上下文菜单和对话框不引入新的写入方式.
 - 响应头: `Content-Security-Policy: default-src 'self'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. 不发送 HSTS (自签名模式下它会让浏览器拒绝例外). 服务器设置 `ReadHeaderTimeout` 等超时, 防止慢速连接耗尽资源. 2026-11-04 的界面设计不放宽 CSP (4.1).
 - 不做双因素认证 (TOTP): 它防的是 "密码被猜中或复用", 随机生成的密码已消除这两种情况; 剩下的 "管理员电脑被入侵" 通常同时暴露会话和 TOTP 密钥. 代价约 100 行加二维码和恢复流程, 不值得.
 
@@ -796,7 +796,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ## 10. 语言与依赖
 
-Go 1.25 或更高 (需要 `http.CrossOriginProtection`). 理由: 在 WSL 中交叉编译即得到 Windows 和 OpenWrt 可用的静态二进制; 标准库覆盖 HTTPS, TLS, 证书生成, SHA-256, `html/template`, `embed`, `log/slog`; Syncthing 在同一领域用 Go 证明了可行; 编译快. Rust 的优势在这里换不来可感知的收益 (瓶颈是磁盘和网络).
+Go 1.27.3 或更高 (以 `go.mod` 的 `go` 行为准, 升级它时同步改这里和手册; 其中 `http.CrossOriginProtection` 自 Go 1.25 起提供). 理由: 在 WSL 中交叉编译即得到 Windows 和 OpenWrt 可用的静态二进制; 标准库覆盖 HTTPS, TLS, 证书生成, SHA-256, `html/template`, `embed`, `log/slog`; Syncthing 在同一领域用 Go 证明了可行; 编译快. Rust 的优势在这里换不来可感知的收益 (瓶颈是磁盘和网络).
 
 依赖 (只列非标准库):
 

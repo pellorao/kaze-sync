@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,20 +32,28 @@ const (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
+	args := os.Args[1:]
+	if len(args) == 0 {
+		exitUsage("")
+	}
+	// Help and unknown commands are decided before anything touches the state directory.
+	if args[0] == "help" || hasHelp(args) {
+		fmt.Println(usage)
+		return
+	}
+	if args[0] != "enroll" && args[0] != "run" {
+		exitUsage("unknown command " + args[0])
 	}
 	dir, err := client.StateDir()
 	if err == nil {
-		switch os.Args[1] {
+		switch args[0] {
 		case "enroll":
-			err = enroll(dir, os.Args[2:])
+			err = enroll(dir, args[1:])
 		case "run":
+			if len(args) > 1 {
+				exitUsage("run takes no arguments")
+			}
 			err = run(dir)
-		default:
-			fmt.Fprintln(os.Stderr, usage)
-			os.Exit(2)
 		}
 	}
 	if err != nil {
@@ -53,22 +62,42 @@ func main() {
 	}
 }
 
+func hasHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// exitUsage prints the problem and the usage to stderr and exits with status 2.
+func exitUsage(problem string) {
+	if problem != "" {
+		fmt.Fprintln(os.Stderr, "kaze-syncc:", problem)
+	}
+	fmt.Fprintln(os.Stderr, usage)
+	os.Exit(2)
+}
+
 func enroll(dir string, args []string) error {
-	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
+	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	fp := fs.String("fingerprint", "", "pinned certificate fingerprint (self-signed servers)")
 	noAuto := fs.Bool("no-autostart", false, "do not configure autostart")
 	// Flags may follow the positional arguments.
 	var pos []string
 	for len(args) > 0 {
-		fs.Parse(args)
+		if err := fs.Parse(args); err != nil {
+			exitUsage(err.Error())
+		}
 		args = fs.Args()
 		if len(args) > 0 {
 			pos, args = append(pos, args[0]), args[1:]
 		}
 	}
 	if len(pos) != 2 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
+		exitUsage("enroll needs SERVER and CODE")
 	}
 	if err := client.Enroll(context.Background(), dir, pos[0], pos[1], *fp); err != nil {
 		return err

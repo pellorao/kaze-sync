@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -22,12 +23,23 @@ const usage = `usage:
   kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "YYYY-MM-DD HH:MM[:SS]" (UTC)]`
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
+	args := os.Args[1:]
+	if len(args) == 0 {
+		exitUsage("")
 	}
-	cmd, args := os.Args[1], os.Args[2:]
-	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
+	// Help and unknown commands are decided before anything is opened.
+	if args[0] == "help" || hasHelp(args) {
+		fmt.Println(usage)
+		return
+	}
+	cmd, args := args[0], args[1:]
+	switch cmd {
+	case "run", "install", "admin-password", "export":
+	default:
+		exitUsage("unknown command " + cmd)
+	}
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	exe, _ := os.Executable()
 	def := "" // run and install need an explicit directory; admin-password defaults to the binary's
 	if cmd == "admin-password" || cmd == "export" {
@@ -51,10 +63,14 @@ func main() {
 			export.Dir, args = args[0], args[1:]
 		}
 	}
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		exitUsage(err.Error())
+	}
+	if fs.NArg() > 0 {
+		exitUsage("unexpected argument " + fs.Arg(0))
+	}
 	if *data == "" && (cmd == "run" || cmd == "install") {
-		fmt.Fprintln(os.Stderr, "--data is required")
-		os.Exit(2)
+		exitUsage("--data is required")
 	}
 
 	var err error
@@ -68,9 +84,8 @@ func main() {
 		err = server.NewInstaller().Install(o)
 	case "export":
 		export.Data = *data
-		if export.Dir == "" || fs.NArg() > 0 {
-			fmt.Fprintln(os.Stderr, usage)
-			os.Exit(2)
+		if export.Dir == "" {
+			exitUsage("export needs DIR")
 		}
 		if at != "" {
 			if export.At, err = server.ParseTime(at); err != nil {
@@ -80,12 +95,27 @@ func main() {
 		err = server.NewInstaller().Export(export)
 	case "admin-password":
 		err = server.NewInstaller().AdminPassword(*data)
-	default:
-		fmt.Fprintln(os.Stderr, usage)
-		os.Exit(2)
 	}
 	if err != nil {
 		slog.Error(cmd, "err", err)
 		os.Exit(1)
 	}
+}
+
+func hasHelp(args []string) bool {
+	for _, a := range args {
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// exitUsage prints the problem and the usage to stderr and exits with status 2.
+func exitUsage(problem string) {
+	if problem != "" {
+		fmt.Fprintln(os.Stderr, "kaze-syncd:", problem)
+	}
+	fmt.Fprintln(os.Stderr, usage)
+	os.Exit(2)
 }
