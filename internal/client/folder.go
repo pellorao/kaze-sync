@@ -11,6 +11,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -29,6 +30,9 @@ const (
 
 // packetTarget is the size at which an upload packet is sent; each packet is one /blocks request.
 var packetTarget = 4 << 20
+
+// hashWorkers is how many files a scan hashes at once.
+var hashWorkers = 8
 
 var (
 	errInUse   = errors.New("SQLite database in use (non-empty -wal or -journal)")
@@ -359,6 +363,50 @@ func (f *Folder) hashFile(p string, busy bool, buf []byte) (h hashed, err error)
 	return h, nil
 }
 
+// hashFiles hashes the files with hashWorkers at a time: opening a small file costs a wait (on Windows, the
+// virus scanner reads it first), which overlaps this way. The results are in the order of paths.
+func (f *Folder) hashFiles(paths []string, files map[string]found) []struct {
+	h   hashed
+	err error
+} {
+	out := make([]struct {
+		h   hashed
+		err error
+	}, len(paths))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var panicked any
+	next := make(chan int)
+	for w := 0; w < min(hashWorkers, len(paths)); w++ {
+		wg.Add(1)
+		go func() {
+			defer func() {
+				if p := recover(); p != nil { // raised again below, in the caller's goroutine
+					mu.Lock()
+					panicked = p
+					mu.Unlock()
+					for range next { // let the sender finish
+					}
+				}
+				wg.Done()
+			}()
+			buf := make([]byte, proto.BlockSize)
+			for i := range next {
+				out[i].h, out[i].err = f.hashFile(paths[i], files[paths[i]].busy, buf)
+			}
+		}()
+	}
+	for i := range paths {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	if panicked != nil {
+		panic(panicked)
+	}
+	return out
+}
+
 // item is one pending change.
 type item struct {
 	path string
@@ -413,7 +461,6 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	var items []*item
 	var puts []localRow
 	var drop []string
-	buf := make([]byte, proto.BlockSize)
 	now := f.Now().UnixNano()
 
 	paths := make([]string, 0, len(files))
@@ -421,6 +468,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		paths = append(paths, p)
 	}
 	slices.Sort(paths)
+	var cands []string // the files to hash
 	for _, p := range paths {
 		e := files[p].e
 		row, have := local[p]
@@ -437,7 +485,13 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			f.note(p, proto.KindRejected, rj.reason) // refused before and unchanged: not asking again
 			continue
 		}
-		h, err := f.hashFile(p, files[p].busy, buf)
+		cands = append(cands, p)
+	}
+	hashes := f.hashFiles(cands, files)
+	for i, p := range cands {
+		e := files[p].e
+		row, have := local[p]
+		h, err := hashes[i].h, hashes[i].err
 		switch {
 		case errors.Is(err, errInUse), errors.Is(err, cfs.ErrLocked):
 			f.note(p, proto.KindInUse, err.Error())

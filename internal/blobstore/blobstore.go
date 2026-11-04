@@ -113,9 +113,10 @@ func (s *Store) Use(h Hash) (bool, error) {
 // 8 ms alone and 0.4 ms with 16 in flight).
 const syncWorkers = 16
 
-// Writer stores the blocks of one upload. Each block is written and verified at once; its fsync, final rename
-// and the rest run in the background, so that the fsyncs overlap. Wait returns when every block is on disk under
-// its name: the caller answers the client only after it, so a stored block is as durable as with a Put per block.
+// Writer stores the blocks of one upload. Each block is written, verified, synced and renamed by one of up to
+// syncWorkers goroutines, so that the creations and the fsyncs overlap. Wait returns when every block is on disk
+// under its name: the caller answers the client only after it, so a stored block is as durable as with a Put per
+// block.
 type Writer struct {
 	s   *Store
 	sem chan struct{}
@@ -126,28 +127,15 @@ type Writer struct {
 
 func (s *Store) NewWriter() *Writer { return &Writer{s: s, sem: make(chan struct{}, syncWorkers)} }
 
-// Put reads r to the end and verifies it hashes to h; the block is complete only after Wait.
-func (w *Writer) Put(h Hash, r io.Reader) error {
-	f, err := os.CreateTemp(filepath.Join(w.s.dir, "tmp"), "put-")
-	if err != nil {
-		return err
-	}
-	d := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(f, d), r); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return err
-	}
-	if Hash(d.Sum(nil)) != h {
-		f.Close()
-		os.Remove(f.Name())
-		return ErrHashMismatch
-	}
+// Put stores the block with hash h and content data in the background (data is copied: the caller may reuse it).
+// It blocks while syncWorkers blocks are in flight. A content that does not hash to h makes Wait return ErrHashMismatch.
+func (w *Writer) Put(h Hash, data []byte) {
 	w.sem <- struct{}{}
 	w.wg.Add(1)
+	b := append(w.buf(), data...)
 	go func() {
-		defer func() { <-w.sem; w.wg.Done() }()
-		if err := w.s.finish(f, h); err != nil {
+		defer func() { <-w.sem; w.wg.Done(); bufPool.Put(&b) }()
+		if err := w.s.put(h, b); err != nil {
 			w.mu.Lock()
 			if w.err == nil {
 				w.err = err
@@ -155,10 +143,13 @@ func (w *Writer) Put(h Hash, r io.Reader) error {
 			w.mu.Unlock()
 		}
 	}()
-	return nil
 }
 
-// Wait blocks until every Put has finished and returns the first error of the background steps.
+var bufPool = sync.Pool{New: func() any { b := make([]byte, 0, 256<<10); return &b }}
+
+func (w *Writer) buf() []byte { return (*bufPool.Get().(*[]byte))[:0] }
+
+// Wait blocks until every Put has finished and returns the first error.
 func (w *Writer) Wait() error {
 	w.wg.Wait()
 	w.mu.Lock()
@@ -169,18 +160,27 @@ func (w *Writer) Wait() error {
 // Put reads r to the end, verifies it hashes to h, and stores it read-only.
 // Concurrent Puts of the same hash all succeed and leave one copy.
 func (s *Store) Put(h Hash, r io.Reader) error {
-	w := s.NewWriter()
-	err := w.Put(h, r)
-	if werr := w.Wait(); err == nil {
-		err = werr
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
 	}
-	return err
+	return s.put(h, data)
 }
 
-// finish makes the written temporary file durable and moves it to the name of its hash. It closes f.
-func (s *Store) finish(f *os.File, h Hash) error {
+// put writes data to a temporary file, verifies it hashes to h, makes it durable and moves it to the name of its hash.
+func (s *Store) put(h Hash, data []byte) error {
+	if Hash(sha256.Sum256(data)) != h {
+		return ErrHashMismatch
+	}
+	f, err := os.CreateTemp(filepath.Join(s.dir, "tmp"), "put-")
+	if err != nil {
+		return err
+	}
 	defer os.Remove(f.Name())
 	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
 	if err := f.Sync(); err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
 )
 
@@ -343,19 +343,19 @@ func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 		if err == io.EOF {
 			break
 		}
-		if err == nil {
-			err = bw.Put(h, bytes.NewReader(data))
-		}
 		if err != nil {
 			rerr = err
 			break
 		}
+		bw.Put(h, data)
 		stored++
 	}
 	werr := bw.Wait() // the blocks that arrived completely are stored even when the rest is bad
 	switch {
 	case rerr != nil:
 		http.Error(w, "bad block packet: "+rerr.Error(), http.StatusBadRequest)
+	case errors.Is(werr, blobstore.ErrHashMismatch):
+		http.Error(w, "bad block packet: "+werr.Error(), http.StatusBadRequest)
 	case werr != nil:
 		slog.Error("blocks", "err", werr)
 		http.Error(w, "internal error", http.StatusInternalServerError)

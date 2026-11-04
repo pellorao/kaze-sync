@@ -154,9 +154,9 @@ const (
 )
 
 func newSim(t *testing.T, seed int64) *sim {
-	old := ioWorkers
-	ioWorkers = 1 // the crash points are numbered in the order of the calls: keep it deterministic
-	t.Cleanup(func() { ioWorkers = old })
+	oldIO, oldHash := ioWorkers, hashWorkers
+	ioWorkers, hashWorkers = 1, 1 // the crash points are numbered in the order of the calls: keep it deterministic
+	t.Cleanup(func() { ioWorkers, hashWorkers = oldIO, oldHash })
 	e := newCEnv(t)
 	s := &sim{t: t, e: e, rng: rand.New(rand.NewSource(seed)), crash: &crasher{}, now: time.Unix(1_700_000_000, 0), keep: map[string]bool{}, where: map[string]string{}}
 	var fids []int64

@@ -265,15 +265,11 @@ func TestWriterStoresEveryBlockByWait(t *testing.T) {
 		data := []byte(strings.Repeat("block ", i+1))
 		h := hashOf(t, data)
 		hs = append(hs, h)
-		if err := w.Put(h, bytes.NewReader(data)); err != nil {
-			t.Fatal(err)
-		}
+		w.Put(h, data)
 	}
-	if err := w.Put(hashOf(t, []byte("a")), strings.NewReader("b")); !errors.Is(err, ErrHashMismatch) {
+	w.Put(hashOf(t, []byte("a")), []byte("b"))
+	if err := w.Wait(); !errors.Is(err, ErrHashMismatch) {
 		t.Fatalf("mismatch: %v", err)
-	}
-	if err := w.Wait(); err != nil {
-		t.Fatal(err)
 	}
 	for _, h := range hs {
 		if ok, _ := s.Has(h); !ok {
