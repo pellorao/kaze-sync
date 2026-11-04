@@ -44,7 +44,7 @@ type blockSrc struct {
 }
 
 func consistent(r localRow, st cfs.Entry) bool {
-	return !st.IsDir && st.Size == r.Size && st.MtimeNs == r.MtimeNs
+	return !st.IsDir && st.IsLink == r.Link && st.Size == r.Size && st.MtimeNs == r.MtimeNs
 }
 
 // fetch makes the file at e.Path equal to entry e (design 5.5) and records it
@@ -52,6 +52,9 @@ func consistent(r localRow, st cfs.Entry) bool {
 // from src or the server, which sends only the blocks no local file has.
 // expect is the state the target must still be in.
 func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expect place.Expect) error {
+	if e.Link {
+		return f.fetchLink(ctx, e, expect)
+	}
 	src = f.localSource(e, src)
 	err := f.placeEntry(ctx, e, src, expect)
 	if src != nil && (errors.Is(err, place.ErrHashMismatch) || errors.As(err, new(localReadError))) {
@@ -75,6 +78,9 @@ func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expec
 func (f *Folder) localSource(e *proto.Entry, src *blockSrc) *blockSrc {
 	if rows, err := f.DB.byHash(e.Hash[:], 8); err == nil {
 		for _, r := range rows {
+			if r.Link {
+				continue // its content is a link target, not a file
+			}
 			if st, err := f.FS.Stat(r.Path); err == nil && consistent(r, st) {
 				return &blockSrc{r.Path, proto.SplitHashes(r.Blocks), r.Size}
 			}
@@ -102,7 +108,7 @@ func (f *Folder) placedRow(e *proto.Entry) (localRow, error) {
 		return localRow{}, err
 	}
 	return localRow{Path: e.Path, Key: pp.Key(e.Path), Seq: e.Seq, Hash: e.Hash[:], Blocks: proto.JoinHashes(e.Blocks),
-		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec}, nil
+		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec && !e.Link, Link: e.Link}, nil
 }
 
 // maxConflictNames is how many names (one per second) conflictName tries before it gives up.
@@ -352,4 +358,87 @@ func (r *blockReader) plan(i, end int) []proto.Hash {
 		}
 	}
 	return want
+}
+
+// linkTarget reads the target of the link entry e from the server: its content is one block of at most
+// MaxLinkTarget bytes, which hashes to the whole-file hash.
+func (f *Folder) linkTarget(ctx context.Context, e *proto.Entry) (string, error) {
+	if e.Size < 1 || e.Size > proto.MaxLinkTarget || len(e.Blocks) != 1 || e.Blocks[0] != *e.Hash {
+		return "", fmt.Errorf("the server's link entry is malformed (%d bytes, %d blocks)", e.Size, len(e.Blocks))
+	}
+	body, err := f.API.GetBlocks(ctx, e.Blocks)
+	if err != nil {
+		return "", remoteError{err}
+	}
+	defer body.Close()
+	got, data, err := proto.ReadBlock(body, make([]byte, proto.BlockSize))
+	if err == nil && (got != *e.Hash || int64(len(data)) != e.Size) {
+		err = fmt.Errorf("server sent block %s (%d bytes), want %s (%d)", got, len(data), e.Hash, e.Size)
+	}
+	if err != nil {
+		return "", remoteError{err}
+	}
+	return string(data), nil
+}
+
+// linksOK probes once per Pull whether this machine can create symbolic links, so that a machine that cannot does not
+// fetch the target of every link first.
+func (f *Folder) linksOK() bool {
+	if f.linkProbe == 0 {
+		probe := ".syncpart-linkprobe"
+		f.FS.Remove(probe)
+		f.linkProbe = 1
+		if err := f.FS.Symlink("probe", probe); errors.Is(err, cfs.ErrLinkUnsupported) {
+			f.linkProbe = -1
+		} else if err == nil {
+			f.FS.Remove(probe)
+		}
+	}
+	return f.linkProbe > 0
+}
+
+// fetchLink makes the path of the link entry e a symbolic link to its target and records it as the local base
+// (design 6.7). When this machine cannot create links the link is left on the server, the path is recorded in the
+// unlinked table that the Web UI notice is computed from, and the entry counts as applied.
+func (f *Folder) fetchLink(ctx context.Context, e *proto.Entry, expect place.Expect) error {
+	var err error
+	if f.linksOK() {
+		var target string
+		if target, err = f.linkTarget(ctx, e); err == nil {
+			err = place.PlaceLink(f.FS, e.Path, target, *e.Hash, expect)
+		}
+	} else {
+		err = cfs.ErrLinkUnsupported
+	}
+	if errors.Is(err, cfs.ErrLinkUnsupported) {
+		return f.DB.putUnlinked(unlinkedRow{Path: e.Path, Seq: e.Seq, Hash: e.Hash[:], Size: e.Size, MtimeNs: e.MtimeNs,
+			Message: proto.LinkNotCreated + " (on Windows turn on Developer Mode in Settings, then the link appears by itself)"})
+	}
+	if err != nil {
+		return err
+	}
+	row, err := f.placedRow(e)
+	if err != nil {
+		return err
+	}
+	if err := f.DB.dropUnlinked(e.Path); err != nil {
+		return err
+	}
+	return f.DB.apply([]localRow{row}, nil)
+}
+
+// retryUnlinked tries the links that could not be created again, as soon as the machine can create them.
+func (f *Folder) retryUnlinked(ctx context.Context) error {
+	rows, err := f.DB.unlinked()
+	if err != nil || len(rows) == 0 || !f.linksOK() {
+		return err
+	}
+	for _, r := range rows {
+		e := proto.Entry{Path: r.Path, Seq: r.Seq, Size: r.Size, MtimeNs: r.MtimeNs, Link: true, Hash: (*proto.Hash)(r.Hash)}
+		e.Blocks = []proto.Hash{*e.Hash}
+		if _, err := f.applyLive(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
 }

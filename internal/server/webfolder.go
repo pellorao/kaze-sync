@@ -126,6 +126,8 @@ var kindLabel = map[string]string{
 // unsyncedLabel says why an entry is not on the server.
 func unsyncedLabel(n notice) string {
 	switch {
+	case strings.HasPrefix(n.Message, proto.LinkNotCreated):
+		return "符号链接未建立"
 	case strings.Contains(n.Message, "symbolic link"):
 		return "符号链接"
 	case strings.Contains(n.Message, "UTF-8"):

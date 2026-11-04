@@ -17,6 +17,7 @@ import (
 
 type MemOptions struct {
 	CaseInsensitive bool
+	NoSymlinks      bool  // Symlink fails with ErrLinkUnsupported, like Windows without Developer Mode
 	Clock           int64 // first logical mtime; give clients of one test different ranges so that mtimes never collide
 }
 
@@ -26,12 +27,14 @@ type node struct {
 	data  []byte
 	mtime int64
 	exec  bool
+	link  bool // a symbolic link: data is the target; Open and OpenAppend refuse it (the real file system would follow it)
 	kids  map[string]*node
 }
 
 type Mem struct {
 	mu        sync.Mutex
 	ci        bool
+	noLinks   bool
 	root      *node
 	clock     int64 // logical time: every modification advances it
 	locked    map[*node]bool
@@ -45,6 +48,7 @@ func NewMem(opts MemOptions) *Mem {
 	}
 	return &Mem{
 		ci:        opts.CaseInsensitive,
+		noLinks:   opts.NoSymlinks,
 		root:      &node{dir: true, kids: map[string]*node{}},
 		clock:     opts.Clock,
 		locked:    map[*node]bool{},
@@ -141,7 +145,7 @@ func (m *Mem) lookup(op, p string) (*node, error) {
 }
 
 func (m *Mem) entry(n *node) Entry {
-	return Entry{Name: n.name, IsDir: n.dir, Size: int64(len(n.data)), MtimeNs: n.mtime, Exec: n.exec}
+	return Entry{Name: n.name, IsDir: n.dir, IsSymlink: n.link, IsLink: n.link, Size: int64(len(n.data)), MtimeNs: n.mtime, Exec: n.exec}
 }
 
 func (m *Mem) tick() int64 { m.clock++; return m.clock }
@@ -183,7 +187,7 @@ func (m *Mem) Open(p string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	if n.dir {
+	if n.dir || n.link {
 		return nil, pathErr("open", p, fs.ErrInvalid)
 	}
 	if m.locked[n] {
@@ -228,7 +232,7 @@ func (m *Mem) OpenAppend(p string) (io.WriteCloser, int64, error) {
 		}
 		n = &node{name: base, mtime: m.tick()}
 		parent.kids[m.key(base)] = n
-	case n.dir:
+	case n.dir || n.link:
 		return nil, 0, pathErr("open", p, fs.ErrInvalid)
 	case m.locked[n]:
 		return nil, 0, pathErr("open", p, ErrLocked)
@@ -326,4 +330,46 @@ func (m *Mem) SetMeta(p string, mtimeNs int64, exec bool) error {
 	}
 	n.mtime, n.exec = mtimeNs, exec
 	return nil
+}
+
+func (m *Mem) Readlink(p string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n, err := m.lookup("readlink", p)
+	if err != nil {
+		return "", err
+	}
+	if !n.link {
+		return "", pathErr("readlink", p, fs.ErrInvalid)
+	}
+	return string(n.data), nil
+}
+
+func (m *Mem) Symlink(target, p string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.begin("symlink", p); err != nil {
+		return err
+	}
+	if m.noLinks {
+		return pathErr("symlink", p, ErrLinkUnsupported)
+	}
+	parent, base, n, err := m.find(p)
+	switch {
+	case err != nil:
+		return pathErr("symlink", p, err)
+	case n != nil:
+		return pathErr("symlink", p, fs.ErrExist)
+	case !parent.dir:
+		return pathErr("symlink", p, fs.ErrInvalid)
+	}
+	parent.kids[m.key(base)] = &node{name: base, link: true, data: []byte(target), mtime: m.tick()}
+	return nil
+}
+
+// SetNoSymlinks switches the failure of Symlink on or off, as when the user turns Developer Mode on.
+func (m *Mem) SetNoSymlinks(on bool) {
+	m.mu.Lock()
+	m.noLinks = on
+	m.mu.Unlock()
 }

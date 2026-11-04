@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, conflict"
+const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, conflict, link"
 
 // defaultRules is the factory global rule set: the original eight plus the system and
 // temporary files of Nextcloud's sync-exclude.lst (design 8.2).
@@ -89,6 +89,9 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
 INSERT INTO meta VALUES('next_seq', 1);
 `, `
 CREATE INDEX files_seq ON files(seq);
+`, `
+ALTER TABLE files ADD COLUMN link INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE versions ADD COLUMN link INTEGER NOT NULL DEFAULT 0;
 `}
 
 // Schema versions this binary works with.

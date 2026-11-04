@@ -57,9 +57,9 @@ const (
 	// AgentVersion is the protocol version of this client, bumped on every change of the device API; clients send it in
 	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
 	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
-	// (design 9.3). A request without the header comes from a client older than the header: version 1.
-	AgentVersion    = 4
-	MinAgentVersion = 2
+	// (design 9.3). Version 5 (symbolic links, design 6.7) stays open for more fields until the next release. A request without the header comes from a client older than the header: version 1.
+	AgentVersion    = 5
+	MinAgentVersion = 5
 	VersionHeader   = "Kaze-Agent-Version"
 )
 
@@ -138,6 +138,8 @@ type Op struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
 	Exec    bool   `json:"exec"`
+	// Link marks a symbolic link: the content is the link's target, verbatim, in one block (design 6.7).
+	Link bool `json:"link,omitempty"`
 }
 
 type CommitReq struct {
@@ -158,6 +160,7 @@ const (
 	ReasonCaseCollision = "case_collision"
 	ReasonInvalidName   = "invalid_name"
 	ReasonTypeConflict  = "type_conflict"
+	ReasonInvalidLink   = "invalid_link" // a link target that is empty or longer than MaxLinkTarget
 )
 
 // Entry is the state of a path on the server; a nil Hash is a tombstone.
@@ -169,6 +172,7 @@ type Entry struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
 	Exec    bool   `json:"exec"`
+	Link    bool   `json:"link,omitempty"` // a symbolic link: the content is its target (design 6.7)
 	// Excluded marks a deletion made because exclusion rules now cover the file (design 8.3). A client keeps its local
 	// copy of such a file whatever rules it has at that moment, so a client that has not applied the new rules yet
 	// (an offline one, or a pull under way) cannot delete it. Only deletions carry it.
@@ -194,6 +198,13 @@ type ChangesResp struct {
 	Cursor  int64   `json:"cursor"`
 	More    bool    `json:"more"`
 }
+
+// MaxLinkTarget is the longest symbolic link target in bytes that is synced (design 6.7).
+const MaxLinkTarget = 4096
+
+// LinkNotCreated starts the message of the skipped notice for a link this machine cannot create (design 6.7); the
+// Web UI folds these notices to one line per device.
+const LinkNotCreated = "cannot create symbolic link"
 
 // Limits of GET /changes pages and POST /blocks/get requests.
 const (

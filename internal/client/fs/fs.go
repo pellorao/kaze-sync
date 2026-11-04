@@ -11,10 +11,19 @@ import (
 // sharing (Windows sharing and lock violations).
 var ErrLocked = errors.New("file is locked by another process")
 
+// ErrLinkUnsupported is returned by Symlink when this machine cannot create symbolic links (Windows without
+// Developer Mode or the privilege, a file system without links).
+var ErrLinkUnsupported = errors.New("cannot create symbolic links here")
+
+// ErrLinkOnPath is returned when an operation would go through a symbolic link that is one of the directories of the
+// path: nothing is read or written below a link (design 6.7).
+var ErrLinkOnPath = errors.New("a symbolic link is on the path")
+
 type Entry struct {
 	Name      string // exact name as stored; for Stat, the last element of the argument
 	IsDir     bool
-	IsSymlink bool // symbolic link or Windows junction
+	IsSymlink bool // symbolic link or any other reparse point: not a regular file or directory
+	IsLink    bool // a real symbolic link (not a Windows junction): synced as a link
 	Size      int64
 	MtimeNs   int64
 	Exec      bool
@@ -31,4 +40,6 @@ type FS interface {
 	Remove(p string) error          // a file or an empty directory
 	MkdirAll(p string) error
 	SetMeta(p string, mtimeNs int64, exec bool) error
+	Readlink(p string) (string, error) // the target of the link p, verbatim
+	Symlink(target, p string) error    // creates the link p; ErrLinkUnsupported when the machine cannot
 }

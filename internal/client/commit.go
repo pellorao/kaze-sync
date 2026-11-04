@@ -199,7 +199,7 @@ func (f *Folder) resolve(ctx context.Context, it *item, cur *proto.Entry) (outco
 	case cur.Hash == nil:
 		it.op.BaseSeq = cur.Seq
 		return resubmit, nil
-	case *cur.Hash == *it.op.Hash:
+	case *cur.Hash == *it.op.Hash && cur.Link == it.op.Link:
 		it.row.Seq = cur.Seq
 		return resolved, nil
 	default:
@@ -285,6 +285,16 @@ func (e uploadError) Error() string { return e.err.Error() }
 // readBlocks reads the blocks with the given indexes (ascending) of the item's file.
 func (f *Folder) readBlocks(it *item, idx []int, buf []byte, emit func(proto.Hash, []byte) error) error {
 	if len(idx) == 0 {
+		return nil
+	}
+	if it.op.Link {
+		target, err := f.FS.Readlink(it.path)
+		if err != nil || int64(len(target)) != it.op.Size || proto.Hash(sha256.Sum256([]byte(target))) != it.op.Blocks[0] {
+			return errChanged
+		}
+		if err := emit(it.op.Blocks[0], []byte(target)); err != nil {
+			return uploadError{err}
+		}
 		return nil
 	}
 	r, err := f.FS.Open(it.path)

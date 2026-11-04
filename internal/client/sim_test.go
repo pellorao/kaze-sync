@@ -105,6 +105,13 @@ func (w crashFS) SetMeta(p string, m int64, x bool) error {
 	_, err := call(w.c, func() (struct{}, error) { return struct{}{}, w.in.SetMeta(p, m, x) })
 	return err
 }
+func (w crashFS) Readlink(p string) (string, error) {
+	return call(w.c, func() (string, error) { return w.in.Readlink(p) })
+}
+func (w crashFS) Symlink(t, p string) error {
+	_, err := call(w.c, func() (struct{}, error) { return struct{}{}, w.in.Symlink(t, p) })
+	return err
+}
 
 // simTransport hands requests to the server's handler in the process; with crash set, the request is
 // processed and the response lost ("after") or the request never sent ("before").

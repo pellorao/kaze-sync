@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -254,5 +256,57 @@ func TestFaultTransport(t *testing.T) {
 	}
 	if len(got) < 2 || got[0] != 4000 || got[len(got)-1] != 10 {
 		t.Errorf("server saw bodies of %v bytes", got)
+	}
+}
+
+// No operation of the real file system goes through a symbolic link that is a directory of the path (design 6.7).
+func TestOSRefusesToWorkBelowALink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating links needs privileges there")
+	}
+	base := t.TempDir()
+	root, outside := filepath.Join(base, "root"), filepath.Join(base, "outside")
+	os.MkdirAll(root, 0o755)
+	os.MkdirAll(outside, 0o755)
+	os.WriteFile(filepath.Join(outside, "victim"), []byte("v"), 0o644)
+	if err := os.Symlink(outside, filepath.Join(root, "lnk")); err != nil {
+		t.Fatal(err)
+	}
+	f := OS(root)
+	w, _, err := f.OpenAppend("lnk/new")
+	if w != nil {
+		w.Close()
+	}
+	checks := map[string]error{
+		"OpenAppend": err,
+		"MkdirAll":   f.MkdirAll("lnk/sub/dir"),
+		"Remove":     f.Remove("lnk/victim"),
+		"Rename":     f.Rename("lnk/victim", "moved"),
+		"Symlink":    f.Symlink("x", "lnk/l"),
+		"SetMeta":    f.SetMeta("lnk/victim", 1, true),
+	}
+	_, checks["Open"] = f.Open("lnk/victim")
+	_, checks["Readlink"] = f.Readlink("lnk/victim")
+	_, checks["ReadDir"] = f.ReadDir("lnk")
+	for name, err := range checks {
+		if !errors.Is(err, ErrLinkOnPath) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 1 {
+		t.Fatalf("outside was changed: %v", entries)
+	}
+	// The link itself is an ordinary entry: it can be read, replaced and removed.
+	if e, err := f.Stat("lnk"); err != nil || !e.IsLink || e.IsDir {
+		t.Fatalf("Stat(lnk) = %+v %v", e, err)
+	}
+	if tg, err := f.Readlink("lnk"); err != nil || tg != outside {
+		t.Fatalf("Readlink(lnk) = %q %v", tg, err)
+	}
+	if err := f.Remove("lnk"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "victim")); err != nil {
+		t.Fatal("removing the link removed its target's content")
 	}
 }

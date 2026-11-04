@@ -26,14 +26,15 @@ type fileRow struct {
 	device    string
 	createdAt int64
 	conflict  bool
+	link      bool
 }
 
 func (f *fileRow) scan(r interface{ Scan(...any) error }) error {
-	return r.Scan(&f.path, &f.key, &f.seq, &f.hash, &f.blocks, &f.size, &f.mtimeNs, &f.exec, &f.device, &f.createdAt, &f.conflict)
+	return r.Scan(&f.path, &f.key, &f.seq, &f.hash, &f.blocks, &f.size, &f.mtimeNs, &f.exec, &f.device, &f.createdAt, &f.conflict, &f.link)
 }
 
 func (f *fileRow) entry() *proto.Entry {
-	e := &proto.Entry{Path: f.path, Seq: f.seq, Size: f.size, MtimeNs: f.mtimeNs, Exec: f.exec}
+	e := &proto.Entry{Path: f.path, Seq: f.seq, Size: f.size, MtimeNs: f.mtimeNs, Exec: f.exec, Link: f.link}
 	if f.hash != nil {
 		e.Hash = (*proto.Hash)(f.hash)
 		e.Blocks = proto.SplitHashes(f.blocks)
@@ -52,6 +53,9 @@ func checkOp(op *proto.Op) error {
 	if op.Hash == nil {
 		if len(op.Blocks) != 0 {
 			return badRequest{"delete with blocks"}
+		}
+		if op.Link {
+			return badRequest{"delete of a link"}
 		}
 		return nil
 	}
@@ -131,6 +135,9 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	// Name checks.
 	key := pp.Key(op.Path)
 	if op.Hash != nil {
+		if op.Link && (op.Size < 1 || op.Size > proto.MaxLinkTarget) {
+			return proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonInvalidLink}, nil
+		}
 		if reason, err := nameProblem(tx, op.Path, key); err != nil {
 			return proto.Result{}, err
 		} else if reason != "" {
@@ -169,13 +176,13 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	}
 	var hash, blocks []byte
 	var size, mtime int64
-	var exec, isConflict bool
+	var exec, isConflict, link bool
 	if op.Hash != nil {
-		hash, blocks, size, mtime, exec = op.Hash[:], proto.JoinHashes(op.Blocks), op.Size, op.MtimeNs, op.Exec
+		hash, blocks, size, mtime, exec, link = op.Hash[:], proto.JoinHashes(op.Blocks), op.Size, op.MtimeNs, op.Exec && !op.Link, op.Link
 		isConflict = pp.IsConflictName(op.Path)
 	}
-	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, isConflict)
+	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, isConflict, link)
 	return proto.Result{Status: proto.StatusOK, Seq: seq}, err
 }
 

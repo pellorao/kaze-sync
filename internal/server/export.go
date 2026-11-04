@@ -102,6 +102,19 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	// Never write through a link: an earlier export, or someone with write access to the target directory, may
+	// have left one on the way (design 6.7).
+	if err := noLinkOnPath(root, dst); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(dst); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(dst); err != nil {
+			return err
+		}
+	}
+	if r.link {
+		return exportLink(blobs, dst, r)
+	}
 	mode := os.FileMode(0o644)
 	if r.exec {
 		mode = 0o755
@@ -140,4 +153,52 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 		return err
 	}
 	return os.Chtimes(dst, time.Unix(0, r.mtimeNs), time.Unix(0, r.mtimeNs))
+}
+
+// noLinkOnPath fails when a directory between root (excluded) and the parent of dst is a symbolic link.
+func noLinkOnPath(root, dst string) error {
+	rel, err := filepath.Rel(root, filepath.Dir(dst))
+	if err != nil || rel == "." {
+		return err
+	}
+	cur := root
+	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, seg)
+		fi, err := os.Lstat(cur)
+		if err != nil {
+			return err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symbolic link: not writing below it", cur)
+		}
+	}
+	return nil
+}
+
+// exportLink creates the symbolic link of a link entry: its target is the content, verbatim.
+func exportLink(blobs *blobstore.Store, dst string, r *fileRow) error {
+	if r.size < 1 || r.size > proto.MaxLinkTarget {
+		return fmt.Errorf("link target of %d bytes", r.size)
+	}
+	var target []byte
+	for _, b := range proto.SplitHashes(r.blocks) {
+		src, err := blobs.Open(b)
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(io.LimitReader(src, proto.MaxLinkTarget+1))
+		src.Close()
+		if err != nil {
+			return err
+		}
+		target = append(target, data...)
+	}
+	if sum := sha256.Sum256(target); string(sum[:]) != string(r.hash) {
+		return fmt.Errorf("content does not match its hash")
+	}
+	if fi, err := os.Lstat(dst); err == nil && fi.IsDir() {
+		return fmt.Errorf("a directory is in the way")
+	}
+	os.Remove(dst)
+	return os.Symlink(string(target), dst)
 }

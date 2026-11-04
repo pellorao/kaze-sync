@@ -157,6 +157,15 @@ const foldAbove = 5
 var foldText = map[string]string{
 	proto.KindRejected: "个条目被拒绝", proto.KindIO: "个读写错误", proto.KindFolder: "个文件夹错误",
 	proto.KindInUse: "个文件正在使用", proto.KindSkipped: "个条目被跳过", kindConflict: "个冲突副本",
+	linkKind: "个符号链接未建立 (Windows 需开启开发人员模式)",
+}
+
+// linkKind is the fold key of the notices of symbolic links a device cannot create (design 6.7): one line per device
+// however few there are, and the line does not change unless the set of links does.
+const linkKind = "link-not-created"
+
+func isLinkNotice(n notice) bool {
+	return n.Kind == proto.KindSkipped && strings.HasPrefix(n.Message, proto.LinkNotCreated)
 }
 
 // noticeGroup is one folder's part of the popover.
@@ -179,15 +188,21 @@ func (v notifView) Total() int { return v.Errors + v.Warnings }
 // foldNotices turns notices into popover rows, errors first.
 func foldNotices(notes []notice) []noticeRow {
 	type key struct{ device, kind string }
+	kindOf := func(n notice) string {
+		if isLinkNotice(n) {
+			return linkKind
+		}
+		return n.Kind
+	}
 	count := map[key]int{}
 	for _, n := range notes {
-		count[key{n.Device, n.Kind}]++
+		count[key{n.Device, kindOf(n)}]++
 	}
 	var rows []noticeRow
 	folded := map[key]int{} // key -> index in rows
 	for _, n := range notes {
-		k := key{n.Device, n.Kind}
-		if count[k] <= foldAbove {
+		k := key{n.Device, kindOf(n)}
+		if count[k] <= foldAbove && k.kind != linkKind {
 			rows = append(rows, noticeRow{notice: n})
 			continue
 		}
@@ -200,7 +215,7 @@ func foldNotices(notes []notice) []noticeRow {
 		r := &rows[i]
 		r.Sub = append(r.Sub, n)
 		r.Since = min(r.Since, n.Since)
-		r.Text = strconv.Itoa(len(r.Sub)) + " " + foldText[n.Kind]
+		r.Text = strconv.Itoa(len(r.Sub)) + " " + foldText[k.kind]
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Error && !rows[j].Error })
 	return rows

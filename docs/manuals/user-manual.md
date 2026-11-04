@@ -241,7 +241,7 @@ Other cases:
 - **Case.** The server treats names case-insensitively inside a folder. If a Linux client has both `A.txt` and `a.txt`, the one that arrives second is rejected (`被拒绝`), shown as an error; rename one of them. Renaming only the case on Windows works.
 - **Windows-illegal names** are rejected by the server on every device: characters `<>:"\|?*` or control characters, names ending in a dot or space, and the reserved names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`. Rename the file on the device that created it, or exclude it.
 - **A file and a directory with the same name** are a conflict: the side that arrives second renames its file or directory to a conflict copy name.
-- **Symbolic links and Windows junctions** are not followed and not synced (reported as skipped, `已跳过`). Empty directories, permissions other than the executable bit, owners and extended attributes are not synced. File contents are copied byte for byte, with no line-ending conversion.
+- **Symbolic links** are synced as links, never followed: the target is stored as text, exactly as written (an absolute path, a relative path, a dangling link or one pointing outside the folder all sync; whether the target exists on another device is up to you). The target's content is not synced through the link. A target longer than 4096 bytes is skipped (reported as skipped, `已跳过`). Nothing is ever read or written through a link, so a link to a directory outside the folder cannot make a download write outside it. On a device where a link cannot be created, such as Windows without Developer Mode, the link stays on the server, nothing is created there, and the bell shows one folded line per device ("win: 3 个符号链接未建立 (Windows 需开启开发人员模式)") and the folder page lists the links as grey **Not synced** rows. Turn on Developer Mode (Settings, System, For developers) and the links appear by themselves; nothing needs restarting. The line changes only when the set of affected links changes. Windows junctions are not followed and not synced (reported as skipped). Empty directories, permissions other than the executable bit, owners and extended attributes are not synced. File contents are copied byte for byte, with no line-ending conversion.
 
 ## 9. Notifications
 
@@ -256,7 +256,7 @@ Notifications are computed from the current state: there is nothing to dismiss, 
 | `io` (`读写错误`): other read or write error | Error | Check the disk and permissions on that client, using the message |
 | `folder` (`文件夹错误`): sync root missing, or non-empty directory not allowed to be adopted | Error | Mount the disk, or fix the path or tick adoption on the device page |
 | `in_use` (`占用中`): file locked, being written, or an open SQLite database | Warning | Close the program using it (section 10) |
-| `skipped` (`已跳过`): symbolic link, file name that is not UTF-8 | Warning | Exclude it if you do not need the message |
+| `skipped` (`已跳过`): a symbolic link this device cannot create (see the Symbolic links paragraph in section 8), a link target longer than 4096 bytes, a Windows junction, file name that is not UTF-8 | Warning | Exclude it if you do not need the message |
 | Device not connected for 7 days | Warning | Bring the device online, or revoke it |
 
 Items a client reports as skipped or rejected are not on the server, so the folder page lists them as grey **Not synced** rows (`未同步: ...`) inside their directory; **Details** (`详情`) in the row menu shows the message, device and start time. Folder and device pages also show a one-line summary under the title ("1 个错误, 2 个提醒") that opens the panel.
@@ -351,7 +351,7 @@ Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <install directory>
 Start-Process "<install directory>\kaze-syncc-agent.exe" -ArgumentList run
 ```
 
-Why the order matters: some releases change the protocol (the current protocol version is 4). A new client talking to an old server fails on batched downloads. A client older than the server's minimum version is refused with HTTP 426; its log then contains `client too old, sync is stopped until kaze-syncc is upgraded` about once a minute and the device table shows "N, `过旧`" in red. Upgrade that client as above; its data is not harmed and it resumes by itself. Only changes that make old clients unusable raise the minimum, so most upgrades do not force a client upgrade.
+Why the order matters: some releases change the protocol (the current protocol version is 5; version 5 added symbolic links, and its minimum is 5, so every client must be upgraded after the server). A new client talking to an old server fails on batched downloads. A client older than the server's minimum version is refused with HTTP 426; its log then contains `client too old, sync is stopped until kaze-syncc is upgraded` about once a minute and the device table shows "N, `过旧`" in red. Upgrade that client as above; its data is not harmed and it resumes by itself. Only changes that make old clients unusable raise the minimum, so most upgrades do not force a client upgrade.
 
 ## 16. Uninstalling
 
@@ -436,9 +436,9 @@ The client log records startup, warnings and errors, and is moved to `kaze-syncc
 | A folder shows an error and the bell lists a `folder` entry | Section 5: the local directory is missing, the disk is not mounted, or adopting a non-empty directory is not ticked |
 | Changes appear after a few seconds, not instantly | Normal: file events are collected for 2 seconds (at most 10 seconds when files keep changing), a file must be 5 seconds old, then the other side learns it through the long poll. The usual delay is 5 to 10 seconds |
 | The first sync takes long | Every file is read and hashed once. One test with 19,000 files and 1.6 GiB took about 4.5 minutes |
-| A file does not arrive | Check the folder page for the grey **Not synced** row and the bell: symbolic link, illegal name, case collision, a file in use, or an exclusion rule |
+| A file does not arrive | Check the folder page for the grey **Not synced** row and the bell: symbolic link that cannot be created on that device, illegal name, case collision, a file in use, or an exclusion rule |
 | The server data grows quickly | Files that change often keep one version per change. Exclude them (section 7) or shorten the retention |
 
 ## 18. What kaze-sync does not do
 
-No sharing, multiple users or collaborative editing; no file preview or download in the Web UI; no sync of empty directories, symbolic links, permissions or owners; no end-to-end encryption, compression or bandwidth limit; no per-device rules (use a separate folder for a part you want on one device only); no two-factor sign-in; no notifications on the clients; no macOS or mobile clients; no automatic updates; no server architectures other than x86-64; a single file larger than about 15 GiB cannot be synced. The reasons are in `docs/design.md`.
+No sharing, multiple users or collaborative editing; no file preview or download in the Web UI; no sync of empty directories, Windows junctions, permissions or owners; no end-to-end encryption, compression or bandwidth limit; no per-device rules (use a separate folder for a part you want on one device only); no two-factor sign-in; no notifications on the clients; no macOS or mobile clients; no automatic updates; no server architectures other than x86-64; a single file larger than about 15 GiB cannot be synced. The reasons are in `docs/design.md`.

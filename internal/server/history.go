@@ -67,7 +67,7 @@ func (s *Server) restoreVersion(folder, version int64) (string, error) {
 	var base int64 // the current seq of the path, or 0 when it has never existed
 	db.QueryRow(`SELECT seq FROM files WHERE path=?`, v.path).Scan(&base)
 	e := v.entry()
-	res, err := s.commit(folder, "web", []proto.Op{{Path: v.path, BaseSeq: base, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec}})
+	res, err := s.commit(folder, "web", []proto.Op{{Path: v.path, BaseSeq: base, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec, Link: v.link}})
 	if err != nil {
 		return "", err
 	}
@@ -210,7 +210,7 @@ func restoreDiff(ctx context.Context, db *sql.DB, p string, at time.Time, now in
 		}
 		var cur fileRow
 		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
-		if err == nil && bytes.Equal(cur.hash, v.hash) {
+		if err == nil && bytes.Equal(cur.hash, v.hash) && cur.link == v.link {
 			return nil // already as it was
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -294,7 +294,7 @@ func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, f
 	}
 	_, _, err = restoreDiff(context.Background(), db, p, at, s.now().Unix(), func(v, cur *fileRow, _ bool) error {
 		e := v.entry()
-		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
+		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec, Link: v.link})
 		if len(ops) == proto.MaxCommitOps {
 			return flush()
 		}

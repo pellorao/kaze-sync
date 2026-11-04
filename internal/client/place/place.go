@@ -146,3 +146,41 @@ func copyFrom(w io.WriteCloser, open func(int64) (io.ReadCloser, error), offset 
 	}
 	return err
 }
+
+// PlaceLink makes dst a symbolic link to target: it creates the link under a temporary name next to dst, checks
+// that dst is still as expected and renames the link over it (the rename replaces dst itself, a file or another
+// link, and never follows it). A machine that cannot create links gets cfs.ErrLinkUnsupported.
+func PlaceLink(fsys cfs.FS, dst, target string, h blobstore.Hash, expect Expect) error {
+	dir := path.Dir(dst)
+	if dir != "." {
+		if err := fsys.MkdirAll(dir); err != nil {
+			return err
+		}
+	}
+	tmp := path.Join(dir, ".syncpart-"+h.String()[:16]+"-link")
+	fsys.Remove(tmp)
+	if err := fsys.Symlink(target, tmp); err != nil {
+		return err
+	}
+	cur, err := fsys.Stat(dst)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if expect.Exists {
+			err = ErrTargetChanged
+		} else {
+			err = nil
+		}
+	case err != nil:
+	case !expect.Exists || cur.Size != expect.Size || cur.MtimeNs != expect.MtimeNs:
+		err = ErrTargetChanged
+	default:
+		err = nil
+	}
+	if err == nil {
+		err = fsys.Rename(tmp, dst)
+	}
+	if err != nil {
+		fsys.Remove(tmp)
+	}
+	return err
+}

@@ -28,7 +28,7 @@ const (
 // The cursor stays behind the first entry that could not be applied.
 func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	var rep Report
-	f.pullErrs, f.sink, f.pendingDown = nil, &f.pullErrs, 0
+	f.pullErrs, f.sink, f.pendingDown, f.linkProbe = nil, &f.pullErrs, 0, 0
 	defer func() { f.sink = &f.errs }()
 	if !f.ready {
 		f.finish(&rep)
@@ -62,6 +62,7 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	}
 	if err == nil {
 		f.seen = since
+		err = f.retryUnlinked(ctx)
 	}
 	waiting := 0 // entries held for files in use wait for the slow schedule, not the quick retry
 	for _, e := range f.pullErrs {
@@ -124,6 +125,17 @@ func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int
 			} else {
 				check(e, r)
 			}
+			continue
+		}
+		if e.Link { // one block, but made by one call of its own, and the queue's files are written by workers
+			if err := flush(); err != nil {
+				return err
+			}
+			job.err = f.fetch(ctx, &job.e, job.src, job.expect)
+			if r, err = f.finishLive(ctx, e, job.err); err != nil {
+				return err
+			}
+			check(e, r)
 			continue
 		}
 		if !q.fits(e) { // too big to share a request with others (or the queue is full): the queue goes first
@@ -196,7 +208,7 @@ func (f *Folder) mergeRenames(adds, dels []proto.Entry) ([]proto.Entry, []proto.
 
 func (f *Folder) renameLocal(from string, a proto.Entry) bool {
 	row, ok, err := f.DB.get(from)
-	if err != nil || !ok || !bytes.Equal(row.Hash, a.Hash[:]) || f.excluded(a.Path) {
+	if err != nil || !ok || !bytes.Equal(row.Hash, a.Hash[:]) || row.Link != a.Link || f.excluded(a.Path) {
 		return false
 	}
 	if st, err := f.FS.Stat(from); err != nil || !consistent(row, st) {
@@ -222,6 +234,7 @@ func (f *Folder) applyLive(ctx context.Context, e proto.Entry) (applied, error) 
 // prepareLive decides what to do with an added or modified file. It returns the outcome, or a job for the
 // download when the file must be fetched.
 func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
+	f.DB.dropUnlinked(e.Path) // a link that fails again is recorded again
 	if f.excluded(e.Path) {
 		return done, nil, nil
 	}
@@ -265,16 +278,16 @@ func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 	case have && !consistent(row, st):
 		return done, nil, nil
 	}
-	if have && bytes.Equal(row.Hash, e.Hash[:]) {
+	if have && bytes.Equal(row.Hash, e.Hash[:]) && row.Link == e.Link {
 		row.Seq = e.Seq // same content: only the base moves
 		return done, nil, f.DB.apply([]localRow{row}, nil)
 	}
-	if exists && f.inUse(e.Path) {
+	if exists && !st.IsLink && f.inUse(e.Path) {
 		f.note(e.Path, proto.KindInUse, errInUse.Error())
 		return hold, nil, nil
 	}
 	var src *blockSrc
-	if have {
+	if have && !row.Link && !e.Link {
 		src = &blockSrc{row.Path, proto.SplitHashes(row.Blocks), row.Size}
 	}
 	return done, &fetchJob{e: e, src: src, expect: place.Expect{Exists: exists, Size: st.Size, MtimeNs: st.MtimeNs}}, nil
@@ -303,6 +316,7 @@ func (f *Folder) finishLive(ctx context.Context, e proto.Entry, err error) (appl
 
 // applyDeleted applies a deletion.
 func (f *Folder) applyDeleted(e proto.Entry) (applied, error) {
+	f.DB.dropUnlinked(e.Path)
 	if e.Excluded || f.excluded(e.Path) { // the rules deleted it on the server: the local copy stays (design 8.3)
 		return done, nil
 	}
@@ -320,7 +334,7 @@ func (f *Folder) applyDeleted(e proto.Entry) (applied, error) {
 		return hold, nil
 	case !consistent(row, st):
 		return done, nil // modified locally: the modification wins (Scan)
-	case f.inUse(e.Path):
+	case !st.IsLink && f.inUse(e.Path):
 		f.note(e.Path, proto.KindInUse, errInUse.Error())
 		return hold, nil
 	}

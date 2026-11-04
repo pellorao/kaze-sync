@@ -18,6 +18,7 @@ type localRow struct {
 	Size      int64
 	MtimeNs   int64
 	Exec      bool
+	Link      bool // a symbolic link: Hash is the SHA-256 of its target (design 6.7)
 }
 
 // localDB is the per-folder state database folder-<id>.db.
@@ -30,6 +31,12 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS local_hash ON local(hash);
 INSERT OR IGNORE INTO meta VALUES('schema_version', 1);`
 
+// unlinkedSchema: the links of the server this machine could not create (design 6.7). The rows are the state the
+// Web UI notice is computed from: a row goes when the link is created, deleted or replaced.
+const unlinkedSchema = `
+CREATE TABLE IF NOT EXISTS unlinked(path TEXT PRIMARY KEY, seq INTEGER NOT NULL, hash BLOB NOT NULL, size INTEGER NOT NULL,
+  mtime_ns INTEGER NOT NULL, message TEXT NOT NULL) WITHOUT ROWID;`
+
 func openLocal(path string) (*localDB, error) {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
@@ -39,7 +46,11 @@ func openLocal(path string) (*localDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(localSchema); err != nil {
+	if _, err := db.Exec(localSchema + unlinkedSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := addLinkColumn(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -48,10 +59,20 @@ func openLocal(path string) (*localDB, error) {
 
 func (l *localDB) Close() error { return l.db.Close() }
 
-const localCols = `path, key, seq, hash, blocks, size, mtime_ns, exec`
+// addLinkColumn adds the link column to a database made before symbolic links were synced.
+func addLinkColumn(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('local') WHERE name='link'`).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := db.Exec(`ALTER TABLE local ADD COLUMN link INTEGER NOT NULL DEFAULT 0`)
+	return err
+}
+
+const localCols = `path, key, seq, hash, blocks, size, mtime_ns, exec, link`
 
 func (r *localRow) scan(s interface{ Scan(...any) error }) error {
-	return s.Scan(&r.Path, &r.Key, &r.Seq, &r.Hash, &r.Blocks, &r.Size, &r.MtimeNs, &r.Exec)
+	return s.Scan(&r.Path, &r.Key, &r.Seq, &r.Hash, &r.Blocks, &r.Size, &r.MtimeNs, &r.Exec, &r.Link)
 }
 
 // get returns the row of a path.
@@ -141,8 +162,8 @@ func (l *localDB) apply(puts []localRow, dels []string) error {
 		}
 	}
 	for _, r := range puts {
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO local VALUES(?,?,?,?,?,?,?,?)`,
-			r.Path, r.Key, r.Seq, r.Hash, r.Blocks, r.Size, r.MtimeNs, r.Exec); err != nil {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO local(`+localCols+`) VALUES(?,?,?,?,?,?,?,?,?)`,
+			r.Path, r.Key, r.Seq, r.Hash, r.Blocks, r.Size, r.MtimeNs, r.Exec, r.Link); err != nil {
 			return err
 		}
 	}
@@ -181,4 +202,41 @@ func (l *localDB) metaInt(key string) int64 {
 	var v int64
 	l.db.QueryRow(`SELECT value FROM meta WHERE key=?`, key).Scan(&v)
 	return v
+}
+
+// unlinkedRow is a link the server has and this machine could not create.
+type unlinkedRow struct {
+	Path    string
+	Seq     int64
+	Hash    []byte
+	Size    int64
+	MtimeNs int64
+	Message string
+}
+
+func (l *localDB) putUnlinked(r unlinkedRow) error {
+	_, err := l.db.Exec(`INSERT OR REPLACE INTO unlinked VALUES(?,?,?,?,?,?)`, r.Path, r.Seq, r.Hash, r.Size, r.MtimeNs, r.Message)
+	return err
+}
+
+func (l *localDB) dropUnlinked(p string) error {
+	_, err := l.db.Exec(`DELETE FROM unlinked WHERE path=?`, p)
+	return err
+}
+
+func (l *localDB) unlinked() ([]unlinkedRow, error) {
+	rows, err := l.db.Query(`SELECT path, seq, hash, size, mtime_ns, message FROM unlinked ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []unlinkedRow
+	for rows.Next() {
+		var r unlinkedRow
+		if err := rows.Scan(&r.Path, &r.Seq, &r.Hash, &r.Size, &r.MtimeNs, &r.Message); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

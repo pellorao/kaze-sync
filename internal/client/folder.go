@@ -35,8 +35,9 @@ var packetTarget = 4 << 20
 var hashWorkers = 8
 
 var (
-	errInUse   = errors.New("SQLite database in use (non-empty -wal or -journal)")
-	errChanged = errors.New("file changed while it was read")
+	errInUse      = errors.New("SQLite database in use (non-empty -wal or -journal)")
+	errChanged    = errors.New("file changed while it was read")
+	errLinkTarget = errors.New("symbolic link target is empty or longer than 4096 bytes: not synced")
 )
 
 // Folder is the engine for one mapped folder. It has no timers or goroutines:
@@ -72,6 +73,7 @@ type Folder struct {
 	seen           int64                // latest server seq the last Pull read up to
 	epoch          string               // the epoch the local state belongs to
 	watched        map[string]bool      // the root's directories a scan has entered, so that a watcher has them
+	linkProbe      int                  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
 type rejection struct {
@@ -182,6 +184,11 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 // finish completes a report from the folder's current errors and counters.
 func (f *Folder) finish(rep *Report) {
 	all := append(append([]proto.FileError{}, f.errs...), f.pullErrs...)
+	if rows, err := f.DB.unlinked(); err == nil { // links this machine could not create: a state, not an event
+		for _, r := range rows {
+			all = append(all, proto.FileError{Path: r.Path, Kind: proto.KindSkipped, Message: r.Message})
+		}
+	}
 	since := map[string]int64{}
 	now := f.Now().Unix()
 	for i := range all {
@@ -254,6 +261,7 @@ func (f *Folder) checkRoot() (bool, error) {
 type found struct {
 	e    cfs.Entry
 	busy bool // a non-empty -wal or -journal sits next to it
+	link bool // a symbolic link (design 6.7)
 }
 
 // walk lists the files to sync below dir. Directories that cannot be read go
@@ -289,15 +297,17 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 		switch {
 		case !utf8.ValidString(e.Name):
 			f.note(p, proto.KindSkipped, "file name is not valid UTF-8")
+		case e.IsLink:
+			files[p] = found{e: e, link: true}
 		case e.IsSymlink:
-			f.note(p, proto.KindSkipped, "symbolic links are not synced")
+			f.note(p, proto.KindSkipped, "not a regular file, directory or symbolic link (a Windows junction?): not synced")
 		case e.IsDir:
 			if skip == nil || !skip(p) {
 				f.walk(p, files, failed, skip)
 			}
 		default:
 			busy := names[e.Name+"-wal"].Size > 0 || names[e.Name+"-journal"].Size > 0
-			files[p] = found{e, busy}
+			files[p] = found{e: e, busy: busy}
 		}
 	}
 }
@@ -306,7 +316,7 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 const staleDownloadPart = 24 * time.Hour
 
 func isPart(e cfs.Entry) bool {
-	return !e.IsDir && !e.IsSymlink && strings.HasPrefix(e.Name, ".syncpart-")
+	return !e.IsDir && strings.HasPrefix(e.Name, ".syncpart-")
 }
 
 // builtinExcluded: the marker, temporary download files and SQLite side files (design 8.1, 5.6).
@@ -345,7 +355,21 @@ type hashed struct {
 }
 
 // hashFile reads p once and computes the block hashes and the whole-file hash.
-func (f *Folder) hashFile(p string, busy bool, buf []byte) (h hashed, err error) {
+func (f *Folder) hashFile(p string, fd found, buf []byte) (h hashed, err error) {
+	busy := fd.busy
+	if fd.link { // the content of a link is its target, one block
+		target, err := f.FS.Readlink(p)
+		if err != nil {
+			return h, err
+		}
+		if len(target) < 1 || len(target) > proto.MaxLinkTarget {
+			return h, errLinkTarget
+		}
+		h.size = int64(len(target))
+		h.whole = sha256.Sum256([]byte(target))
+		h.blocks = []proto.Hash{h.whole}
+		return h, nil
+	}
 	r, err := f.FS.Open(p)
 	if err != nil {
 		return h, err
@@ -402,7 +426,7 @@ func (f *Folder) hashFiles(paths []string, files map[string]found) []struct {
 			}()
 			buf := make([]byte, proto.BlockSize)
 			for i := range next {
-				out[i].h, out[i].err = f.hashFile(paths[i], files[paths[i]].busy, buf)
+				out[i].h, out[i].err = f.hashFile(paths[i], files[paths[i]], buf)
 			}
 		}()
 	}
@@ -482,7 +506,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	for _, p := range paths {
 		e := files[p].e
 		row, have := local[p]
-		if have && row.Size == e.Size && row.MtimeNs == e.MtimeNs {
+		if have && row.Size == e.Size && row.MtimeNs == e.MtimeNs && row.Link == e.IsLink {
 			continue
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
@@ -506,27 +530,30 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		case errors.Is(err, errInUse), errors.Is(err, cfs.ErrLocked):
 			f.note(p, proto.KindInUse, err.Error())
 			continue
+		case errors.Is(err, errLinkTarget):
+			f.note(p, proto.KindSkipped, err.Error())
+			continue
 		case err != nil:
 			f.note(p, proto.KindIO, err.Error())
 			continue
 		}
-		if st, err := f.FS.Stat(p); err != nil || h.size != e.Size || st.Size != e.Size || st.MtimeNs != e.MtimeNs {
+		if st, err := f.FS.Stat(p); err != nil || (!e.IsLink && h.size != e.Size) || st.IsLink != e.IsLink || st.Size != e.Size || st.MtimeNs != e.MtimeNs {
 			f.retry = true // written while we read it
 			continue
 		}
-		exec := e.Exec
+		exec := e.Exec && !e.IsLink
 		if f.OS == "windows" {
 			exec = row.Exec // Windows does not know the bit: keep the base's
 		}
-		r := localRow{Path: p, Key: pp.Key(p), Hash: h.whole[:], Blocks: proto.JoinHashes(h.blocks), Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec}
-		if have && bytes.Equal(row.Hash, r.Hash) {
+		r := localRow{Path: p, Key: pp.Key(p), Hash: h.whole[:], Blocks: proto.JoinHashes(h.blocks), Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec, Link: e.IsLink}
+		if have && bytes.Equal(row.Hash, r.Hash) && row.Link == r.Link {
 			r.Seq = row.Seq
 			puts = append(puts, r) // only the stat fields changed
 			continue
 		}
 		wh := h.whole
 		items = append(items, &item{path: p, row: r, op: proto.Op{
-			Path: p, BaseSeq: row.Seq, Hash: &wh, Blocks: h.blocks, Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec}})
+			Path: p, BaseSeq: row.Seq, Hash: &wh, Blocks: h.blocks, Size: h.size, MtimeNs: e.MtimeNs, Exec: exec, Link: e.IsLink}})
 	}
 
 	lpaths := make([]string, 0, len(local))
