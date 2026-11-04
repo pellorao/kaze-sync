@@ -37,6 +37,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 - 启停与状态: systemd 用 `systemctl start|stop|restart|status kaze-sync`, OpenRC 用 `rc-service kaze-sync start|stop|restart|status`. 进程退出后 5 秒自动重启 (OpenRC 的 `supervise-daemon` 在 30 分钟内连续重启 5 次后放弃, systemd 不限次数); 开机自动启动.
 - 日志: systemd 用 `journalctl -u kaze-sync`, OpenRC 经 `logger` 进 syslog (Alpine 在 `/var/log/messages`, 标签 `kaze-sync`). 下文 `logread` 的位置都按此替换.
 - 数据目录所在的盘 (若是单独的挂载点) 未挂载时服务启动失败而不是新建空库, 与 OpenWrt 相同.
+- systemd 单元带加固选项 (2026-11-04 在 Ubuntu 24.04 上实测, `systemd-analyze security kaze-sync` 的暴露分从 9.2 降到 1.3): 服务只能写 `<数据目录>/var` (`ProtectSystem=strict` 加 `ReadWritePaths=<数据目录>/var`), 看不到 `/home`, `/root`, `/run/user` (`ProtectHome=yes`), 独占 `/tmp` 和 `/dev`, 不能提权, 不能改内核参数, 时钟和主机名, 只能建 TCP/IP 与本地套接字, 没有任何 capability, 系统调用限于 `@system-service` 并去掉 `@privileged`, `@resources`. 服务本来就只写 `var/`, 也不发起对外连接, 所以正常使用不受影响. 数据目录, `--cert` 或 `--key` 在 `/home`, `/root` 或 `/run/user` 之下时, `install` 自动改用 `ProtectHome=read-only` (仍只有 `var/` 可写); 其余选项照常. 再次执行 `install` 会重写这个单元文件, 自己的改动不要直接改它, 用 drop-in: `systemctl edit kaze-sync`, 在 `[Service]` 下写覆盖项 (例如让服务多写一个目录: `ReadWritePaths=/mnt/extra`; 排查问题时临时放开: `ProtectSystem=` 置空, 或 `SystemCallFilter=` 置空以清除过滤器), 保存后 `systemctl restart kaze-sync`. 主要选项 (`ProtectSystem=strict` 等) 需要 systemd 231 以上, 较新的选项 (如 `ProtectClock` 245, `ProtectProc` 247) 在老版本被忽略并在日志里留下警告, 加固程度相应降低. OpenRC 和 OpenWrt 的 procd 没有这类选项, 只靠专用用户和 `var/` 的属主隔离.
 
 ### 首次登录与资源
 

@@ -81,7 +81,7 @@ var safePath = regexp.MustCompile(`^/[A-Za-z0-9._/-]*$`)
 
 // service describes how one service manager runs kaze-syncd (design 9.1): the
 // probe file that identifies it, the definition file with its text (%[1]s is
-// the data directory), and the commands that enable and restart the service.
+// the data directory, %[2]s the systemd ProtectHome value), and the commands that enable and restart the service.
 type service struct {
 	probe, file, text string
 	enable, restart   [][]string
@@ -112,6 +112,31 @@ ExecStart=%[1]s/` + binName + ` run --data %[1]s
 User=kaze-sync
 Restart=on-failure
 RestartSec=5
+# Hardening (design 9.1): the service writes only below <data>/var and opens no outgoing connections.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=%[2]s
+ReadWritePaths=%[1]s/` + VarDir + `
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
@@ -191,6 +216,7 @@ func (in *Installer) Install(o InstallOptions) error {
 		return err
 	}
 	listen, fp, err := in.initState(db, state, o)
+	certFiles := []string{MetaString(db, "cert"), MetaString(db, "key")}
 	db.Close()
 	if err != nil {
 		return err
@@ -198,7 +224,7 @@ func (in *Installer) Install(o InstallOptions) error {
 	if err := in.chownData(data); err != nil {
 		return err
 	}
-	if err := in.writeService(svc, data); err != nil {
+	if err := in.writeService(svc, data, certFiles); err != nil {
 		return err
 	}
 	if svc == &procd {
@@ -386,7 +412,21 @@ func (in *Installer) chownData(data string) error {
 
 func (in *Installer) path(p string) string { return filepath.Join(in.Root, p) }
 
-func (in *Installer) writeService(svc *service, data string) error {
+// protectHome is the systemd ProtectHome value: "yes" hides /home, /root and /run/user, which would hide a data
+// directory, a certificate or the binary below them; then "read-only" keeps them visible (the data stays
+// writable through ReadWritePaths).
+func protectHome(paths ...string) string {
+	for _, p := range paths {
+		for _, h := range []string{"/home", "/root", "/run/user"} {
+			if p == h || strings.HasPrefix(p, h+"/") {
+				return "read-only"
+			}
+		}
+	}
+	return "yes"
+}
+
+func (in *Installer) writeService(svc *service, data string, certFiles []string) error {
 	p := in.path(svc.file)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
@@ -395,7 +435,7 @@ func (in *Installer) writeService(svc *service, data string) error {
 	if strings.HasPrefix(svc.text, "#!") {
 		mode = 0o755
 	}
-	if err := os.WriteFile(p, []byte(fmt.Sprintf(svc.text, data)), mode); err != nil {
+	if err := os.WriteFile(p, []byte(fmt.Sprintf(svc.text, data, protectHome(append(certFiles, data)...))), mode); err != nil {
 		return err
 	}
 	return os.Chmod(p, mode)

@@ -708,10 +708,36 @@ ExecStart=/var/lib/kaze-sync/kaze-syncd run --data /var/lib/kaze-sync
 User=kaze-sync
 Restart=on-failure
 RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kaze-sync/var
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RemoveIPC=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+加固选项 (2026-11-04): 服务只写 `<data>/var` 且不发起对外连接 (通知只在 Web UI 内), 所以只放行这一个可写路径和 TCP/IP 与本地套接字; `PrivateTmp` 因服务不用系统临时目录 (块写入用 `var/tmp/`). 数据目录, 证书或密钥在 `/home`, `/root` 或 `/run/user` 之下时, `ProtectHome=yes` 会让二进制和数据消失 (实测 `status=203/EXEC`), 此时 `install` 写 `ProtectHome=read-only`. 不设 `UMask`, 保持块目录 0755 与块文件 0444 不变; 不设 `ProcSubset=pid` (Go 运行时读 `/proc/sys/net/core/somaxconn`). 暴露分 (`systemd-analyze security`) 9.2 降到 1.3.
 
 - OpenRC: 写入 `/etc/init.d/kaze-sync` (权限 0755), 执行 `rc-update add kaze-sync default` 和 `rc-service kaze-sync restart`; `supervise-daemon` 在进程退出后重启它; 日志经 `logger` 进 syslog (Alpine 默认为 `/var/log/messages`). `output_logger`, `error_logger` 与 `respawn_delay` 在 OpenRC 0.63.2 (Alpine 3.24) 的 `supervise-daemon` 上实测可用 (M8); `supervise-daemon` 默认 30 分钟内连续重启 5 次后放弃, 与 procd 的默认 (5 次) 相当, 不另设:
 

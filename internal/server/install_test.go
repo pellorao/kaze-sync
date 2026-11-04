@@ -175,7 +175,8 @@ func TestInstallOnOtherLinux(t *testing.T) {
 		wantCmds []string
 	}{
 		{&systemd, "etc/systemd/system/kaze-sync.service", 0o644,
-			[]string{"ExecStart=%[1]s/kaze-syncd run --data %[1]s", "RequiresMountsFor=%[1]s", "User=kaze-sync", "Restart=on-failure"},
+			[]string{"ExecStart=%[1]s/kaze-syncd run --data %[1]s", "RequiresMountsFor=%[1]s", "User=kaze-sync", "Restart=on-failure",
+				"NoNewPrivileges=yes", "ProtectSystem=strict", "ProtectHome=yes", "ReadWritePaths=%[1]s/var", "PrivateTmp=yes"},
 			[]string{"systemctl daemon-reload", "systemctl enable kaze-sync", "systemctl restart kaze-sync"}},
 		{&openrc, "etc/init.d/kaze-sync", 0o755,
 			[]string{"supervisor=supervise-daemon", "command=%[1]s/kaze-syncd", `command_args="run --data %[1]s"`, "command_user=kaze-sync", "respawn_delay=5"},
@@ -217,6 +218,35 @@ func TestInstallOnOtherLinux(t *testing.T) {
 		}
 		if len(f.cmds) != 1 || f.cmds[0] != c.wantCmds[len(c.wantCmds)-1] {
 			t.Errorf("admin-password commands %v", f.cmds)
+		}
+	}
+}
+
+// The unit lets the service write only below <data>/var; a data directory or certificate under /home would
+// vanish under ProtectHome=yes.
+func TestSystemdUnitProtectsHome(t *testing.T) {
+	for _, c := range []struct {
+		data  string
+		certs []string
+		want  string
+	}{
+		{"/var/lib/kaze-sync", nil, "yes"},
+		{"/var/lib/kaze-sync", []string{"/etc/ssl/c.pem", "/etc/ssl/k.pem"}, "yes"},
+		{"/home/u/kaze", nil, "read-only"},
+		{"/root/kaze", nil, "read-only"},
+		{"/var/lib/kaze-sync", []string{"/home/u/c.pem", "/home/u/k.pem"}, "read-only"},
+		{"/var/lib/kaze-sync", []string{"/run/user/1000/c.pem"}, "read-only"},
+		{"/homestead/kaze", nil, "yes"},
+	} {
+		f := newFakeSystem(t)
+		if err := f.in.writeService(&systemd, c.data, c.certs); err != nil {
+			t.Fatal(err)
+		}
+		text, _ := os.ReadFile(filepath.Join(f.root, systemd.file))
+		for _, w := range []string{"ProtectHome=" + c.want + "\n", "ReadWritePaths=" + c.data + "/var\n", "ExecStart=" + c.data + "/kaze-syncd run"} {
+			if !strings.Contains(string(text), w) {
+				t.Errorf("data %s, certs %v: unit lacks %q:\n%s", c.data, c.certs, w, text)
+			}
 		}
 	}
 }
