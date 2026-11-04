@@ -58,7 +58,7 @@ const (
 	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
 	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
 	// (design 9.3). A request without the header comes from a client older than the header: version 1.
-	AgentVersion    = 3
+	AgentVersion    = 4
 	MinAgentVersion = 2
 	VersionHeader   = "Kaze-Agent-Version"
 )
@@ -195,7 +195,9 @@ type ChangesResp struct {
 const (
 	MaxChangesPage  = 5000
 	MaxChangeBlocks = 20000 // block hashes per page; a page ends early beyond this
-	MaxGetBlocks    = MaxBlockBody / BlockSize
+	// MaxGetBlocks bounds the hashes of one /blocks/get request (about 67 bytes of JSON each); its response is
+	// bounded by MaxBlockBody bytes, so a request of many small files and one of a few large blocks both fit.
+	MaxGetBlocks = 20000
 )
 
 type BlocksGetReq struct {

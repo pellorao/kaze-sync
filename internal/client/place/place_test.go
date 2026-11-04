@@ -166,3 +166,31 @@ func TestPlaceLocked(t *testing.T) {
 		t.Errorf("second attempt should resume at the end: %v", src.offsets)
 	}
 }
+
+func TestStageTwoFilesWithOneContentThenFinish(t *testing.T) {
+	f := cfs.NewMem(cfs.MemOptions{})
+	f.MkdirAll("d")
+	put(t, f, "d/.syncpart-"+hash.String()[:16], "stale partial content") // an earlier attempt
+	a, err := Stage(f, "d/a", hash, (&source{data: content, limit: -1}).open, Meta{}, Expect{}, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Stage(f, "d/b", hash, (&source{data: content, limit: -1}).open, Meta{}, Expect{}, "-2", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []*Staged{b, a} {
+		if err := s.Finish(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if get(t, f, "d/a") != content || get(t, f, "d/b") != content || names(t, f, "d") != "a,b" {
+		t.Fatalf("after finish: %q %q %q", get(t, f, "d/a"), get(t, f, "d/b"), names(t, f, "d"))
+	}
+	if _, err := Stage(f, "d/c", hash, (&source{data: "other content", limit: -1}).open, Meta{}, Expect{}, "", true); !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("wrong content: %v", err)
+	}
+	if names(t, f, "d") != "a,b" {
+		t.Fatalf("temporary file left after a mismatch: %q", names(t, f, "d"))
+	}
+}

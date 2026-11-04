@@ -374,9 +374,15 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 		http.Error(w, "too many blocks", http.StatusBadRequest)
 		return
 	}
+	var total int64
 	for _, h := range req.Hashes {
-		if ok, err := s.blobs.Has(h); err != nil || !ok {
+		n, ok, err := s.blobs.Size(h)
+		if err != nil || !ok {
 			http.Error(w, "missing block "+h.String(), http.StatusNotFound)
+			return
+		}
+		if total += n + 36; total > proto.MaxBlockBody {
+			http.Error(w, "too much data in one request", http.StatusBadRequest)
 			return
 		}
 	}

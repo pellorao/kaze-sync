@@ -76,6 +76,18 @@ func (s *Store) Has(h Hash) (bool, error) {
 	return err == nil, err
 }
 
+// Size returns the size of a block; ok is false when it does not exist.
+func (s *Store) Size(h Hash) (n int64, ok bool, err error) {
+	fi, err := os.Stat(s.blobPath(h))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return fi.Size(), true, nil
+}
+
 // Use reports whether a block exists and, when it is old, refreshes its modification time, so that a
 // sweep cannot remove it between now and the commit that references it (the grace period of SweepBlobs).
 func (s *Store) Use(h Hash) (bool, error) {

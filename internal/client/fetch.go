@@ -52,14 +52,7 @@ func consistent(r localRow, st cfs.Entry) bool {
 // from src or the server, which sends only the blocks no local file has.
 // expect is the state the target must still be in.
 func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expect place.Expect) error {
-	if rows, err := f.DB.byHash(e.Hash[:], 8); err == nil {
-		for _, r := range rows {
-			if st, err := f.FS.Stat(r.Path); err == nil && consistent(r, st) {
-				src = &blockSrc{r.Path, proto.SplitHashes(r.Blocks), r.Size}
-				break
-			}
-		}
-	}
+	src = f.localSource(e, src)
 	err := f.placeEntry(ctx, e, src, expect)
 	if src != nil && (errors.Is(err, place.ErrHashMismatch) || errors.As(err, new(localReadError))) {
 		err = f.placeEntry(ctx, e, nil, expect) // the local source changed under us
@@ -78,17 +71,38 @@ func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expec
 	return err
 }
 
+// localSource is the block source for e: a local file with the same content if there is an unchanged one, else src.
+func (f *Folder) localSource(e *proto.Entry, src *blockSrc) *blockSrc {
+	if rows, err := f.DB.byHash(e.Hash[:], 8); err == nil {
+		for _, r := range rows {
+			if st, err := f.FS.Stat(r.Path); err == nil && consistent(r, st) {
+				return &blockSrc{r.Path, proto.SplitHashes(r.Blocks), r.Size}
+			}
+		}
+	}
+	return src
+}
+
 func (f *Folder) placeEntry(ctx context.Context, e *proto.Entry, src *blockSrc, expect place.Expect) error {
 	open := func(offset int64) (io.ReadCloser, error) { return newBlockReader(ctx, f, e, src, offset), nil }
 	if err := place.Place(f.FS, e.Path, *e.Hash, open, place.Meta{MtimeNs: e.MtimeNs, Exec: e.Exec}, expect); err != nil {
 		return err
 	}
-	st, err := f.FS.Stat(e.Path)
+	row, err := f.placedRow(e)
 	if err != nil {
 		return err
 	}
-	return f.DB.apply([]localRow{{Path: e.Path, Key: pp.Key(e.Path), Seq: e.Seq, Hash: e.Hash[:], Blocks: proto.JoinHashes(e.Blocks),
-		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec}}, nil)
+	return f.DB.apply([]localRow{row}, nil)
+}
+
+// placedRow is the base row for entry e after its file was placed: the state the file system reports.
+func (f *Folder) placedRow(e *proto.Entry) (localRow, error) {
+	st, err := f.FS.Stat(e.Path)
+	if err != nil {
+		return localRow{}, err
+	}
+	return localRow{Path: e.Path, Key: pp.Key(e.Path), Seq: e.Seq, Hash: e.Hash[:], Blocks: proto.JoinHashes(e.Blocks),
+		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec}, nil
 }
 
 // conflictName returns a free name for the conflict copy of p (design 6.1).
@@ -181,6 +195,8 @@ type blockReader struct {
 	count  map[proto.Hash]int // remote hashes of the window and how often each occurs
 	cache  map[proto.Hash][]byte
 	body   io.ReadCloser
+
+	prefetch map[proto.Hash][]byte // remote blocks already read from a batch response (see fetchBatch)
 }
 
 func newBlockReader(ctx context.Context, f *Folder, e *proto.Entry, src *blockSrc, offset int64) *blockReader {
@@ -237,6 +253,11 @@ func (r *blockReader) load(i int) error {
 		if err := r.readSrc(j, dst); err != nil {
 			return localReadError{err}
 		}
+		r.cur = dst
+		return nil
+	}
+	if data, ok := r.prefetch[h]; ok {
+		copy(dst, data)
 		r.cur = dst
 		return nil
 	}
@@ -300,7 +321,16 @@ func (r *blockReader) openWindow(i int) error {
 		r.body.Close()
 		r.body = nil
 	}
-	r.winEnd = min(i+window, len(r.e.Blocks))
+	want := r.plan(i, min(i+window, len(r.e.Blocks)))
+	var err error
+	r.body, err = r.f.API.GetBlocks(r.ctx, want)
+	return err
+}
+
+// plan sets the reader to take the blocks of positions i to end from one response and returns the hashes that
+// response must hold, in order: those no local file has, each once (a repeat is kept for its later positions).
+func (r *blockReader) plan(i, end int) []proto.Hash {
+	r.winEnd = end
 	r.count, r.cache = map[proto.Hash]int{}, nil
 	var want []proto.Hash
 	for k := i; k < r.winEnd; k++ {
@@ -312,7 +342,5 @@ func (r *blockReader) openWindow(i int) error {
 			want = append(want, h)
 		}
 	}
-	var err error
-	r.body, err = r.f.API.GetBlocks(r.ctx, want)
-	return err
+	return want
 }

@@ -97,16 +97,52 @@ func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int
 			f.pendingDown++
 		}
 	}
+	var q fetchQueue
+	flush := func() error {
+		for _, j := range f.fetchBatch(ctx, q.jobs) {
+			r, err := f.finishLive(ctx, j.e, j.err)
+			if err != nil {
+				return err
+			}
+			if r == later {
+				again = append(again, j.e)
+			} else {
+				check(j.e, r)
+			}
+		}
+		q = fetchQueue{}
+		return nil
+	}
 	for _, e := range adds {
-		r, err := f.applyLive(ctx, e)
+		r, job, err := f.prepareLive(e)
 		if err != nil {
 			return err
 		}
-		if r == later {
-			again = append(again, e)
-		} else {
-			check(e, r)
+		if job == nil {
+			if r == later {
+				again = append(again, e)
+			} else {
+				check(e, r)
+			}
+			continue
 		}
+		if !q.fits(e) { // too big to share a request with others (or the queue is full): the queue goes first
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		if !q.fits(e) {
+			job.err = f.fetch(ctx, &job.e, job.src, job.expect)
+			if r, err = f.finishLive(ctx, e, job.err); err != nil {
+				return err
+			}
+			check(e, r)
+			continue
+		}
+		q.add(job)
+	}
+	if err := flush(); err != nil {
+		return err
 	}
 	for _, e := range dels {
 		r, err := f.applyDeleted(e)
@@ -176,15 +212,25 @@ func (f *Folder) renameLocal(from string, a proto.Entry) bool {
 
 // applyLive applies an added or modified file.
 func (f *Folder) applyLive(ctx context.Context, e proto.Entry) (applied, error) {
+	r, job, err := f.prepareLive(e)
+	if job == nil || err != nil {
+		return r, err
+	}
+	return f.finishLive(ctx, e, f.fetch(ctx, &job.e, job.src, job.expect))
+}
+
+// prepareLive decides what to do with an added or modified file. It returns the outcome, or a job for the
+// download when the file must be fetched.
+func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 	if f.excluded(e.Path) {
-		return done, nil
+		return done, nil, nil
 	}
 	row, have, err := f.DB.get(e.Path)
 	if err != nil {
-		return done, err
+		return done, nil, err
 	}
 	if have && row.Seq == e.Seq {
-		return done, nil // our own change coming back
+		return done, nil, nil // our own change coming back
 	}
 	st, err := f.FS.Stat(e.Path)
 	exists := err == nil
@@ -194,44 +240,48 @@ func (f *Folder) applyLive(ctx context.Context, e proto.Entry) (applied, error) 
 		switch {
 		case cerr != nil:
 			f.note(e.Path, proto.KindIO, cerr.Error())
-			return hold, nil
+			return hold, nil, nil
 		case pending:
-			return later, nil
+			return later, nil, nil
 		case !renamed:
 			f.note(e.Path, proto.KindIO, err.Error())
-			return hold, nil
+			return hold, nil, nil
 		}
 	}
 	if exists && st.IsDir {
 		pending, err := f.clearDir(e.Path)
 		switch {
 		case pending:
-			return later, nil
+			return later, nil, nil
 		case err != nil:
 			f.note(e.Path, proto.KindIO, err.Error())
-			return hold, nil
+			return hold, nil, nil
 		}
 		exists = false
 	}
 	switch {
 	case have && !exists, !have && exists:
-		return done, nil // a local change: Scan commits it and resolves the conflict
+		return done, nil, nil // a local change: Scan commits it and resolves the conflict
 	case have && !consistent(row, st):
-		return done, nil
+		return done, nil, nil
 	}
 	if have && bytes.Equal(row.Hash, e.Hash[:]) {
 		row.Seq = e.Seq // same content: only the base moves
-		return done, f.DB.apply([]localRow{row}, nil)
+		return done, nil, f.DB.apply([]localRow{row}, nil)
 	}
 	if exists && f.inUse(e.Path) {
 		f.note(e.Path, proto.KindInUse, errInUse.Error())
-		return hold, nil
+		return hold, nil, nil
 	}
 	var src *blockSrc
 	if have {
 		src = &blockSrc{row.Path, proto.SplitHashes(row.Blocks), row.Size}
 	}
-	err = f.fetch(ctx, &e, src, place.Expect{Exists: exists, Size: st.Size, MtimeNs: st.MtimeNs})
+	return done, &fetchJob{e: e, src: src, expect: place.Expect{Exists: exists, Size: st.Size, MtimeNs: st.MtimeNs}}, nil
+}
+
+// finishLive turns the result of fetching an added or modified file into the outcome for the page.
+func (f *Folder) finishLive(ctx context.Context, e proto.Entry, err error) (applied, error) {
 	switch {
 	case err == nil:
 		f.changed = true

@@ -21,12 +21,14 @@ import (
 )
 
 const (
-	markerName   = ".syncroot"
-	sqliteMagic  = "SQLite format 3\x00"
-	maxErrors    = 100
-	maxRounds    = 4
-	packetTarget = 4 << 20
+	markerName  = ".syncroot"
+	sqliteMagic = "SQLite format 3\x00"
+	maxErrors   = 100
+	maxRounds   = 4
 )
+
+// packetTarget is the size at which an upload packet is sent; each packet is one /blocks request.
+var packetTarget = 4 << 20
 
 var (
 	errInUse   = errors.New("SQLite database in use (non-empty -wal or -journal)")

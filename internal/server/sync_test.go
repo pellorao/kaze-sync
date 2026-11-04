@@ -2,9 +2,11 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -106,6 +108,33 @@ func TestBlocksGetStreamsRequestedBlocks(t *testing.T) {
 	}
 	if st, _ := e.api("", "blocks/get", proto.BlocksGetReq{Hashes: []proto.Hash{h1}}); st != http.StatusUnauthorized {
 		t.Fatalf("no token: %d", st)
+	}
+}
+
+// A request is bounded by the bytes of its response, not by the number of blocks: many small blocks fit, too
+// much data does not.
+func TestBlocksGetBoundsTheResponse(t *testing.T) {
+	e := newEnv(t)
+	_, tok := e.enrollDevice("d1", "linux")
+	var small, big []proto.Hash
+	for i := 0; i < 1000; i++ {
+		small = append(small, e.block([]byte("small block "+itoa(int64(i)))))
+	}
+	for i := 0; i < proto.MaxBlockBody/proto.BlockSize+1; i++ { // sparse files: only their size counts
+		h := proto.Hash(sha256.Sum256([]byte("big " + itoa(int64(i)))))
+		x := h.String()
+		p := filepath.Join(e.s.varDir, "blobs", x[:2], x[2:4], x)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, nil, 0o644); err != nil || os.Truncate(p, proto.BlockSize) != nil {
+			t.Fatal(err)
+		}
+		big = append(big, h)
+	}
+	if st, body := e.api(tok, "blocks/get", proto.BlocksGetReq{Hashes: small}); st != 200 {
+		t.Fatalf("1000 small blocks: %d %s", st, body)
+	}
+	if st, _ := e.api(tok, "blocks/get", proto.BlocksGetReq{Hashes: big}); st != http.StatusBadRequest {
+		t.Fatalf("more than MaxBlockBody bytes: %d", st)
 	}
 }
 
