@@ -181,10 +181,12 @@ func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser
 		defer resp.Body.Close()
 		return nil, httpError("blocks/get", resp, a.Token)
 	}
-	return &idleBody{rc: resp.Body, timer: time.AfterFunc(idleTimeout, cancel), cancel: cancel}, nil
+	timer := time.AfterFunc(time.Hour, cancel)
+	timer.Stop() // runs only while a Read waits for the server, not while the caller is busy with the bytes
+	return &idleBody{rc: resp.Body, timer: timer, cancel: cancel}, nil
 }
 
-// idleBody cancels the request when no byte arrives for idleTimeout.
+// idleBody cancels the request when a Read gets no byte for idleTimeout.
 type idleBody struct {
 	rc     io.ReadCloser
 	timer  *time.Timer
@@ -192,8 +194,9 @@ type idleBody struct {
 }
 
 func (b *idleBody) Read(p []byte) (int, error) {
-	n, err := b.rc.Read(p)
 	b.timer.Reset(idleTimeout)
+	n, err := b.rc.Read(p)
+	b.timer.Stop()
 	return n, err
 }
 

@@ -35,6 +35,11 @@ func (a *Agent) pollLoop(ctx context.Context) {
 				req.Cursors[id] = cur
 			}
 		}
+		for id, o := range a.openRetry {
+			if o.seen >= 0 {
+				req.Cursors[id] = o.seen
+			}
+		}
 		pctx, cancel := context.WithCancel(ctx)
 		a.cancel, a.pollAt, a.sig, a.statusAt = cancel, time.Now(), fmt.Sprint(req.Folders), time.Time{}
 		a.mu.Unlock()
@@ -98,6 +103,11 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 			r.s.pull = true
 		}
 		news = true
+	}
+	for id, o := range a.openRetry {
+		if seq, ok := resp.Cursors[id]; ok {
+			o.seen = seq
+		}
 	}
 	for id, r := range a.runners {
 		if seq, ok := resp.Cursors[id]; ok {

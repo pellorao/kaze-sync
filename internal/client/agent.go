@@ -17,6 +17,15 @@ import (
 	"kaze-sync/internal/proto"
 )
 
+// openRetryAfter is how long a folder whose state cannot be opened is left alone before the next try.
+const openRetryAfter = time.Minute
+
+// openFail is a folder without a runner because its state database cannot be opened.
+type openFail struct {
+	at   time.Time // when to try again
+	seen int64     // the server's latest seq for it from a poll, -1 unknown: the poll carries it so that the server does not answer at once
+}
+
 // statusEvery is the shortest time between two restarts of the long poll to report a changed status (design 3.6).
 const statusEvery = 10 * time.Second
 
@@ -49,6 +58,8 @@ type Agent struct {
 	pollAt   time.Time
 	sig      string    // status sent with the running poll
 	statusAt time.Time // when to try again to report a changed status
+
+	openRetry map[int64]*openFail // folders whose state database cannot be opened
 }
 
 type runner struct {
@@ -72,7 +83,7 @@ type runner struct {
 
 func (a *Agent) Run(ctx context.Context) error {
 	a.kick, a.applied = make(chan struct{}, 1), make(chan struct{}, 1)
-	a.runners = map[int64]*runner{}
+	a.runners, a.openRetry = map[int64]*runner{}, map[int64]*openFail{}
 	if a.Debounce == 0 {
 		a.Debounce = 2 * time.Second
 	}
@@ -295,6 +306,11 @@ func (a *Agent) nextWake() time.Duration {
 	if !a.statusAt.IsZero() && a.statusAt.Before(next) {
 		next = a.statusAt
 	}
+	for _, o := range a.openRetry {
+		if o.at.Before(next) {
+			next = o.at
+		}
+	}
 	return max(time.Until(next), 0)
 }
 
@@ -302,7 +318,7 @@ func (a *Agent) nextWake() time.Duration {
 // unplanned reports whether a configured folder has no runner yet; the caller holds a.mu.
 func (a *Agent) unplanned() bool {
 	for _, fc := range a.cfg.Folders {
-		if a.runners[fc.ID] == nil {
+		if _, failed := a.openRetry[fc.ID]; a.runners[fc.ID] == nil && !failed { // a failed one is not coming soon: waiting for it would make the poll spin
 			return true
 		}
 	}
@@ -342,12 +358,28 @@ func (a *Agent) applyConfig() {
 		if _, ok := a.runners[id]; ok {
 			continue
 		}
+		a.mu.Lock()
+		fail := a.openRetry[id]
+		a.mu.Unlock()
+		if fail != nil && time.Now().Before(fail.at) {
+			continue
+		}
 		dbPath := filepath.Join(a.Dir, "folder-"+itoa(id)+".db")
 		db, err := openLocal(dbPath)
 		if err != nil {
-			slog.Error("cannot open folder state", "folder", id, "err", err)
+			slog.Error("cannot open folder state", "folder", id, "err", err, "retry_in", openRetryAfter)
+			a.mu.Lock()
+			if fail == nil {
+				fail = &openFail{seen: -1}
+			}
+			fail.at = time.Now().Add(openRetryAfter)
+			a.openRetry[id] = fail
+			a.mu.Unlock()
 			continue
 		}
+		a.mu.Lock()
+		delete(a.openRetry, id)
+		a.mu.Unlock()
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
 		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),

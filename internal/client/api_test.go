@@ -3,11 +3,13 @@ package client
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"kaze-sync/internal/proto"
 )
@@ -38,5 +40,33 @@ func TestOldClientRefusalBecomesUpgradeError(t *testing.T) {
 	}
 	if len(seen) != 4 {
 		t.Errorf("%d requests", len(seen))
+	}
+}
+
+// The idle timer runs only while a Read waits: a slow consumer must not get the download cancelled.
+func TestIdleBodyDoesNotCountTheConsumersTime(t *testing.T) {
+	old := idleTimeout
+	idleTimeout = 100 * time.Millisecond
+	defer func() { idleTimeout = old }()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("0123456789"))
+		w.(http.Flusher).Flush()
+		time.Sleep(50 * time.Millisecond)
+		w.Write([]byte("abcdefghij"))
+	}))
+	defer ts.Close()
+	api := &API{Base: ts.URL, Token: "t", HC: ts.Client()}
+	body, err := api.GetBlocks(context.Background(), []proto.Hash{{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	buf := make([]byte, 10)
+	if _, err := io.ReadFull(body, buf); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // the consumer is busy writing to a slow disk
+	if _, err := io.ReadFull(body, buf); err != nil || string(buf) != "abcdefghij" {
+		t.Fatalf("read after the pause: %q %v", buf, err)
 	}
 }

@@ -329,3 +329,33 @@ func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
 	}
 	t.Fatal("x.txt never reached the other device: the retry was lost")
 }
+
+// A folder whose state database cannot be opened has no runner; the poll must not wait for it and spin.
+func TestUnopenableFolderStateDoesNotSpinThePoll(t *testing.T) {
+	e := newCEnv(t)
+	e.srv.PollTimeout = 30 * time.Second
+	dev, api := e.newDevice()
+	f1, f2 := e.newFolder("One"), e.newFolder("Two")
+	root1, root2 := filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "two")
+	e.mapFolder(dev, f1, root1, true)
+	e.mapFolder(dev, f2, root2, true)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "folder-"+itoa(f1)+".db"), 0o755); err != nil { // the database path is a directory
+		t.Fatal(err)
+	}
+	pc := &pollCounter{base: api.HC.Transport}
+	api.HC.Transport = pc
+	a := &Agent{Dir: dir, API: api, NewFS: cfs.OS, OS: runtime.GOOS, DeviceName: dev.Name, ScanInterval: time.Hour, RetryAfter: time.Hour}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	eventually(t, "the other folder to be set up", func() bool {
+		_, err := os.Stat(filepath.Join(root2, markerName))
+		return err == nil
+	})
+	time.Sleep(2500 * time.Millisecond)
+	if n := pc.n.Load(); n > 6 {
+		t.Fatalf("%d polls in a few seconds: the poll spins", n)
+	}
+}
