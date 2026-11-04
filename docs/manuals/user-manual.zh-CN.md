@@ -87,7 +87,7 @@ systemd 单元带加固选项 (服务只能写 `<data>/var`). 自己的修改请
 ### 2.4 端口, 证书与防火墙
 
 - **自签名证书 (默认).** 公网和局域网都适用, 有效期 100 年. 客户端按指纹固定证书, 与地址和主机名无关. 浏览器第一次访问时会警告证书, 把它显示的指纹与 `install` 打印的核对后, 接受一次例外.
-- **自己的证书.** `--cert /path/fullchain.pem --key /path/key.pem` (绝对路径, 安装时检查). 之后浏览器和客户端按系统根证书校验, 客户端注册时不带 `--fingerprint`. 服务以用户 `kaze-sync` 运行, 启动时自己读取这两个文件, 所以该用户必须能读它们. 服务端不监视这些文件: 每次续期后要重启服务 (用 acme.sh 时把重启命令写进 `--reloadcmd`). 之后的 `install` 沿用证书模式, 不能切回自签名. 两种模式之间切换需要所有客户端重新注册.
+- **自己的证书.** `--cert /path/fullchain.pem --key /path/key.pem` (绝对路径, 安装时检查). 之后浏览器和客户端按系统根证书校验, 客户端注册时不带 `--fingerprint`. 服务以用户 `kaze-sync` 运行, 启动时自己读取这两个文件, 所以该用户必须能读这两个文件, 并能进入它们上面的每一级目录. `install` 本身以 root 运行, 不检查这一点: 服务用户读不了时, `install` 照常成功, 但服务每次启动都会退出, 日志里是 `permission denied` (服务管理器可能短暂显示为已启动). 例如用 `chgrp kaze-sync key.pem && chmod 640 key.pem` 修复 (对其他人关闭的目录再加 `chgrp kaze-sync <目录> && chmod 750 <目录>`), 然后重启服务. 服务端不监视这些文件: 每次续期后要重启服务 (用 acme.sh 时把重启命令写进 `--reloadcmd`). 之后的 `install` 沿用证书模式, 不能切回自签名. 两种模式之间切换需要所有客户端重新注册.
 - **端口.** 默认随机, 避免被扫描到; 用 `--listen :PORT` 指定. 始终是 HTTPS, Web UI 与客户端协议共用它.
 - 忘记端口或指纹时, 用同一个 `--data` 再执行一次 `install` (可以重复执行, 会打印这两项), 或在服务端日志里找 `listening` 那一行.
 
@@ -374,7 +374,28 @@ userdel kaze-sync
 rm -r /var/lib/kaze-sync                           # 你传给 --data 的数据目录, 内含全部数据
 ```
 
-OpenRC: `rc-service kaze-sync stop`, `rc-update del kaze-sync default`, 删除 `/etc/init.d/kaze-sync`, `deluser kaze-sync` (Alpine), 再删除数据目录. OpenWrt: `/etc/init.d/kaze-sync stop`, `/etc/init.d/kaze-sync disable`, 删除 `/etc/init.d/kaze-sync`, 从 `/etc/sysupgrade.conf` 中删去它的两行 (`/etc/init.d/kaze-sync`, `/etc/rc.d/S99kaze-sync`), 用 `uci -q delete firewall.kaze_sync; uci commit firewall; /etc/init.d/firewall reload` 删除防火墙规则, 再删除数据目录. OpenWrt 上的用户 `kaze-sync` 没有登录 shell, 可以留着.
+OpenRC (Alpine):
+
+```bash
+rc-service kaze-sync stop                          # server
+rc-update del kaze-sync default
+rm /etc/init.d/kaze-sync
+deluser kaze-sync                                  # 同时删除同名组
+rm -r /var/lib/kaze-sync                           # 你传给 --data 的数据目录
+```
+
+OpenWrt:
+
+```bash
+/etc/init.d/kaze-sync stop                         # server
+/etc/init.d/kaze-sync disable                      # 删除 /etc/rc.d/S99kaze-sync
+rm /etc/init.d/kaze-sync
+sed -i '/^\/etc\/init.d\/kaze-sync$/d;/^\/etc\/rc.d\/S99kaze-sync$/d' /etc/sysupgrade.conf
+uci -q delete firewall.kaze_sync; uci commit firewall; /etc/init.d/firewall reload   # --wan 添加的规则; 没有也无妨
+rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据目录, 内含全部数据
+```
+
+数据目录只是数据盘上的一个文件夹, 删除它即释放空间; 磁盘, 分区和挂载项是你自己的, 不会被动. 想把整块盘挪作他用, 请用你惯用的工具卸载并重新分区. OpenWrt 没有 `deluser`: 用户 `kaze-sync` 没有登录 shell, 可以留着; 想删除时执行 `sed -i '/^kaze-sync:/d' /etc/passwd /etc/group /etc/shadow`.
 
 如果你手工在防火墙或安全组里放行过端口, 请把它关掉.
 
@@ -404,6 +425,7 @@ OpenRC: `rc-service kaze-sync stop`, `rc-update del kaze-sync default`, 删除 `
 | `enroll` 报证书错误 | 指纹不符: 从对话框重新复制命令 (`install` 和日志中的 `listening` 行也有指纹); 或者服务端用的是你自己的证书, 此时必须去掉 `--fingerprint` |
 | 浏览器警告证书 | 自签名证书的正常现象; 核对指纹后接受一次 |
 | 忘记管理员密码, 端口或指纹 | 见 2.5 节和 2.4 节 |
+| 服务启动后马上退出, 日志里是证书或私钥的 `permission denied` | 服务用户 `kaze-sync` 读不了你自己的证书文件, 或进不了它们所在的目录 (2.4 节) |
 | 重启后服务端没有启动 | 数据盘没有挂载. 服务端此时会退出, 而不是新建一个空库; 挂载磁盘后启动服务 |
 | `sync is stopped, the server does not accept this device` | 设备已被吊销. 按新设备重新注册 (3.3 节) |
 | `client too old` | 见第 15 节 |

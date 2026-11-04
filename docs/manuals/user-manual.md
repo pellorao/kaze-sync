@@ -87,7 +87,7 @@ The systemd unit is hardened (the service may only write below `<data>/var`). Ad
 ### 2.4 Port, certificate and firewall
 
 - **Self-signed certificate (default).** Works for the internet and for a LAN alike. Valid for 100 years. Clients pin the certificate by its fingerprint, so the address and host name do not matter. Your browser will warn about the certificate once; compare the fingerprint it shows with the one `install` printed, then accept the exception.
-- **Your own certificate.** `--cert /path/fullchain.pem --key /path/key.pem` (absolute paths, checked at install time). Browsers and clients then validate it against the system roots and clients enroll without `--fingerprint`. The service runs as user `kaze-sync` and reads these files itself at start, so that user must be able to read both. The server does not watch the files: after each renewal restart the service (for acme.sh, put the restart command in `--reloadcmd`). Later `install` runs keep certificate mode; there is no switch back to self-signed. Switching between the two modes needs every client to be enrolled again.
+- **Your own certificate.** `--cert /path/fullchain.pem --key /path/key.pem` (absolute paths, checked at install time). Browsers and clients then validate it against the system roots and clients enroll without `--fingerprint`. The service runs as user `kaze-sync` and reads these files itself at start, so that user must be able to read both files and to enter every directory above them. `install` itself runs as root and does not check this: if the service user cannot read them, `install` succeeds, but the service exits at every start with `permission denied` in its log (the service manager may still report it as started for a moment). Fix it with, for example, `chgrp kaze-sync key.pem && chmod 640 key.pem` (and `chgrp kaze-sync <dir> && chmod 750 <dir>` for a directory that is closed to others), then restart the service. The server does not watch the files: after each renewal restart the service (for acme.sh, put the restart command in `--reloadcmd`). Later `install` runs keep certificate mode; there is no switch back to self-signed. Switching between the two modes needs every client to be enrolled again.
 - **Port.** Random by default so that it is not found by scanning; `--listen :PORT` sets it. It is always HTTPS, and the Web UI and the client protocol share it.
 - If you forget the port or the fingerprint, run `install` again with the same `--data` (it is safe to repeat; it prints both), or look for the line `listening` in the server log.
 
@@ -374,7 +374,28 @@ userdel kaze-sync
 rm -r /var/lib/kaze-sync                           # the data directory you gave to --data; contains everything
 ```
 
-OpenRC: `rc-service kaze-sync stop`, `rc-update del kaze-sync default`, delete `/etc/init.d/kaze-sync`, `deluser kaze-sync` (Alpine), then delete the data directory. OpenWrt: `/etc/init.d/kaze-sync stop`, `/etc/init.d/kaze-sync disable`, delete `/etc/init.d/kaze-sync`, remove its two lines (`/etc/init.d/kaze-sync`, `/etc/rc.d/S99kaze-sync`) from `/etc/sysupgrade.conf`, remove the firewall rule with `uci -q delete firewall.kaze_sync; uci commit firewall; /etc/init.d/firewall reload`, then delete the data directory. The user `kaze-sync` has no login shell and may stay on OpenWrt.
+OpenRC (Alpine):
+
+```bash
+rc-service kaze-sync stop                          # server
+rc-update del kaze-sync default
+rm /etc/init.d/kaze-sync
+deluser kaze-sync                                  # also removes the group
+rm -r /var/lib/kaze-sync                           # the data directory you gave to --data
+```
+
+OpenWrt:
+
+```bash
+/etc/init.d/kaze-sync stop                         # server
+/etc/init.d/kaze-sync disable                      # removes /etc/rc.d/S99kaze-sync
+rm /etc/init.d/kaze-sync
+sed -i '/^\/etc\/init.d\/kaze-sync$/d;/^\/etc\/rc.d\/S99kaze-sync$/d' /etc/sysupgrade.conf
+uci -q delete firewall.kaze_sync; uci commit firewall; /etc/init.d/firewall reload   # rule added by --wan; harmless if absent
+rm -r /mnt/data/kaze-sync                          # the data directory you gave to --data; contains everything
+```
+
+The data directory is a folder on your data disk. Deleting it frees the space; the disk, its partition and its mount entry are yours and stay (to reuse the disk for something else, unmount and repartition it with your usual tools). OpenWrt has no `deluser`: the user `kaze-sync` has no login shell and may stay; to remove it anyway, run `sed -i '/^kaze-sync:/d' /etc/passwd /etc/group /etc/shadow`.
 
 Close the port in your firewall or security group if you opened it by hand.
 
@@ -404,6 +425,7 @@ The client log records startup, warnings and errors, and is moved to `kaze-syncc
 | `enroll` fails with a certificate error | The fingerprint does not match: copy the command again from the dialog (`install` prints it too, and so does the `listening` log line), or the server uses your own certificate and `--fingerprint` must be left out |
 | Browser warns about the certificate | Expected for the self-signed certificate; compare the fingerprint, accept once |
 | Forgot the admin password, port or fingerprint | Section 2.5 and section 2.4 |
+| The service exits right after starting and the log says `permission denied` on the certificate or key | The service user `kaze-sync` cannot read your own certificate files or enter their directory (section 2.4) |
 | Server does not start after a reboot | The data disk was not mounted. The server then exits instead of creating an empty database; mount the disk and start the service |
 | `sync is stopped, the server does not accept this device` | The device was revoked. Enroll again as a new device (section 3.3) |
 | `client too old` | Section 15 |
