@@ -151,7 +151,7 @@ func (s *Server) gc() (st gcStats, err error) {
 	if err != nil {
 		return st, err
 	}
-	var sources []refSource
+	sources := []refSource{s.stageRefs()}
 	for _, id := range ids {
 		db, err := s.folderDB(id)
 		if err != nil {
@@ -172,6 +172,7 @@ func (s *Server) gc() (st gcStats, err error) {
 	})
 	if err == nil {
 		st.tmp, err = s.blobs.SweepTmp(gcGrace)
+		st.tmp += s.sweepStages()
 	}
 	return st, err
 }

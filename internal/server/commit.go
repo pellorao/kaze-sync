@@ -69,7 +69,25 @@ func checkOp(op *proto.Op) error {
 // commit applies ops to a folder in one transaction. Each op gets its own
 // result; only ok results change state.
 func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Result, error) {
+	return s.commitFor(folder, 0, device, ops)
+}
+
+// commitFor is commit for a device API request: devID (non-zero) lets an op name a staged block list (design 2.4).
+func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) ([]proto.Result, error) {
+	var noStage map[int]bool
 	for i := range ops {
+		if ops[i].Stage != "" {
+			if len(ops[i].Blocks) != 0 || ops[i].Hash == nil || devID == 0 {
+				return nil, badRequest{"stage with blocks, or on a delete"}
+			}
+			if !s.loadStage(devID, folder, &ops[i]) {
+				if noStage == nil {
+					noStage = map[int]bool{}
+				}
+				noStage[i] = true
+				continue
+			}
+		}
 		if err := checkOp(&ops[i]); err != nil {
 			return nil, err
 		}
@@ -86,12 +104,21 @@ func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Re
 	now := s.now().Unix()
 	res := make([]proto.Result, len(ops))
 	for i := range ops {
+		if noStage[i] {
+			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonNoStage}
+			continue
+		}
 		if res[i], err = s.commitOp(tx, device, &ops[i], now); err != nil {
 			return nil, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
+	}
+	for i, r := range res {
+		if r.Status == proto.StatusOK && ops[i].Stage != "" {
+			s.dropStage(devID, folder, ops[i].Stage)
+		}
 	}
 	for _, r := range res {
 		if r.Status == proto.StatusOK {

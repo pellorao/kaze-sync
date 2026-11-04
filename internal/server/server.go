@@ -49,8 +49,9 @@ type Server struct {
 	// EventGap is the shortest time between two pushes on /events (design 4.1).
 	EventGap time.Duration
 
-	fmu  sync.Mutex        // guards fdbs
-	fdbs map[int64]*sql.DB // open folder databases
+	fmu     sync.Mutex        // guards fdbs
+	stageMu sync.Mutex        // guards the files in var/stage (stage.go)
+	fdbs    map[int64]*sql.DB // open folder databases
 
 	gcMu               sync.Mutex // guards the GC state: at most one runs
 	gcRunning, gcAgain bool

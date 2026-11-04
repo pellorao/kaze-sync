@@ -29,6 +29,7 @@ func (s *Server) deviceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/poll", s.auth(s.poll))
 	mux.HandleFunc("POST /api/v1/commit", s.auth(s.commitHandler))
 	mux.HandleFunc("GET /api/v1/changes", s.auth(s.changes))
+	mux.HandleFunc("POST /api/v1/stage", s.auth(s.stageHandler))
 	mux.HandleFunc("POST /api/v1/blocks", s.auth(s.blocks))
 	mux.HandleFunc("POST /api/v1/blocks/get", s.auth(s.blocksGet))
 }
@@ -333,7 +334,7 @@ func (s *Server) commitHandler(w http.ResponseWriter, r *http.Request, d device)
 		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
 		return
 	}
-	res, err := s.commit(req.Folder, d.name, req.Ops)
+	res, err := s.commitFor(req.Folder, d.id, d.name, req.Ops)
 	var br badRequest
 	switch {
 	case errors.As(err, &br):

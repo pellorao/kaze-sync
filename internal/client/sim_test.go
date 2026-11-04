@@ -85,6 +85,7 @@ func (w crashFS) OpenAppend(p string) (io.WriteCloser, int64, error) {
 	}
 	return wc, n, err
 }
+func (w crashFS) Reserve(p string, n int64) error { return w.in.Reserve(p, n) }
 func (w crashFS) Sync(p string) error {
 	_, err := call(w.c, func() (struct{}, error) { return struct{}{}, w.in.Sync(p) })
 	return err

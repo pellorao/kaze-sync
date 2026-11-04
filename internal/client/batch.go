@@ -158,7 +158,7 @@ func (f *Folder) fetchBatch(ctx context.Context, jobs []*fetchJob) []*fetchJob {
 // placeJob writes one file of a batch from the reader and records the row to store for it.
 func (f *Folder) placeJob(j *fetchJob, r *blockReader, suffix string) error {
 	open := func(int64) (io.ReadCloser, error) { return r, nil }
-	s, err := place.Stage(f.FS, j.e.Path, *j.e.Hash, open, place.Meta{MtimeNs: j.e.MtimeNs, Exec: j.e.Exec}, j.expect, suffix, true)
+	s, err := place.Stage(f.FS, j.e.Path, *j.e.Hash, open, place.Meta{Size: j.e.Size, MtimeNs: j.e.MtimeNs, Exec: j.e.Exec}, j.expect, suffix, true)
 	if err != nil {
 		return err
 	}

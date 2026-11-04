@@ -194,3 +194,23 @@ func TestStageTwoFilesWithOneContentThenFinish(t *testing.T) {
 		t.Fatalf("temporary file left after a mismatch: %q", names(t, f, "d"))
 	}
 }
+
+// Design 2.4: the space of a download is reserved before it starts; a disk that is too small fails the download
+// at once, with nothing downloaded and nothing left behind that looks like a part of the file.
+func TestPlaceFailsEarlyWithoutSpace(t *testing.T) {
+	f := cfs.NewMem(cfs.MemOptions{Capacity: 10})
+	src := &source{data: content, limit: -1}
+	err := Place(f, "new", hash, src.open, Meta{Size: int64(len(content))}, Expect{})
+	if !errors.Is(err, cfs.ErrNoSpace) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(src.offsets) != 0 {
+		t.Fatal("content was requested although the disk is too small")
+	}
+	if _, err := f.Stat("new"); err == nil {
+		t.Fatal("target created")
+	}
+	if err := Place(cfs.NewMem(cfs.MemOptions{Capacity: 100}), "new", hash, (&source{data: content, limit: -1}).open, Meta{Size: int64(len(content))}, Expect{}); err != nil {
+		t.Fatal(err)
+	}
+}

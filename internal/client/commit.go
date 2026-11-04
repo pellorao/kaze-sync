@@ -3,7 +3,9 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"path"
@@ -13,6 +15,12 @@ import (
 	"kaze-sync/internal/client/place"
 	"kaze-sync/internal/proto"
 	pp "kaze-sync/internal/proto/path"
+)
+
+// maxCommitBlocks is MaxCommitBlocks and stageSegment MaxStageBlocks; tests lower them to exercise big files with small ones.
+var (
+	maxCommitBlocks = proto.MaxCommitBlocks
+	stageSegment    = proto.MaxStageBlocks
 )
 
 // uploadMu serializes block uploads of all folders of the process.
@@ -85,7 +93,7 @@ func chunkLen(items []*item) int {
 	n, blocks := 0, 0
 	for n < len(items) && n < proto.MaxCommitOps {
 		blocks += len(items[n].op.Blocks)
-		if n > 0 && blocks > proto.MaxCommitBlocks {
+		if n > 0 && blocks > maxCommitBlocks {
 			break
 		}
 		n++
@@ -93,13 +101,82 @@ func chunkLen(items []*item) int {
 	return n
 }
 
+// stageItem sends the block list of a big file to the server in segments, uploading the blocks each segment reports
+// missing before the next one (design 2.4). It reports false when the item cannot be committed now: the server
+// refused it (noted like a rejection), or the file changed meanwhile.
+func (f *Folder) stageItem(ctx context.Context, it *item, rep *Report) (bool, error) {
+	var idb [16]byte
+	rand.Read(idb[:])
+	id := hex.EncodeToString(idb[:])
+	blocks := it.op.Blocks
+	for off := 0; off < len(blocks); {
+		end := min(off+stageSegment, len(blocks))
+		r, err := f.API.Stage(ctx, proto.StageReq{Folder: f.ID, ID: id, Offset: off, Size: it.op.Size, Blocks: blocks[off:end]})
+		if err != nil {
+			return false, err
+		}
+		switch r.Reason {
+		case "":
+		case proto.ReasonGap:
+			if r.Have >= off { // cannot happen after our own segments: do not loop
+				return false, errors.New("stage: server reports a gap")
+			}
+			off = r.Have
+			continue
+		default:
+			f.note(it.path, proto.KindRejected, r.Reason)
+			if f.rejected == nil {
+				f.rejected = map[string]rejection{}
+			}
+			f.rejected[it.path] = rejection{it.op.Size, it.op.MtimeNs, r.Reason}
+			return false, nil
+		}
+		if len(r.Need) > 0 {
+			need := make(map[proto.Hash]bool, len(r.Need))
+			for _, h := range r.Need {
+				need[h] = true
+			}
+			kept, err := f.upload(ctx, []*item{it}, need, rep)
+			if err != nil {
+				return false, err
+			}
+			if len(kept) == 0 {
+				return false, nil // the file changed or could not be read: the next scan retries
+			}
+		}
+		off = end
+	}
+	it.stage = id
+	return true, nil
+}
+
 // commitChunk commits up to MaxCommitOps ops, uploading missing blocks and
 // committing again until the server has accepted or refused every op.
 func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) error {
 	for round := 0; round < maxRounds && len(items) > 0; round++ {
+		var staged []*item
+		for _, it := range items {
+			if len(it.op.Blocks) <= maxCommitBlocks || it.stage != "" {
+				staged = append(staged, it)
+				continue
+			}
+			ok, err := f.stageItem(ctx, it, rep)
+			if err != nil {
+				return err
+			}
+			if ok {
+				staged = append(staged, it)
+			}
+		}
+		if items = staged; len(items) == 0 {
+			break
+		}
 		ops := make([]proto.Op, len(items))
 		for i, it := range items {
 			ops[i] = it.op
+			if it.stage != "" { // the block list is on the server already
+				ops[i].Blocks, ops[i].Stage = nil, it.stage
+			}
 		}
 		res, err := f.API.Commit(ctx, f.ID, ops)
 		if err != nil {
@@ -145,6 +222,11 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 					next = append(next, it)
 				}
 			default:
+				if r.Reason == proto.ReasonNoStage { // expired or lost: send the list again
+					it.stage = ""
+					next = append(next, it)
+					continue
+				}
 				f.note(it.path, proto.KindRejected, r.Reason)
 				if f.rejected == nil {
 					f.rejected = map[string]rejection{}

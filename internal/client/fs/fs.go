@@ -9,6 +9,9 @@ import (
 
 // ErrLocked is wrapped by errors for files another process holds open without
 // sharing (Windows sharing and lock violations).
+// ErrNoSpace is returned by Reserve when the disk cannot hold the file.
+var ErrNoSpace = errors.New("not enough free disk space")
+
 var ErrLocked = errors.New("file is locked by another process")
 
 // ErrLinkUnsupported is returned by Symlink when this machine cannot create symbolic links (Windows without
@@ -35,6 +38,10 @@ type FS interface {
 	Stat(p string) (Entry, error)        // does not follow symlinks
 	Open(p string) (io.ReadCloser, error)
 	OpenAppend(p string) (io.WriteCloser, int64, error) // creates p; returns the existing length
+	// Reserve makes sure n more bytes can be written to the file p (created by OpenAppend): it reserves the space where
+	// the file system can (Linux, without changing the file's length) or checks the free space, and returns
+	// ErrNoSpace when the disk is too small, so that a big download fails before it starts (design 2.4).
+	Reserve(p string, n int64) error
 	Sync(p string) error
 	Rename(oldp, newp string) error // replaces an existing target
 	Remove(p string) error          // a file or an empty directory

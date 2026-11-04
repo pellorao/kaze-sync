@@ -53,7 +53,13 @@ const (
 	// MaxCommitBlocks bounds the block hashes of one commit: each takes about 67 bytes of JSON, so this stays far below
 	// MaxJSONBody. One file with more blocks than this is committed alone.
 	MaxCommitBlocks = 20000
-	PollTimeoutS    = 55
+	// MaxStageBlocks bounds the block hashes of one /stage segment. MaxFileBlocks bounds the blocks of one file the
+	// server accepts (2^19 blocks, 128 GiB): the block list of a file is held whole in the server's memory when it is
+	// written or served (design 2.4). MaxStagesPerDevice is how many staged uploads one device may have at once.
+	MaxStageBlocks     = 20000
+	MaxFileBlocks      = 1 << 19
+	MaxStagesPerDevice = 4
+	PollTimeoutS       = 55
 	// AgentVersion is the protocol version of this client, bumped on every change of the device API; clients send it in
 	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
 	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
@@ -140,6 +146,26 @@ type Op struct {
 	Exec    bool   `json:"exec"`
 	// Link marks a symbolic link: the content is the link's target, verbatim, in one block (design 6.7).
 	Link bool `json:"link,omitempty"`
+	// Stage names a staged block list (POST /stage) that stands for Blocks when the file has more than
+	// MaxCommitBlocks blocks (design 2.4).
+	Stage string `json:"stage,omitempty"`
+}
+
+// StageReq is one segment of a block list: Blocks[i] is block Offset+i of a file of Size bytes.
+type StageReq struct {
+	Folder int64  `json:"folder"`
+	ID     string `json:"id"`
+	Offset int    `json:"offset"`
+	Size   int64  `json:"size"`
+	Blocks []Hash `json:"blocks"`
+}
+
+// StageResp: Have is the number of blocks received so far; Need the hashes of the segment the server does not have;
+// a non-empty Reason refuses the segment.
+type StageResp struct {
+	Have   int    `json:"have"`
+	Need   []Hash `json:"need,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type CommitReq struct {
@@ -161,6 +187,12 @@ const (
 	ReasonInvalidName   = "invalid_name"
 	ReasonTypeConflict  = "type_conflict"
 	ReasonInvalidLink   = "invalid_link" // a link target that is empty or longer than MaxLinkTarget
+	ReasonNoStage       = "no_stage"     // commit: the staged block list is missing, expired, another device's or incomplete
+	// Reasons of a refused /stage segment.
+	ReasonNoSpace       = "no_space"        // the blocks the file still needs would not fit on the disk
+	ReasonTooLarge      = "too_large"       // more than MaxFileBlocks blocks
+	ReasonTooManyStages = "too_many_stages" // the device has MaxStagesPerDevice staged uploads already
+	ReasonGap           = "gap"             // offset beyond the blocks received; have says where to continue
 )
 
 // Entry is the state of a path on the server; a nil Hash is a tombstone.

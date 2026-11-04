@@ -18,6 +18,7 @@ import (
 type MemOptions struct {
 	CaseInsensitive bool
 	NoSymlinks      bool  // Symlink fails with ErrLinkUnsupported, like Windows without Developer Mode
+	Capacity        int64 // bytes the file system holds (0: no limit), checked by Reserve
 	Clock           int64 // first logical mtime; give clients of one test different ranges so that mtimes never collide
 }
 
@@ -35,6 +36,7 @@ type Mem struct {
 	mu        sync.Mutex
 	ci        bool
 	noLinks   bool
+	capacity  int64
 	root      *node
 	clock     int64 // logical time: every modification advances it
 	locked    map[*node]bool
@@ -49,6 +51,7 @@ func NewMem(opts MemOptions) *Mem {
 	return &Mem{
 		ci:        opts.CaseInsensitive,
 		noLinks:   opts.NoSymlinks,
+		capacity:  opts.Capacity,
 		root:      &node{dir: true, kids: map[string]*node{}},
 		clock:     opts.Clock,
 		locked:    map[*node]bool{},
@@ -372,4 +375,25 @@ func (m *Mem) SetNoSymlinks(on bool) {
 	m.mu.Lock()
 	m.noLinks = on
 	m.mu.Unlock()
+}
+
+// Reserve fails with ErrNoSpace when n more bytes would not fit in Capacity.
+func (m *Mem) Reserve(p string, n int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.capacity == 0 {
+		return nil
+	}
+	var used func(*node) int64
+	used = func(n *node) (u int64) {
+		u = int64(len(n.data))
+		for _, k := range n.kids {
+			u += used(k)
+		}
+		return u
+	}
+	if used(m.root)+n > m.capacity {
+		return ErrNoSpace
+	}
+	return nil
 }

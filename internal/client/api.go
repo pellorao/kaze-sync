@@ -158,6 +158,15 @@ func (a *API) Commit(ctx context.Context, folder int64, ops []proto.Op) ([]proto
 	return r.Results, nil
 }
 
+// Stage sends one segment of the block list of a big file (design 2.4).
+func (a *API) Stage(ctx context.Context, req proto.StageReq) (proto.StageResp, error) {
+	var r proto.StageResp
+	done := trace("stage", "folder", req.Folder, "offset", req.Offset, "blocks", len(req.Blocks))
+	err := a.json(ctx, "stage", req, &r)
+	done("err", err)
+	return r, err
+}
+
 // UploadBlocks sends a block packet (see proto.WriteBlock).
 func (a *API) UploadBlocks(ctx context.Context, packet []byte) error {
 	var r map[string]int

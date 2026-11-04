@@ -91,7 +91,7 @@ func (f *Folder) localSource(e *proto.Entry, src *blockSrc) *blockSrc {
 
 func (f *Folder) placeEntry(ctx context.Context, e *proto.Entry, src *blockSrc, expect place.Expect) error {
 	open := func(offset int64) (io.ReadCloser, error) { return newBlockReader(ctx, f, e, src, offset), nil }
-	if err := place.Place(f.FS, e.Path, *e.Hash, open, place.Meta{MtimeNs: e.MtimeNs, Exec: e.Exec}, expect); err != nil {
+	if err := place.Place(f.FS, e.Path, *e.Hash, open, place.Meta{Size: e.Size, MtimeNs: e.MtimeNs, Exec: e.Exec}, expect); err != nil {
 		return err
 	}
 	row, err := f.placedRow(e)

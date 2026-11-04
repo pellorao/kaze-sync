@@ -448,6 +448,8 @@ type item struct {
 	op   proto.Op
 	row  localRow // what to store once the server accepts it
 	done bool
+	// stage is the id of this item's block list on the server when it has more than MaxCommitBlocks blocks (design 2.4).
+	stage string
 }
 
 func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {

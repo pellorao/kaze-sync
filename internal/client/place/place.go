@@ -25,6 +25,7 @@ type Expect struct {
 }
 
 type Meta struct {
+	Size    int64 // length of the content; when set, the space for it is reserved before the download (fs.Reserve)
 	MtimeNs int64
 	Exec    bool
 }
@@ -74,6 +75,12 @@ func Stage(fsys cfs.FS, dst string, h blobstore.Hash, open func(offset int64) (i
 	w, offset, err := fsys.OpenAppend(tmp)
 	if err != nil {
 		return nil, err
+	}
+	if m.Size > offset {
+		if err := fsys.Reserve(tmp, m.Size-offset); err != nil {
+			w.Close()
+			return nil, err
+		}
 	}
 	hasher := sha256.New()
 	if err := copyFrom(w, open, offset, hasher); err != nil {
