@@ -172,9 +172,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 input.mono { font-family: var(--mono); font-size: 13px; }
 textarea { height: auto; width: 100%; resize: vertical; line-height: 1.55; }
 textarea.code { font-size: 13px; tab-size: 4; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line); background: none; color: var(--muted); font: 12px var(--sans); cursor: pointer; }
-.chip:hover { color: var(--fg); border-color: var(--muted); }
+.slider input { width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
+.slider .ends { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--muted); }
 .scope { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
 .scope svg { color: var(--accent); }
 .preview { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }

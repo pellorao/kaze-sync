@@ -362,9 +362,15 @@
   });
   document.addEventListener("click", (e) => { if (e.target.closest("[data-reload]")) location.href = liveURL; });
 
-  // ---- restore to a point in time, with a preview
+  // ---- restore to a point in time, with a slider and a preview
+  // The slider runs from now (left) back to the oldest state a restore can reach (right) and snaps to the ticks the
+  // server sends: the ends of the minutes with a change in the scope (design 4.6). Crossing a tick sets the time box
+  // and asks for the preview again; only the newest request counts, an older one is dropped (aborted). While the
+  // server is slow (the last preview took over SLOW ms) the preview waits until the slider rests for SETTLE ms or is released.
+  const SLOW = 150, SETTLE = 300;
   const rd = $("#dlg-restore");
-  let previewSeq = 0;
+  let previewSeq = 0, previewCtl = null, previewTimer = 0, lastMs = 0;
+  let T = null, cur = -1; // the ticks of the scope (null: none loaded) and the one the slider is on
   function openRestore(path, isDir) {
     const f = rd.querySelector("form");
     f.elements.path.value = path;
@@ -372,21 +378,80 @@
     if (!f.elements.time.value) f.elements.time.value = fmt(Date.now() - 36e5);
     rd.showModal();
     previewNow();
+    loadTicks(path);
+  }
+  async function loadTicks(path) {
+    const slider = $("[data-slider]", rd), range = $("input", slider);
+    T = null;
+    range.disabled = true;
+    try {
+      const r = await fetch(`${location.pathname}/restore-ticks?` + new URLSearchParams({ path }), { credentials: "same-origin" });
+      if (!r.ok) return;
+      const t = await r.json();
+      if (rd.querySelector("form").elements.path.value !== path) return;
+      if (t.none || t.ticks.length < 2) { slider.hidden = true; return; }
+      T = t;
+    } catch (e) { return; }
+    range.max = T.now - T.from;
+    range.disabled = false;
+    slider.hidden = false;
+    $("[data-slider-from]", slider).textContent = fmt(T.from * 1000);
+    syncSlider();
+  }
+  // nearest is the index of the tick closest to sec.
+  function nearest(sec) {
+    let lo = 0, hi = T.ticks.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (T.ticks[mid] < sec) lo = mid + 1; else hi = mid; }
+    return lo > 0 && sec - T.ticks[lo - 1] <= T.ticks[lo] - sec ? lo - 1 : lo;
+  }
+  function placeSlider(i) {
+    const range = $("[data-slider] input", rd);
+    cur = i;
+    range.value = T.now - T.ticks[i];
+    range.setAttribute("aria-valuetext", fmt(T.ticks[i] * 1000));
+  }
+  // syncSlider moves the slider to the time in the box (typed, or the one the dialog opened with).
+  function syncSlider() {
+    const ms = parseLocal(rd.querySelector("form").elements.time.value, zoneName());
+    if (T && ms !== null) placeSlider(nearest(ms / 1000));
+  }
+  // slideTo puts the slider on tick i, writes its time into the box and asks for the preview; releasing the slider
+  // asks at once for a preview that is still waiting.
+  function slideTo(i, release) {
+    if (!T) return;
+    i = Math.max(0, Math.min(T.ticks.length - 1, i));
+    if (i !== cur) {
+      placeSlider(i);
+      rd.querySelector("form").elements.time.value = fmt(T.ticks[i] * 1000);
+      previewSoon();
+    }
+    if (release && previewTimer) previewNow();
+  }
+  function previewSoon() {
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    if (lastMs <= SLOW) { previewNow(); return; }
+    $("[data-restore-go]", rd).disabled = true; // the preview on the screen is for another time
+    previewTimer = setTimeout(previewNow, SETTLE);
   }
   function previewNow() {
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    if (previewCtl) previewCtl.abort();
     const f = rd.querySelector("form"), go = $("[data-restore-go]", rd), box = $("[data-preview]", rd);
     const ms = parseLocal(f.elements.time.value, zoneName());
     $("[data-oldwarn]", rd).hidden = ms === null || ms >= Date.now() - rd.dataset.keepDays * 864e5;
     go.disabled = true;
     if (ms === null) { box.hidden = true; $("span", go).textContent = "恢复"; return; }
-    const seq = ++previewSeq;
+    const seq = ++previewSeq, ctl = previewCtl = new AbortController(), t0 = performance.now();
     box.hidden = false;
-    box.prepend(el("div", { class: "progress" }));
+    if (!$(".progress", box)) box.prepend(el("div", { class: "progress" }));
     const q = new URLSearchParams({ path: f.elements.path.value, time: utc(ms) });
-    fetch(`${location.pathname}/restore-preview?${q}`, { credentials: "same-origin" })
+    fetch(`${location.pathname}/restore-preview?${q}`, { credentials: "same-origin", signal: ctl.signal })
       .then((r) => r.ok ? r.text() : Promise.reject(r.status))
       .then((html) => {
         if (seq !== previewSeq) return;
+        lastMs = performance.now() - t0;
         const doc = new DOMParser().parseFromString(html, "text/html");
         box.replaceChildren(...Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)));
         renderTimes(box);
@@ -400,15 +465,17 @@
     const f = rd.querySelector("form");
     const zn = $("[data-tzname]", rd);
     zn.textContent = zoneName() + (body.dataset.tz ? ", 在设置中固定" : ", 跟随浏览器");
-    f.elements.time.addEventListener("input", debounce(previewNow, 400));
-    rd.addEventListener("click", (e) => {
-      const c = e.target.closest("[data-ago]");
-      if (!c) return;
-      const zone = zoneName(), now = Date.now(), k = c.dataset.ago;
-      let ms = now - (k === "1h" ? 36e5 : k === "1d" ? 864e5 : 7 * 864e5);
-      if (k === "today") { const p = parts(now, zone); ms = parseLocal(`${p.year}-${p.month}-${p.day} 00:00:00`, zone); }
-      f.elements.time.value = fmt(ms);
-      previewNow();
+    f.elements.time.addEventListener("input", debounce(() => { syncSlider(); previewNow(); }, 400));
+    const range = $("[data-slider] input", rd);
+    const at = (v) => T ? nearest(T.now - v) : -1;
+    range.addEventListener("input", () => slideTo(at(+range.value), false));
+    range.addEventListener("change", () => slideTo(at(+range.value), true)); // released: settle on the tick and ask now
+    range.addEventListener("keydown", (e) => { // a step is one tick, not one second
+      const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[e.key];
+      if (!T || (step === undefined && e.key !== "Home" && e.key !== "End")) return;
+      e.preventDefault();
+      // the slider's right is the past: right and up go back in time, to lower ticks
+      slideTo(e.key === "Home" ? T.ticks.length - 1 : e.key === "End" ? 0 : cur - step, false);
     });
     f.addEventListener("submit", (e) => { // the server reads UTC: send the time the person typed as UTC
       const ms = parseLocal(f.elements.time.value, zoneName());

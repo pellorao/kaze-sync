@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -37,9 +39,9 @@ type entryTag struct{ Class, Text, Title string }
 type browseEntry struct {
 	Name, Path string
 	IsDir      bool
-	Gone       bool  // a deleted file; for a directory: nothing but deleted files below it
-	Time       int64 // modified; for a deleted file: when it was deleted
-	Size       int64
+	Gone       bool   // a deleted file; for a directory: nothing but deleted files below it
+	Time       int64  // modified; for a deleted file: when it was deleted; for a directory: the latest modification below it
+	Size       int64  // for a directory: the total size of the files below it
 	Conflict   bool   // a conflict copy
 	Orig       string // the path of the file it is a copy of
 	Unsynced   bool   // reported by a device but not on the server (a symbolic link, a refused name)
@@ -59,7 +61,9 @@ func conflictOriginal(p string) string {
 }
 
 // browse lists the entries directly below dir ("" or "a/b"); directories are
-// derived from the paths below them. Tombstones count only when deleted is set.
+// derived from the paths below them, with the total size and latest modification time of the files below each
+// (design 4.5; summed from the rows the scan reads anyway). Tombstones count only when deleted is set, and are
+// never part of a total.
 func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
@@ -97,7 +101,9 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 				out = append(out, browseEntry{Name: name, Path: prefix + name, IsDir: true, Gone: true})
 			}
 			if !gone {
-				out[i].Gone = false
+				d := &out[i]
+				d.Gone, d.Size = false, d.Size+size
+				d.Time = max(d.Time, mtime/1e9)
 			}
 			continue
 		}
@@ -351,7 +357,10 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return bad(http.StatusBadRequest, "", "时间格式无效")
 	}
-	n, items, note, none, err := s.restorePreview(f.ID, p, at)
+	n, items, note, none, err := s.restorePreview(r.Context(), f.ID, p, at)
+	if errors.Is(err, context.Canceled) {
+		return nil // the browser dropped the request: the slider moved on
+	}
 	if err != nil {
 		return err
 	}
@@ -364,6 +373,20 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
+}
+
+// restoreTicksPage answers the restore dialog's slider: the points it snaps to (restoreTicks), as JSON.
+func (s *Server) restoreTicksPage(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
+	}
+	t, err := s.restoreTicks(f.ID, strings.Trim(r.FormValue("path"), "/"))
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(w).Encode(t)
 }
 
 // deleteFolder removes a folder that no device maps, with its database. Its blocks go at the next GC.

@@ -185,6 +185,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /devices/{id}/revoke":         s.revoke,
 		"GET /folders/{id}":                 s.folderPageH,
 		"GET /folders/{id}/restore-preview": s.restorePreviewPage,
+		"GET /folders/{id}/restore-ticks":   s.restoreTicksPage,
 		"GET /folders/{id}/changed":         s.folderChanged,
 		"POST /folders/{id}/restore":        s.restore,
 		"POST /folders/{id}/restore-dir":    s.restoreDir,

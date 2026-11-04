@@ -20,9 +20,9 @@
 {{else if .Unsynced}}{{icon "link" "file"}}<span class="t nm">{{.Name}}</span>
 {{else}}{{icon "file" "file"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
 <span class="tags">{{if and .IsDir .Gone}}<span class="tag">只有已删除的内容</span>{{else if and .Gone (not .IsDir)}}<span class="tag">已删除</span>{{end}}{{range .Tags}}<span class="tag {{.Class}}"{{if .Title}} title="{{.Title}}"{{end}}>{{.Text}}</span>{{end}}</span></div>
-{{if or .Size .Time}}{{if not .IsDir}}<div class="sm-meta">{{if not .Gone}}{{size .Size}} · {{else}}删除于 {{end}}{{time .Time}}</div>{{end}}{{end}}</td>
-<td class="size">{{if and (not .IsDir) (not .Gone) (not .Unsynced)}}{{size .Size}}{{end}}</td>
-<td class="time">{{if and (not .IsDir) (not .Unsynced)}}{{if .Gone}}删除于 {{end}}{{time .Time}}{{end}}</td>
+{{if and (or .Size .Time) (not .Unsynced) (not (and .IsDir .Gone))}}<div class="sm-meta">{{if not .Gone}}{{size .Size}} · {{else}}删除于 {{end}}{{time .Time}}</div>{{end}}</td>
+<td class="size">{{if and (not .Gone) (not .Unsynced)}}{{size .Size}}{{end}}</td>
+<td class="time">{{if and (not .Unsynced) (not (and .IsDir .Gone))}}{{if .Gone}}删除于 {{end}}{{time .Time}}{{end}}</td>
 <td class="act"><button type="button" class="more" data-menu="row" aria-label="{{.Name}} 的操作" aria-haspopup="menu">{{icon "more"}}</button></td></tr>
 {{end}}
 </tbody></table>
@@ -44,7 +44,8 @@
 <div class="field"><label for="rs-time">时间</label>
 <input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required>
 {{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}
-<div class="chips"><button type="button" class="chip" data-ago="1h">1 小时前</button><button type="button" class="chip" data-ago="today">今天 0 点</button><button type="button" class="chip" data-ago="1d">昨天此时</button><button type="button" class="chip" data-ago="7d">7 天前</button></div>
+<div class="slider" data-slider hidden><input type="range" min="0" max="0" step="1" value="0" disabled aria-label="恢复到的时刻">
+<div class="ends"><span>现在</span><span data-slider-from></span></div></div>
 <span class="help"><span data-tzname>UTC</span>, 可在 <a href="/settings">设置</a> 中改变. 版本保留 {{.KeepDays}} 天.<span class="warnbox" data-oldwarn hidden> 所选时间早于版本保留期, 那时的内容可能已被清理.</span></span></div>
 <div class="preview" data-preview hidden></div>
 <p class="note">{{icon "info"}}<span>只恢复内容, 不删除该时刻之后新建的文件; 当前内容进入版本历史, 可再次恢复.</span></p>

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -171,28 +172,42 @@ type restoreNote struct {
 	Import bool
 }
 
+// historyStart is the state a time before the first record (earliest, at or below the path asked about) is taken
+// as (design 7): the end of the folder's initial import (imp), or earliest itself for a path created after the import.
+func historyStart(db *sql.DB, earliest, now int64) (start int64, imp bool, err error) {
+	end, err := importEnd(db, now)
+	if err != nil {
+		return 0, false, err
+	}
+	if end >= earliest {
+		return end, true, nil
+	}
+	return earliest, false, nil
+}
+
 // restoreDiff calls visit for every file at p or below it whose content at time at differs from the current one:
 // old is what it held then, nowGone says that it has no content now (deleted or never there). A time before the
 // first record is taken as the end of the folder's initial import (design 7): that is the first state the
 // folder was complete in, and "no difference" would be wrong. Files created after the import count as absent
-// then and are not touched. none says that there is no record at all.
-func restoreDiff(db *sql.DB, p string, at time.Time, now int64, visit func(old, cur *fileRow, nowGone bool) error) (note restoreNote, none bool, err error) {
+// then and are not touched. none says that there is no record at all. A cancelled ctx (the browser dropped the
+// request: the slider moved on) ends the scan with its error.
+func restoreDiff(ctx context.Context, db *sql.DB, p string, at time.Time, now int64, visit func(old, cur *fileRow, nowGone bool) error) (note restoreNote, none bool, err error) {
 	earliest, err := earliestRecord(db, p)
 	if err != nil || earliest == 0 {
 		return restoreNote{}, err == nil, err
 	}
 	t := at.Unix()
 	if t < earliest {
-		imp, err := importEnd(db, now)
+		start, imp, err := historyStart(db, earliest, now)
 		if err != nil {
 			return restoreNote{}, false, err
 		}
-		t, note = earliest, restoreNote{At: earliest} // a path created after the import starts at its own first record
-		if imp >= earliest {
-			t, note = imp, restoreNote{At: imp, Import: true}
-		}
+		t, note = start, restoreNote{At: start, Import: imp}
 	}
 	err = stateAt(db, p, t, func(v *fileRow) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var cur fileRow
 		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
 		if err == nil && bytes.Equal(cur.hash, v.hash) {
@@ -203,6 +218,57 @@ func restoreDiff(db *sql.DB, p string, at time.Time, now int64, visit func(old, 
 		return visit(v, &cur, err != nil || cur.hash == nil)
 	})
 	return note, false, err
+}
+
+// restoreTicks are the points of the restore slider (design 4.6): the times a restore of p can start from, oldest
+// first. The first is From, the oldest state a restore can go back to: the end of the initial import or the first
+// record of p, or the start of the keep window when that is later. Then every minute with a change at or below p
+// (a new version, a deletion), as the end of that minute so that the state at the tick holds the change, and last now.
+type restoreTicks struct {
+	Now   int64   `json:"now"`
+	From  int64   `json:"from"`
+	Ticks []int64 `json:"ticks"` // unix seconds, ascending, From first and Now last
+	None  bool    `json:"none"`  // p has no history
+}
+
+func (s *Server) restoreTicks(folder int64, p string) (restoreTicks, error) {
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return restoreTicks{}, err
+	}
+	now := s.now().Unix()
+	out := restoreTicks{Now: now, Ticks: []int64{}}
+	earliest, err := earliestRecord(db, p)
+	if err != nil || earliest == 0 {
+		out.None = err == nil
+		return out, err
+	}
+	start, _, err := historyStart(db, earliest, now)
+	if err != nil {
+		return out, err
+	}
+	out.From = max(start, now-int64(metaInt(s.db, "keep_days"))*86400)
+	cond, args := scopeCond(p)
+	q := `SELECT t FROM (SELECT (created_at+59)/60*60 t FROM files WHERE created_at > ? AND ` + cond +
+		` UNION SELECT (created_at+59)/60*60 FROM versions WHERE created_at > ? AND ` + cond + `) WHERE t < ? ORDER BY t`
+	args = append(append(append([]any{out.From}, args...), out.From), args...)
+	rows, err := db.Query(q, append(args, now)...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	out.Ticks = append(out.Ticks, out.From)
+	for rows.Next() {
+		var t int64
+		if err := rows.Scan(&t); err != nil {
+			return out, err
+		}
+		out.Ticks = append(out.Ticks, t)
+	}
+	if out.From < now {
+		out.Ticks = append(out.Ticks, now)
+	}
+	return out, rows.Err()
 }
 
 // restoreDirAt brings back what a path (a directory, or one file) held at a point in time, as device "web": paths
@@ -226,7 +292,7 @@ func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, f
 		ops = ops[:0]
 		return err
 	}
-	_, _, err = restoreDiff(db, p, at, s.now().Unix(), func(v, cur *fileRow, _ bool) error {
+	_, _, err = restoreDiff(context.Background(), db, p, at, s.now().Unix(), func(v, cur *fileRow, _ bool) error {
 		e := v.entry()
 		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
 		if len(ops) == proto.MaxCommitOps {
@@ -250,12 +316,12 @@ type previewItem struct {
 
 // restorePreview runs the query of restoreDirAt without committing: the number of files it would restore and the
 // first previewLimit of them; note and none are as for restoreDiff.
-func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, note restoreNote, none bool, err error) {
+func (s *Server) restorePreview(ctx context.Context, folder int64, p string, at time.Time) (n int, items []previewItem, note restoreNote, none bool, err error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
 		return 0, nil, restoreNote{}, false, err
 	}
-	note, none, err = restoreDiff(db, p, at, s.now().Unix(), func(v, _ *fileRow, gone bool) error {
+	note, none, err = restoreDiff(ctx, db, p, at, s.now().Unix(), func(v, _ *fileRow, gone bool) error {
 		if n++; n <= previewLimit {
 			items = append(items, previewItem{v.path, gone})
 		}
