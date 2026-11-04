@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"strings"
 	"testing"
 
 	"kaze-sync/internal/proto"
@@ -216,5 +217,31 @@ func TestUploadBlocksKeepsCompleteOnes(t *testing.T) {
 	}
 	if code := post(buf.Bytes()); code != 200 {
 		t.Fatalf("full upload: %d", code)
+	}
+}
+
+// The name checks of a commit must use the key index: a scan per op makes a large commit quadratic.
+func TestCommitNameCheckUsesIndex(t *testing.T) {
+	e := newEnv(t)
+	f := e.folder("F")
+	db, err := e.s.folderDB(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, args := typeConflictQuery("a/b/c")
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+q, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(detail, "SCAN files") {
+			t.Errorf("full scan in the type check: %s", detail)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"kaze-sync/internal/proto"
 	pp "kaze-sync/internal/proto/path"
@@ -182,17 +183,28 @@ func nameProblem(tx *sql.Tx, path, key string) (string, error) {
 	if err := tx.QueryRow(`SELECT count(*) FROM files WHERE key=? AND hash IS NOT NULL AND path<>?`, key, path).Scan(&n); err != nil || n > 0 {
 		return proto.ReasonCaseCollision, err
 	}
-	// A live file where a directory of the new path is needed, or live files below the new path.
-	q := `SELECT count(*) FROM files WHERE hash IS NOT NULL AND (key >= ? AND key < ?`
-	args := []any{key + "/", key + "0"}
-	for i := 0; i < len(key); i++ {
-		if key[i] == '/' {
-			q += ` OR key=?`
-			args = append(args, key[:i])
-		}
-	}
-	if err := tx.QueryRow(q+`)`, args...).Scan(&n); err != nil || n > 0 {
+	q, args := typeConflictQuery(key)
+	if err := tx.QueryRow(q, args...).Scan(&n); err != nil || n > 0 {
 		return proto.ReasonTypeConflict, err
 	}
 	return "", nil
+}
+
+// typeConflictQuery counts the live files that clash in type with a live file at key: a file where one of its
+// directories is needed, or files below it. The two conditions are separate selects: joined by OR, SQLite scans the
+// whole index for every op, which made a large commit quadratic in the number of files.
+func typeConflictQuery(key string) (string, []any) {
+	q := `SELECT count(*) FROM (SELECT 1 FROM files WHERE hash IS NOT NULL AND key >= ? AND key < ?`
+	args := []any{key + "/", key + "0"}
+	var dirs []any
+	for i := 0; i < len(key); i++ {
+		if key[i] == '/' {
+			dirs = append(dirs, key[:i])
+		}
+	}
+	if len(dirs) > 0 {
+		q += ` UNION ALL SELECT 1 FROM files WHERE hash IS NOT NULL AND key IN (?` + strings.Repeat(`,?`, len(dirs)-1) + `)`
+		args = append(args, dirs...)
+	}
+	return q + `)`, args
 }
