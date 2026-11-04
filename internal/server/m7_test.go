@@ -225,15 +225,15 @@ func TestRestoreDirToPointInTime(t *testing.T) {
 	if n := e.fcount(f, `SELECT count(*) FROM versions WHERE path='proj/a'`); n != 2 {
 		t.Errorf("proj/a has %d versions, want 2 (a1, and a2 that the restore replaced)", n)
 	}
-	// Again: nothing differs now. Before anything existed: nothing to restore.
+	// Again: nothing differs now.
 	if _, loc := post("proj", t1); !strings.Contains(loc, "restored=0") {
 		t.Errorf("second restore: %s", loc)
 	}
-	if _, loc := post("", "2020-01-01 00:00"); !strings.Contains(loc, "restored=0") {
+	// Before the first record: the first record counts (design 7), which brings back o1.
+	if _, loc := post("", "2020-01-01 00:00"); !strings.Contains(loc, "restored=1") || !bytes.Equal(e.liveHash(f, "other"), sum("o1")) {
 		t.Errorf("restore before the beginning: %s", loc)
 	}
-	// The whole folder brings back o1 as well.
-	if _, loc := post("", t1); !strings.Contains(loc, "restored=1") || !bytes.Equal(e.liveHash(f, "other"), sum("o1")) {
+	if _, loc := post("", t1); !strings.Contains(loc, "restored=0") {
 		t.Errorf("whole-folder restore: %s", loc)
 	}
 	if st, _ := e.post(c, base+"/restore-dir", url.Values{"path": {""}, "time": {"yesterday"}}); st != 400 {

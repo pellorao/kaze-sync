@@ -492,3 +492,133 @@ func TestStaticFilesAreServedWithETag(t *testing.T) {
 		t.Fatalf("icons: %v %v", r3, err)
 	}
 }
+
+// A time before the first record of the path is taken as the first record, and the preview says so: "no
+// difference" for a time that has no history was wrong (user 2026-11-05).
+func TestRestoreBeforeTheFirstRecordUsesTheFirstRecord(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	f := e.folder("Docs")
+	base := "/folders/" + itoa(f)
+	e.commit(f, e.op("a", 0, "a1"))
+	first := e.clk.Now()
+	e.clk.Add(30 * time.Minute)
+	e.commit(f, e.op("b", 0, "b1"))
+	b1 := e.clk.Now()
+	e.clk.Add(30 * time.Minute)
+	e.commit(f, e.op("a", 1, "a2"), e.op("b", 2, "b2"))
+	long := first.Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	preview := func(path, at string) string {
+		_, page := e.get(c, base+"/restore-preview?"+url.Values{"path": {path}, "time": {at}}.Encode())
+		return page
+	}
+	// The whole folder: the state at its first record, which holds a only.
+	page := preview("", long)
+	if !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, ">a<") || strings.Contains(page, ">b<") ||
+		!strings.Contains(page, "最早记录为") || !strings.Contains(page, `datetime="`+first.Format("2006-01-02T15:04:05Z")+`"`) {
+		t.Fatalf("folder:\n%s", page)
+	}
+	// One file: its own first record, not the folder's.
+	page = preview("b", long)
+	if !strings.Contains(page, `data-count="1"`) || !strings.Contains(page, `datetime="`+b1.Format("2006-01-02T15:04:05Z")+`"`) {
+		t.Fatalf("file b:\n%s", page)
+	}
+	// A time inside the history carries no note.
+	if page = preview("", first.Add(10*time.Minute).Format("2006-01-02 15:04:05")); strings.Contains(page, "最早记录为") || !strings.Contains(page, `data-count="1"`) {
+		t.Fatalf("inside the history:\n%s", page)
+	}
+	// The restore does what the preview says.
+	before := e.nextSeq(f)
+	e.post(c, base+"/restore-dir", url.Values{"path": {""}, "time": {long}})
+	if got := e.nextSeq(f) - before; got != 1 {
+		t.Fatalf("the restore changed %d files, want 1", got)
+	}
+	h := e.block([]byte("a1"))
+	if got := e.fcount(f, `SELECT count(*) FROM files WHERE path='a' AND hash=?`, h[:]); got != 1 {
+		t.Fatal("a is not back to its first content")
+	}
+	// Nothing recorded at all.
+	g := e.folder("Empty")
+	if _, page = e.get(c, "/folders/"+itoa(g)+"/restore-preview?"+url.Values{"time": {long}}.Encode()); !strings.Contains(page, "没有任何历史记录") || !strings.Contains(page, `data-count="0"`) {
+		t.Fatalf("empty folder:\n%s", page)
+	}
+}
+
+// The "content updated" hint is for changes the listing shows: direct children of the shown directory, and
+// subdirectories that appear or vanish. A change deeper down, or in another directory, is not one.
+func TestListingChangedOnlyForWhatThePageShows(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	f := e.folder("Docs")
+	e.commit(f, e.op("top", 0, "t"), e.op("sub/a", 0, "a"), e.op("sub/deep/b", 0, "b"), e.op("other/c", 0, "c"))
+	cur := func() int64 { return e.nextSeq(f) - 1 }
+	type answer struct {
+		Changed bool  `json:"changed"`
+		Seq     int64 `json:"seq"`
+	}
+	ask := func(since int64, dir string, shown ...string) answer {
+		t.Helper()
+		q := url.Values{"since": {itoa(since)}, "dir": {dir}, "d": shown}
+		st, body := e.get(c, "/folders/"+itoa(f)+"/changed?"+q.Encode())
+		var a answer
+		if st != 200 || json.Unmarshal([]byte(body), &a) != nil {
+			t.Fatalf("%d %s", st, body)
+		}
+		return a
+	}
+	since := cur()
+	if a := ask(since, "", "sub", "other"); a.Changed || a.Seq != since {
+		t.Fatalf("nothing happened: %+v", a)
+	}
+	seqOf := func(p string) int64 {
+		var s int64
+		db, _ := e.s.folderDB(f)
+		db.QueryRow(`SELECT seq FROM files WHERE path=?`, p).Scan(&s)
+		return s
+	}
+	// Inside a subdirectory, or in a directory that is not shown: the root listing is the same.
+	e.commit(f, e.op("sub/deep/b", seqOf("sub/deep/b"), "b2"), e.op("sub/new", 0, "n"), e.op("other/c", seqOf("other/c"), "c2"))
+	if a := ask(since, "", "sub", "other"); a.Changed || a.Seq != cur() {
+		t.Fatalf("changes below shown subdirectories: %+v", a)
+	}
+	// The same changes seen from inside "sub": a direct child changed.
+	if a := ask(since, "sub", "deep"); !a.Changed {
+		t.Fatalf("a child of sub changed: %+v", a)
+	}
+	// ...and from "other/", which they did not touch below its own entries? other/c is a child of other.
+	if a := ask(since, "other"); !a.Changed {
+		t.Fatalf("other/c changed: %+v", a)
+	}
+	since = cur()
+	// A direct file of the directory.
+	e.commit(f, e.op("top", seqOf("top"), "t2"))
+	if a := ask(since, "", "sub", "other"); !a.Changed {
+		t.Fatalf("a file of the root changed: %+v", a)
+	}
+	// A subdirectory that appears; one that disappears.
+	since = cur()
+	e.commit(f, e.op("fresh/x", 0, "x"))
+	if a := ask(since, "", "sub", "other"); !a.Changed {
+		t.Fatalf("a new subdirectory: %+v", a)
+	}
+	if a := ask(since, "", "sub", "other", "fresh"); a.Changed {
+		t.Fatalf("a subdirectory the page already shows: %+v", a)
+	}
+	since = cur()
+	e.commit(f, proto.Op{Path: "fresh/x", BaseSeq: seqOf("fresh/x")})
+	if a := ask(since, "", "sub", "other", "fresh"); !a.Changed {
+		t.Fatalf("a subdirectory that is empty now: %+v", a)
+	}
+	if a := ask(since, "", "sub", "other", "fresh"); !a.Changed {
+		t.Fatal("asked again with the same answer")
+	}
+	// With the deleted files shown, the subdirectory stays (it holds a tombstone).
+	q := url.Values{"since": {itoa(since)}, "deleted": {"1"}, "d": {"sub", "other", "fresh"}}
+	if _, body := e.get(c, "/folders/"+itoa(f)+"/changed?"+q.Encode()); strings.Contains(body, `"changed":true`) {
+		t.Fatalf("deleted files are shown: %s", body)
+	}
+}

@@ -77,7 +77,9 @@
     const t = e.target.closest("[data-dialog]");
     if (t) { openDialog($("#" + t.dataset.dialog)); return; }
     const c = e.target.closest("[data-close]");
-    if (c) c.closest("dialog").close();
+    if (!c) return;
+    const d = c.closest("dialog");
+    if (d.leave) d.leave(); else d.close(); // a dialog with unsaved edits asks first (d.leave)
   });
   document.addEventListener("close", (e) => { // a dialog the URL opened takes its parameters with it, so reload does not reopen it
     const names = e.target.dataset && e.target.dataset.clear;
@@ -100,10 +102,20 @@
     ok.className = "btn " + ("danger" in f.dataset ? "danger" : "primary");
     cf.showModal();
   });
+  // ask puts a question to the shared confirmation dialog and runs yes() on "确定" (label ok)
+  function ask(msg, ok, yes) {
+    pending = { run: yes };
+    $("#cf-msg").textContent = msg;
+    const b = $("#cf-ok");
+    b.textContent = ok;
+    b.className = "btn danger";
+    cf.showModal();
+  }
   if (cf) $("#cf-ok").addEventListener("click", () => {
     const p = pending;
     cf.close();
     if (!p) return;
+    if (p.run) { p.run(); return; }
     p.form.dataset.confirmed = "1";
     p.form.requestSubmit(p.submitter || undefined);
     delete p.form.dataset.confirmed;
@@ -303,13 +315,34 @@
       renderTimes(cur);
     }
   }
+  // The hint "content updated" is for changes that the listing shows. The event says that the folder changed; the
+  // server says whether that touched the directory on the page (a direct child, or a subdirectory that came or went).
+  let checked = main && main.dataset.seq, latest = checked, checking = false;
+  async function listingChanged(seq) {
+    const hint = $("[data-reload]");
+    latest = String(seq);
+    if (!hint || !hint.hidden || checking || latest === checked) return;
+    checking = true;
+    let ok = false;
+    try {
+      const q = new URLSearchParams({ since: checked, dir: pageDir() });
+      if (new URLSearchParams(location.search).get("deleted")) q.set("deleted", "1");
+      for (const r of $$('tr[data-kind="dir"]')) q.append("d", r.dataset.name);
+      const r = await fetch("/folders/" + main.dataset.folder + "/changed?" + q, { credentials: "same-origin" });
+      if (!r.ok) return;
+      const out = await r.json();
+      if (out.changed) hint.hidden = false; else checked = String(out.seq);
+      ok = true;
+    } catch (e) { /* the next event asks again */ } finally { checking = false; }
+    if (ok && hint.hidden && latest !== checked) listingChanged(latest); // events came in while the server was asked
+  }
   function connect() {
     if (es || document.hidden || !notif) return;
     es = new EventSource("/events");
     es.onopen = () => $("[data-conn]").classList.remove("on");
     es.onmessage = (e) => {
       const d = JSON.parse(e.data);
-      if (main && main.dataset.folder && d.seq && String(d.seq[main.dataset.folder]) !== main.dataset.seq) $("[data-reload]").hidden = false;
+      if (main && main.dataset.folder && d.seq) listingChanged(d.seq[main.dataset.folder]);
       if (lastGen !== null && d.gen !== lastGen) refresh();
       lastGen = d.gen;
     };
@@ -356,6 +389,7 @@
         if (seq !== previewSeq) return;
         const doc = new DOMParser().parseFromString(html, "text/html");
         box.replaceChildren(...Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)));
+        renderTimes(box);
         const n = +$("[data-count]", box).dataset.count;
         go.disabled = n === 0;
         $("span", go).textContent = n ? `恢复 ${n} 个文件` : "没有可恢复的文件";
@@ -421,6 +455,23 @@
       draw();
     }, 300);
     ta.addEventListener("input", () => { draw(); validate(); });
+    // Edits that were not saved are lost when the dialog closes (cancel, Esc), after asking. The text to go back to
+    // is the saved one: after a refused save the textarea holds the refused text, not the saved one. A textarea
+    // drops one leading newline of its source, the attribute does not.
+    const dlg = box.closest("dialog"), saved = (box.dataset.saved || "").replace(/^\n/, "");
+    if (dlg && box.dataset.saved !== undefined) {
+      const dirty = () => ta.value !== saved;
+      dlg.leave = () => { if (dirty()) ask("有未保存的修改, 放弃它们并关闭吗?", "放弃", () => dlg.close()); else dlg.close(); };
+      dlg.addEventListener("cancel", (e) => { if (dirty()) { e.preventDefault(); dlg.leave(); } });
+      dlg.addEventListener("close", () => {
+        seq++; // a validation still under way would show errors of the discarded text
+        ta.value = saved;
+        errs = new Map();
+        list.replaceChildren();
+        ta.setAttribute("aria-invalid", "false");
+        draw();
+      });
+    }
     ta.addEventListener("scroll", () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; });
     ["keyup", "click", "focus"].forEach((n) => ta.addEventListener(n, draw));
     ta.addEventListener("mousemove", (e) => {
@@ -439,7 +490,17 @@
     $("[data-browser-tz]", tc).textContent = browserTZ;
     let zones = [];
     try { zones = Intl.supportedValuesOf("timeZone"); } catch (e) { /* an older browser: the saved zone and UTC */ }
-    for (const z of new Set(["UTC", ...zones, saved || browserTZ])) if (!$(`option[value="${CSS.escape(z)}"]`, sel)) sel.append(el("option", { value: z }, z));
+    // Two columns, the name and the UTC offset now (summer time included): the options are set in a monospace font
+    // (style.css) and the names padded with no-break spaces.
+    const offset = (z) => {
+      try {
+        const o = new Intl.DateTimeFormat("en", { timeZone: z, timeZoneName: "longOffset" }).formatToParts(Date.now()).find((p) => p.type === "timeZoneName").value;
+        return o === "GMT" ? "+00:00" : o.replace("GMT", "");
+      } catch (e) { return ""; }
+    };
+    const names = [...new Set(["UTC", ...zones, saved || browserTZ])];
+    const width = Math.max(...names.map((z) => z.length));
+    sel.replaceChildren(...names.map((z) => el("option", { value: z }, z.padEnd(width, "\u00a0") + "\u00a0\u00a0" + offset(z))));
     sel.value = saved || browserTZ;
     const update = () => {
       const fixed = radios.find((r) => r.checked).value === "fixed";

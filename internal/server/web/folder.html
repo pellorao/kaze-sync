@@ -30,7 +30,8 @@
 </section>
 {{end}}
 
-{{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}该时刻存在而现在不同的文件: <b class="num">{{.N}}</b> 个{{else}}该时刻与现在没有差别{{end}}</span></div>
+{{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}该时刻存在而现在不同的文件: <b class="num">{{.N}}</b> 个{{else if .None}}这里没有任何历史记录{{else}}该时刻与现在没有差别{{end}}</span></div>
+{{if .First}}<div class="first-n">{{icon "info"}}<span>所选时间早于最早记录, 按最早记录计算: 最早记录为 {{time .First}}</span></div>{{end}}
 {{if .Items}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s">{{if .Gone}}现在已删除{{else}}现在内容不同{{end}}</span></li>{{end}}</ul>{{end}}
 {{if gt .More 0}}<div class="more-n">还有 {{.More}} 个 (预览最多列出 20 个)</div>{{end}}{{end}}
 
@@ -55,7 +56,7 @@
 <div class="dlg-h">{{icon "rules"}}<h3 id="ru-t">{{.Folder.Name}} 的排除规则</h3></div>
 <div class="dlg-b">
 <div class="field">
-<div class="ruleedit" data-ruleedit><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="12" spellcheck="false" wrap="off" aria-describedby="ru-help">{{.Rules}}</textarea></div>
+<div class="ruleedit" data-ruleedit data-saved="{{.SavedRules}}"><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="12" spellcheck="false" wrap="off" aria-describedby="ru-help">{{.Rules}}</textarea></div>
 <div class="rule-errs" aria-live="polite" data-ruleerrs>{{range .RuleErrs}}<div class="err-msg" data-line="{{.Line}}">第 {{.Line}} 行: {{.Msg}}</div>{{end}}</div>
 {{with index .Errs "rules"}}<span class="err-msg">{{.}}</span>{{end}}
 <span class="help" id="ru-help">gitignore 语法, 每行一条, <code>#</code> 开头为注释. 接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 <code>!/dir/</code> 再 <code>/dir/*</code> 再 <code>!/dir/file</code>.</span>

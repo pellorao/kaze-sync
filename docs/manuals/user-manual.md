@@ -141,11 +141,11 @@ Every page has a top bar: the **kaze-sync** logo (back to the overview), the not
 
 The overview folder table shows for each folder its state (Synced `已同步`, Syncing `同步中` with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, Device offline `设备离线`), the devices that map it, the number of files and the total size, and the number of errors and warnings. The device table shows the system, the last connection time, each folder's state on that device, the client protocol version (shown in red as "N, `过旧`" when it is too old, section 15) and whether the device has the latest configuration.
 
-Pages update by themselves: the notification bell and the overview tables refresh within a few seconds of a change (at most once every 5 seconds). The folder's file list does not refresh itself, so that a big sync does not keep re-reading it; it shows **Content changed, refresh** (`内容有更新, 刷新`) instead.
+Pages update by themselves: the notification bell and the overview tables refresh within a few seconds of a change (at most once every 5 seconds). The folder's file list does not refresh itself, so that a big sync does not keep re-reading it; it shows **Content changed, refresh** (`内容有更新, 刷新`) instead, and only when something changed directly in the directory you are looking at (a file there, or a subdirectory that appeared or disappeared), not for changes deep in a subdirectory. The state **Syncing** appears only for work that takes more than about 3 seconds; a quick rescan after a file was rewritten does not flip the folder to Syncing.
 
 Times are shown as `2026-11-03 22:48:27` in the browser's time zone by default; hover for the zone name. The pages need JavaScript for the menus, dialogs and live updates, and they are usable at phone width.
 
-**Settings.** **Time zone** (`时区`): follow the browser, or fix an IANA zone for every browser; it only affects what the Web UI shows and what you type into it. **Version retention** (`版本保留`): days to keep old versions, 1 to 3650, default 30. **Global exclusion rules** (`全局排除规则`): section 7.
+**Settings.** **Time zone** (`时区`): follow the browser, or fix an IANA zone for every browser (the list shows each zone with its current UTC offset, such as `+09:00`, summer time included); it only affects what the Web UI shows and what you type into it. **Version retention** (`版本保留`): days to keep old versions, 1 to 3650, default 30. **Global exclusion rules** (`全局排除规则`): section 7.
 
 ## 5. Folders and mappings
 
@@ -274,7 +274,7 @@ Everything that is overwritten or deleted is kept for the retention period (sect
 
 **A file, a directory or a whole folder as of a point in time.** Choose **Restore to a point in time…** (`恢复到某一时刻…`) in the row menu of a file or directory, or, for the current directory, **Restore this directory to a point in time…** (`恢复此目录到某一时刻…`) in the menu of the title row or after right-clicking empty space (at the top level of the folder the text is "Restore whole folder...", `恢复整个文件夹到某一时刻…`). In the dialog:
 
-1. Type the time as `2026-11-03 22:48:27` (seconds are optional), or press one of the shortcuts: 1 hour ago (`1 小时前`), today 00:00 (`今天 0 点`), this time yesterday (`昨天此时`), 7 days ago (`7 天前`). The time zone in use is written beside the box; change it on the settings page. A time older than the retention period warns that the content may already be purged.
+1. Type the time as `2026-11-03 22:48:27` (seconds are optional), or press one of the shortcuts: 1 hour ago (`1 小时前`), today 00:00 (`今天 0 点`), this time yesterday (`昨天此时`), 7 days ago (`7 天前`). The time zone in use is written beside the box; change it on the settings page. A time older than the retention period warns that the content may already be purged. A time earlier than the first record of the folder, directory or file is computed against that first record (the state when syncing began): the dialog says "The chosen time is earlier than the earliest record, computed against the earliest record: the earliest record is <time>" (`所选时间早于最早记录, 按最早记录计算: 最早记录为 <时间>`), and the preview and the restore agree. If there is no history at all it says so (`这里没有任何历史记录`).
 2. The dialog previews what will be restored: the number of files and the first 20 paths, each marked "now deleted" (`现在已删除`) or "content differs now" (`现在内容不同`). If nothing differs, the button stays disabled.
 3. Press **Restore** (`恢复`). Afterwards a message says how many files were restored and how many failed (a name conflict, or the file was changed at the same moment).
 

@@ -203,6 +203,11 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	}
 	dir := strings.Trim(r.FormValue("dir"), "/")
 	deleted := r.FormValue("deleted") != ""
+	db, err := s.folderDB(f.ID)
+	if err != nil {
+		return err
+	}
+	seq := metaInt(db, "next_seq") - 1 // before the listing is read: a change made during the read shows as an update
 	entries, err := s.browse(f.ID, dir, deleted)
 	if err != nil {
 		return err
@@ -237,17 +242,13 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	if err != nil {
 		return err
 	}
-	db, err := s.folderDB(f.ID)
-	if err != nil {
-		return err
-	}
 	rules, global := f.Rules, MetaString(s.db, "global_rules")
 	if ds != nil && ds.dialog == "dlg-rules" {
 		rules = r.PostForm.Get("rules")
 	}
 	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "Devs": devs, "Mapped": len(devs),
-		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": metaInt(db, "next_seq") - 1,
-		"Rules": rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
+		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": seq,
+		"Rules": rules, "SavedRules": f.Rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
 		"Scope": dir}
 	if ds != nil && ds.dialog == "dlg-restore" {
 		data["Scope"] = r.PostForm.Get("path")
@@ -350,7 +351,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return bad(http.StatusBadRequest, "", "时间格式无效")
 	}
-	n, items, err := s.restorePreview(f.ID, p, at)
+	n, items, first, none, err := s.restorePreview(f.ID, p, at)
 	if err != nil {
 		return err
 	}
@@ -362,7 +363,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items)})
+	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": first, "None": none})
 }
 
 // deleteFolder removes a folder that no device maps, with its database. Its blocks go at the next GC.

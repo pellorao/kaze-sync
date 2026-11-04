@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -68,6 +70,84 @@ func (s *Server) folderSeqs() map[int64]int64 {
 		}
 	}
 	return out
+}
+
+// changedScanLimit bounds the changes folderChanged reads; with more it says "changed" without looking further.
+const changedScanLimit = 5000
+
+// folderChanged answers a folder page that has been told the folder changed (the "content updated" hint, design
+// 4.1): did the change touch what its listing shows? That is a direct child of the shown directory dir that changed,
+// or a subdirectory that has appeared or gone. shown (the names of the subdirectories on the page) tells which. The
+// query reads the rows with a seq above since from the index on seq and stops at the first change that matters; it
+// is not the listing's scan of the whole directory.
+func (s *Server) folderChanged(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.loadFolder(r)
+	if err != nil {
+		return err
+	}
+	db, err := s.folderDB(f.ID)
+	if err != nil {
+		return err
+	}
+	now := metaInt(db, "next_seq") - 1 // taken first: what changes during the query is seen by the next one
+	since, _ := strconv.ParseInt(r.FormValue("since"), 10, 64)
+	dir, deleted := strings.Trim(r.FormValue("dir"), "/"), r.FormValue("deleted") != ""
+	shown := map[string]bool{}
+	for _, n := range r.Form["d"] {
+		shown[n] = true
+	}
+	changed := false
+	if now > since {
+		if changed, err = listingChanged(db, dir, deleted, shown, since); err != nil {
+			return err
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(w).Encode(map[string]any{"changed": changed, "seq": now})
+}
+
+func listingChanged(db *sql.DB, dir string, deleted bool, shown map[string]bool, since int64) (bool, error) {
+	rows, err := db.Query(`SELECT path FROM files WHERE seq > ? ORDER BY seq LIMIT ?`, since, changedScanLimit)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	prefix := ""
+	if dir != "" {
+		prefix = dir + "/"
+	}
+	n, seen := 0, map[string]bool{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return false, err
+		}
+		n++
+		if !strings.HasPrefix(p, prefix) {
+			continue
+		}
+		name, _, deeper := strings.Cut(p[len(prefix):], "/")
+		if !deeper {
+			return true, nil // a file of the directory
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		// A change below a subdirectory shows only when the subdirectory has appeared or gone.
+		q := `SELECT count(*) FROM (SELECT 1 FROM files WHERE path >= ? AND path < ?`
+		if !deleted {
+			q += ` AND hash IS NOT NULL`
+		}
+		var have int
+		if err := db.QueryRow(q+` LIMIT 1)`, prefix+name+"/", prefix+name+"0").Scan(&have); err != nil {
+			return false, err
+		}
+		if (have > 0) != shown[name] {
+			return true, nil
+		}
+	}
+	return n == changedScanLimit, rows.Err()
 }
 
 // events streams the Web UI's version number as server-sent events: at once when the stream opens and after that

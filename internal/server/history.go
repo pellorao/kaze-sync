@@ -92,10 +92,7 @@ func stateAt(db *sql.DB, p string, at int64, visit func(*fileRow) error) error {
 	if at == 0 {
 		at = math.MaxInt64
 	}
-	cond, args := "true", []any{}
-	if p != "" {
-		cond, args = "(path = ? OR path >= ? AND path < ?)", []any{p, p + "/", p + "0"} // "0" is the character after "/"
-	}
+	cond, args := scopeCond(p)
 	rows, err := db.Query(`SELECT `+fileCols+` FROM files WHERE hash IS NOT NULL AND created_at <= ? AND `+cond+
 		` UNION ALL SELECT `+fileCols+` FROM versions WHERE created_at <= ? AND replaced_at > ? AND `+cond,
 		append(append([]any{at}, args...), append([]any{at, at}, args...)...)...)
@@ -115,10 +112,38 @@ func stateAt(db *sql.DB, p string, at int64, visit func(*fileRow) error) error {
 	return rows.Err()
 }
 
+// scopeCond is the condition that selects the rows at p or below it ("" is the whole folder).
+func scopeCond(p string) (string, []any) {
+	if p == "" {
+		return "true", nil
+	}
+	return "(path = ? OR path >= ? AND path < ?)", []any{p, p + "/", p + "0"} // "0" is the character after "/"
+}
+
+// earliestRecord is the unix time of the first record at p or below it, 0 when there is none: the history of a
+// path starts there (a folder's starts when its first file was uploaded, which can be later than the time a person asks for).
+func earliestRecord(db *sql.DB, p string) (int64, error) {
+	cond, args := scopeCond(p)
+	var first sql.NullInt64
+	err := db.QueryRow(`SELECT min(t) FROM (SELECT min(created_at) t FROM files WHERE `+cond+
+		` UNION ALL SELECT min(created_at) FROM versions WHERE `+cond+`)`, append(append([]any{}, args...), args...)...).Scan(&first)
+	return first.Int64, err
+}
+
 // restoreDiff calls visit for every file at p or below it whose content at time at differs from the current one:
-// old is what it held then, nowGone says that it has no content now (deleted or never there).
-func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRow, nowGone bool) error) error {
-	return stateAt(db, p, at.Unix(), func(v *fileRow) error {
+// old is what it held then, nowGone says that it has no content now (deleted or never there). A time before the
+// first record is taken as the first record (design 7): there is no older state to restore, and "no difference"
+// would be wrong. first is the time of that record when the time was moved to it, else 0; none says that there is no record at all.
+func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRow, nowGone bool) error) (first int64, none bool, err error) {
+	earliest, err := earliestRecord(db, p)
+	if err != nil || earliest == 0 {
+		return 0, err == nil, err
+	}
+	t := at.Unix()
+	if t < earliest {
+		t, first = earliest, earliest
+	}
+	err = stateAt(db, p, t, func(v *fileRow) error {
 		var cur fileRow
 		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
 		if err == nil && bytes.Equal(cur.hash, v.hash) {
@@ -128,6 +153,7 @@ func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRo
 		}
 		return visit(v, &cur, err != nil || cur.hash == nil)
 	})
+	return first, false, err
 }
 
 // restoreDirAt brings back what a path (a directory, or one file) held at a point in time, as device "web": paths
@@ -151,7 +177,7 @@ func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, f
 		ops = ops[:0]
 		return err
 	}
-	err = restoreDiff(db, p, at, func(v, cur *fileRow, _ bool) error {
+	_, _, err = restoreDiff(db, p, at, func(v, cur *fileRow, _ bool) error {
 		e := v.entry()
 		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
 		if len(ops) == proto.MaxCommitOps {
@@ -174,18 +200,18 @@ type previewItem struct {
 }
 
 // restorePreview runs the query of restoreDirAt without committing: the number of files it would restore and the
-// first previewLimit of them.
-func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, err error) {
+// first previewLimit of them; first and none are as for restoreDiff.
+func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, first int64, none bool, err error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, 0, false, err
 	}
-	err = restoreDiff(db, p, at, func(v, _ *fileRow, gone bool) error {
+	first, none, err = restoreDiff(db, p, at, func(v, _ *fileRow, gone bool) error {
 		if n++; n <= previewLimit {
 			items = append(items, previewItem{v.path, gone})
 		}
 		return nil
 	})
 	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	return n, items, err
+	return n, items, first, none, err
 }
