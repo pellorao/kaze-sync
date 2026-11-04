@@ -267,25 +267,65 @@ func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
 
 // A steady stream of events must not postpone the scan beyond MaxWait from the first pending event.
 func TestDebounceIsCappedByMaxWait(t *testing.T) {
-	a := &Agent{Debounce: 2 * time.Second, MaxWait: 10 * time.Second}
-	r := &runner{}
+	c := schedConf{Debounce: 2 * time.Second, MaxWait: 10 * time.Second}
+	r := &schedule{}
 	t0 := time.Unix(1000, 0)
 	for i := 0; i <= 30; i++ { // an event every second
-		a.noteEvent(r, "d", t0.Add(time.Duration(i)*time.Second))
+		r.event(c, "d", t0.Add(time.Duration(i)*time.Second))
 		if limit := t0.Add(10 * time.Second); r.debounceAt.After(limit) {
 			t.Fatalf("event %d: scan at +%v, beyond the cap", i, r.debounceAt.Sub(t0))
 		}
 	}
 	// a quiet folder still waits only Debounce
-	r2 := &runner{}
-	a.noteEvent(r2, "d", t0)
+	r2 := &schedule{}
+	r2.event(c, "d", t0)
 	if got := r2.debounceAt.Sub(t0); got != 2*time.Second {
 		t.Fatalf("single event: scan at +%v, want +2s", got)
 	}
 	// after the dirty set is taken, the next burst starts a new window
 	r.dirty = nil
-	a.noteEvent(r, "d", t0.Add(100*time.Second))
+	r.event(c, "d", t0.Add(100*time.Second))
 	if got := r.debounceAt.Sub(t0.Add(100 * time.Second)); got != 2*time.Second {
 		t.Fatalf("new burst: scan at +%v, want +2s", got)
 	}
+}
+
+// A scan that leaves a too-young file for later must not lose that retry when the next task is a pull
+// (the peer's commit wakes the poll): the file still goes up soon after it becomes stable.
+func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
+	e := newCEnv(t)
+	f := e.newFolder("One")
+	var roots [2]string
+	for i := range roots {
+		dev, api := e.newDevice()
+		roots[i] = filepath.Join(t.TempDir(), "one")
+		e.mapFolder(dev, f, roots[i], true)
+		a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, DeviceName: dev.Name,
+			ScanInterval: time.Hour, RetryAfter: 300 * time.Millisecond, Debounce: 50 * time.Millisecond}
+		if i == 0 {
+			a.Stable = 600 * time.Millisecond
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- a.Run(ctx) }()
+		t.Cleanup(func() { cancel(); <-done })
+	}
+	eventually(t, "both roots to be set up", func() bool {
+		_, e1 := os.Stat(filepath.Join(roots[0], markerName))
+		_, e2 := os.Stat(filepath.Join(roots[1], markerName))
+		return e1 == nil && e2 == nil
+	})
+	time.Sleep(300 * time.Millisecond) // the first full scans are over
+	writeFile(t, filepath.Join(roots[0], "x.txt"), "young")
+	time.Sleep(150 * time.Millisecond)                     // device 0 has scanned and found x.txt too young
+	writeFile(t, filepath.Join(roots[1], "y.txt"), "peer") // its commit wakes device 0 with a pull-only task
+	eventually(t, "the peer's file to arrive", func() bool { _, err := os.Stat(filepath.Join(roots[0], "y.txt")); return err == nil })
+	start := time.Now()
+	for time.Since(start) < 4*time.Second {
+		if b, err := os.ReadFile(filepath.Join(roots[1], "x.txt")); err == nil && string(b) == "young" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("x.txt never reached the other device: the retry was lost")
 }

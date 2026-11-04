@@ -64,19 +64,10 @@ type runner struct {
 	lastSynced int64
 	scanned    bool
 	busy       bool
-	seen       int64 // the server's latest seq this runner has read up to; -1 unknown
-	acked      int64 // the latest seq the server announced; stands in for seen while that news is handled or cannot be
-	ready      bool  // the last scan found the sync root in order
-	dirty      map[string]bool
-	full       bool // a full scan is due
-	pull       bool
-	reset      bool // the server went back in time: forget its seqs
-	rewatch    bool // the watcher reported lost events: start a new one
-	debounceAt time.Time
-	firstAt    time.Time // when the oldest pending event arrived; zero when none is pending
-	retryAt    time.Time
-	slowTries  int // retries for files in use so far
-	nextFull   time.Time
+	seen       int64    // the server's latest seq this runner has read up to; -1 unknown
+	acked      int64    // the latest seq the server announced; stands in for seen while that news is handled or cannot be
+	ready      bool     // the last scan found the sync root in order
+	s          schedule // when to scan and pull (schedule.go)
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -138,7 +129,7 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		req := proto.PollReq{Cursors: map[int64]int64{}, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
 		for id, r := range a.runners {
 			cur := r.seen
-			if (r.busy || r.pull || !r.ready) && r.acked >= 0 {
+			if (r.busy || r.s.pull || !r.ready) && r.acked >= 0 {
 				cur = max(cur, r.acked) // news that is being handled, or cannot be until the folder is usable, must not wake the poll again
 			}
 			if cur >= 0 {
@@ -205,7 +196,7 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 	if resp.Epoch != a.epoch { // another server history: every folder reads again (Folder.checkEpoch decides)
 		a.epoch = resp.Epoch
 		for _, r := range a.runners {
-			r.pull = true
+			r.s.pull = true
 		}
 		news = true
 	}
@@ -213,7 +204,7 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 		if seq, ok := resp.Cursors[id]; ok {
 			if have, ok := req.Cursors[id]; ok && seq < have { // the server has less than we knew: a restored backup
 				slog.Warn("the server's latest seq is behind ours; reading the folder again", "folder", id, "server", seq, "ours", have)
-				r.reset, r.pull, r.seen, r.acked, news = true, true, -1, seq, true // the next poll carries the server's seq, not the stale one
+				r.s.reset, r.s.pull, r.seen, r.acked, news = true, true, -1, seq, true // the next poll carries the server's seq, not the stale one
 				continue
 			}
 			if seq == r.seen {
@@ -221,7 +212,7 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 			}
 			r.acked = seq
 			if r.ready || r.seen >= 0 { // a folder that cannot be pulled has no news for us; it pulls when it becomes ready
-				r.pull, news = true, true
+				r.s.pull, news = true, true
 			}
 		}
 	}
@@ -266,12 +257,12 @@ func (a *Agent) statusChanged() {
 
 // task is the work of one runner in one cycle.
 type task struct {
-	r          *runner
-	dirs       []string
-	full, scan bool
-	pull       bool
-	reset      bool
-	retry      bool // run because a retry was due
+	r *runner
+	plan
+}
+
+func (a *Agent) schedConf() schedConf {
+	return schedConf{Debounce: a.Debounce, MaxWait: a.MaxWait, RetryAfter: a.RetryAfter, AuthRetry: a.AuthRetry, ScanInterval: a.ScanInterval, SlowRetry: a.SlowRetry}
 }
 
 // cycle starts the due work of the folders that are not busy, each as a task of its own: a long upload of one
@@ -285,27 +276,12 @@ func (a *Agent) cycle(ctx context.Context) {
 			continue
 		}
 		r.f.Epoch = a.epoch
-		t := task{r: r, full: r.full || (!r.nextFull.IsZero() && !now.Before(r.nextFull)), pull: r.pull, reset: r.reset}
-		retry := !r.retryAt.IsZero() && !now.Before(r.retryAt)
-		t.retry = retry
-		if len(r.dirty) > 0 && !now.Before(r.debounceAt) {
-			for d := range r.dirty {
-				t.dirs = append(t.dirs, d)
-			}
-			r.dirty = nil
-			t.scan = true
-		}
-		if t.full || retry {
-			t.scan, t.pull = true, true
-		}
-		if !t.scan && !t.pull {
+		p, ok := r.s.take(now)
+		if !ok {
 			continue
 		}
-		if t.full {
-			t.dirs = nil
-		}
-		r.full, r.pull, r.reset, r.retryAt, r.busy = false, false, false, time.Time{}, true
-		tasks = append(tasks, t)
+		r.busy = true
+		tasks = append(tasks, task{r, p})
 	}
 	a.mu.Unlock()
 	if len(tasks) == 0 {
@@ -334,12 +310,12 @@ func (a *Agent) work(ctx context.Context, t task) {
 	}
 	a.mu.Lock()
 	old := r.w
-	if r.rewatch && old != nil { // lost events, or a watcher that stopped (Windows, after the root went away): a new one, before the full scan
+	if r.s.rewatch && old != nil { // lost events, or a watcher that stopped (Windows, after the root went away): a new one, before the full scan
 		r.w = nil
 	} else {
 		old = nil
 	}
-	r.rewatch = false
+	r.s.rewatch = false
 	a.mu.Unlock()
 	if old != nil {
 		old.Close()
@@ -372,34 +348,13 @@ func (a *Agent) work(ctx context.Context, t task) {
 	if err == nil && len(rep.Errors) == 0 && rep.PendingUp == 0 && rep.PendingDown == 0 {
 		r.lastSynced = now.Unix()
 	}
-	if err != nil || rep.Retry {
-		r.retryAt = now.Add(a.RetryAfter)
-		if errors.Is(err, ErrUnauthorized) {
-			r.retryAt = now.Add(a.AuthRetry)
-		}
+	if err != nil || f.retry {
 		a.failures = map[bool]int{true: a.failures + 1, false: a.failures}[err != nil]
 	} else {
 		a.failures = 0
 	}
-	if !rep.Slow {
-		r.slowTries = 0
-	} else if err == nil && !rep.Retry {
-		if t.retry {
-			r.slowTries++
-		}
-		if r.slowTries < len(a.SlowRetry) {
-			r.retryAt = now.Add(a.SlowRetry[r.slowTries])
-		}
-	}
-	if t.full {
-		r.nextFull = now.Add(a.ScanInterval)
-		if r.w != nil && r.nextFull.Sub(now) > 0 && r.report.State != "" && !t.scan {
-			r.full = true
-		}
-	}
-	if err != nil {
-		r.pull, r.reset = r.pull || t.pull, r.reset || t.reset
-	}
+	r.s.done(a.schedConf(), now, t.plan, taskResult{err: err, retry: f.retry, slow: rep.Slow, unstableAt: f.Unstable(),
+		watching: r.w != nil, reported: r.report.State != "", unauth: errors.Is(err, ErrUnauthorized)})
 }
 
 func (a *Agent) startWatch(r *runner) {
@@ -410,7 +365,7 @@ func (a *Agent) startWatch(r *runner) {
 	}
 	a.mu.Lock()
 	r.w = w
-	r.full = true
+	r.s.full = true
 	a.mu.Unlock()
 	r.f.OnDir = func(d string) {
 		if d == "" {
@@ -426,29 +381,12 @@ func (a *Agent) consume(r *runner) {
 		select {
 		case d := <-r.events:
 			a.mu.Lock()
-			a.noteEvent(r, d, time.Now())
+			r.s.event(a.schedConf(), d, time.Now())
 			a.mu.Unlock()
 			a.wake()
 		case <-r.done:
 			return
 		}
-	}
-}
-
-// noteEvent records a watcher hint and moves the scan time: trailing debounce, capped at MaxWait after the
-// first pending event so that a steady stream of writes cannot postpone the scan forever. The caller holds a.mu.
-func (a *Agent) noteEvent(r *runner, d string, now time.Time) {
-	if r.dirty == nil {
-		r.dirty = map[string]bool{}
-	}
-	if len(r.dirty) == 0 {
-		r.firstAt = now
-	}
-	r.dirty[d] = true
-	r.rewatch = r.rewatch || d == ""
-	r.debounceAt = now.Add(a.Debounce)
-	if limit := r.firstAt.Add(a.MaxWait); a.MaxWait > 0 && r.debounceAt.After(limit) {
-		r.debounceAt = limit
 	}
 }
 
@@ -461,13 +399,8 @@ func (a *Agent) nextWake() time.Duration {
 		if r.busy { // its task wakes the loop when it ends
 			continue
 		}
-		for _, t := range []time.Time{r.retryAt, r.nextFull} {
-			if !t.IsZero() && t.Before(next) {
-				next = t
-			}
-		}
-		if len(r.dirty) > 0 && r.debounceAt.Before(next) {
-			next = r.debounceAt
+		if t := r.s.next(); !t.IsZero() && t.Before(next) {
+			next = t
 		}
 	}
 	if !a.statusAt.IsZero() && a.statusAt.Before(next) {
@@ -529,7 +462,7 @@ func (a *Agent) applyConfig() {
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
 		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
-			seen: -1, acked: -1, full: true, pull: true, nextFull: time.Now().Add(a.ScanInterval)}
+			seen: -1, acked: -1, s: schedule{full: true, pull: true, nextFull: time.Now().Add(a.ScanInterval)}}
 		a.mu.Lock()
 		a.runners[id] = r
 		a.mu.Unlock()

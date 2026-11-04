@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -70,21 +71,21 @@ func TestHandlePollDetectsGoingBackInTime(t *testing.T) {
 	if !a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{1: 3, 2: 5}, Epoch: "A"}) {
 		t.Fatal("no news")
 	}
-	if r := a.runners[1]; !r.reset || !r.pull {
+	if r := a.runners[1]; !r.s.reset || !r.s.pull {
 		t.Fatalf("folder 1: %+v", r)
 	}
-	if r := a.runners[2]; r.reset || r.pull != true { // pull: the first epoch seen is announced to every folder
+	if r := a.runners[2]; r.s.reset || r.s.pull != true { // pull: the first epoch seen is announced to every folder
 		t.Fatalf("folder 2: %+v", r)
 	}
-	a.runners[2].pull = false
+	a.runners[2].s.pull = false
 	// Same epoch, a seq that is only behind what another request meanwhile made the runner read: nothing.
 	a.runners[2].seen = 9
-	if a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{2: 5}, Epoch: "A"}); a.runners[2].reset {
+	if a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{2: 5}, Epoch: "A"}); a.runners[2].s.reset {
 		t.Fatal("a late answer reset the folder")
 	}
 	// A new epoch wakes every folder.
-	a.runners[2].pull = false
-	if !a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{2: 9}, Epoch: "B"}) || !a.runners[2].pull {
+	a.runners[2].s.pull = false
+	if !a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{2: 9}, Epoch: "B"}) || !a.runners[2].s.pull {
 		t.Fatal("a new epoch did not wake the folder")
 	}
 }
@@ -378,4 +379,74 @@ func TestFoldersAreIndependentDuringALongUpload(t *testing.T) {
 	}
 	release()
 	eventually(t, "the held upload to finish", func() bool { _, ok := e.serverFile(slow, "big.bin"); return ok })
+}
+
+// A partial scan keeps the errors outside the subtrees it covered (design 3.6): a skipped entry stays reported
+// when a change elsewhere triggers a hint; the hint for its own directory clears it once it is gone.
+func TestPartialScanKeepsErrorsOutsideItsScope(t *testing.T) {
+	_, _, _, g := setup(t)
+	g.put("a/bad\xff.txt", []byte("1"))
+	g.put("b/x.txt", []byte("1"))
+	g.put("top\xfe.txt", []byte("1"))
+	skipped := func(rep Report) (n int) {
+		for _, e := range rep.Errors {
+			if e.Kind == proto.KindSkipped {
+				n++
+			}
+		}
+		return
+	}
+	if rep := g.scan(); skipped(rep) != 2 {
+		t.Fatalf("full scan: %+v", rep.Errors)
+	}
+	g.put("b/x.txt", []byte("2"))
+	if rep := g.scanHint("b"); rep.Committed != 1 || skipped(rep) != 2 {
+		t.Fatalf("hint b: %+v %+v", rep, rep.Errors)
+	}
+	g.put("c.txt", []byte("3"))
+	if rep := g.scanHint("."); rep.Committed != 1 || skipped(rep) != 2 { // the root hint covers the root's entries
+		t.Fatalf("root hint: %+v", rep.Errors)
+	}
+	g.fs.Remove("top\xfe.txt")
+	if rep := g.scanHint("."); skipped(rep) != 1 {
+		t.Fatalf("root entry gone: %+v", rep.Errors)
+	}
+	g.fs.Remove("a/bad\xff.txt")
+	if rep := g.scanHint("a"); skipped(rep) != 0 {
+		t.Fatalf("hint a after removal: %+v", rep.Errors)
+	}
+}
+
+type failRootFS struct {
+	cfs.FS
+	fail bool
+}
+
+func (f *failRootFS) ReadDir(d string) ([]cfs.Entry, error) {
+	if f.fail && d == "" {
+		return nil, errors.New("boom")
+	}
+	return f.FS.ReadDir(d)
+}
+
+// A root hint whose directory listing fails fails the scan: the watched directories must not be taken for gone.
+func TestRootHintFailsWhenTheRootCannotBeListed(t *testing.T) {
+	e, f, _, g := setup(t)
+	g.put("a/one.txt", []byte("1"))
+	g.scan()
+	fr := &failRootFS{FS: g.fs, fail: true}
+	g.f.FS = fr
+	if _, err := g.f.Scan(context.Background(), "."); err == nil {
+		t.Fatal("the failed listing was not reported")
+	}
+	if len(g.f.watched) != 1 {
+		t.Fatalf("watched directories forgotten: %v", g.f.watched)
+	}
+	fr.fail = false
+	if rep := g.scanHint("."); rep.Committed != 0 {
+		t.Fatalf("%+v", rep)
+	}
+	if _, ok := e.serverFile(f, "a/one.txt"); !ok {
+		t.Fatal("a/one.txt lost")
+	}
 }

@@ -52,6 +52,9 @@ type Folder struct {
 	OnDir      func(string) // called for every directory a scan visits (the watcher adds it)
 
 	errs, pullErrs []proto.FileError
+	scope          func(string) bool // what the last scan covered: nil for the whole root
+	young          time.Time         // while scanning: when the youngest file left for being too fresh becomes stable
+	unstable       time.Time         // the same after a scan, kept across scans and pulls (see Unstable)
 	sink           *[]proto.FileError
 	errSince       map[string]int64
 	ready          bool // the sync root was checked by the last Scan
@@ -72,6 +75,11 @@ type rejection struct {
 
 // Ready reports whether the last Scan found the sync root in order, so that Pull may run.
 func (f *Folder) Ready() bool { return f.ready }
+
+// Unstable is when the youngest file that scans left alone for being modified less than Stable ago becomes
+// stable, zero when there is none. A scan of the whole root replaces it, a partial scan can only move it
+// earlier, and nothing else changes it: the caller must run a whole scan once it is due.
+func (f *Folder) Unstable() time.Time { return f.unstable }
 
 // Seen is the latest server seq the last successful Pull read.
 func (f *Folder) Seen() int64 { return f.seen }
@@ -119,7 +127,7 @@ type Report struct {
 	Errors      []proto.FileError
 	PendingUp   int  // changes found and not yet on the server
 	PendingDown int  // server changes not applied yet
-	Retry       bool // something was postponed: run again soon
+	Retry       bool // something was postponed (also files too fresh to upload, see Folder.Unstable): run again soon
 	Slow        bool // files are in use or locked: retry on the slow schedule (design 5.7)
 	Committed   int  // commits the server accepted as changes
 }
@@ -135,7 +143,10 @@ func (f *Folder) note(p, kind, msg string) {
 // With dirs, only the trees below them are examined (a watcher's hint); without, the whole root.
 func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	var rep Report
-	f.errs, f.sink, f.retry, f.pendingUp = nil, &f.errs, false, 0
+	old := f.errs
+	f.errs, f.sink, f.retry, f.pendingUp, f.scope, f.young = nil, &f.errs, false, 0, nil, time.Time{}
+	pd, rootOnly := pruneDirs(slices.Clone(dirs))
+	whole := len(pd) == 0 && !rootOnly
 	ok, err := f.checkRoot()
 	f.ready = ok && err == nil
 	if err == nil {
@@ -143,6 +154,20 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	}
 	if f.ready && err == nil {
 		err = f.scan(ctx, dirs, &rep)
+		if f.scope != nil { // a partial scan: errors outside what it covered still stand (design 3.6)
+			var kept []proto.FileError
+			for _, e := range old {
+				if e.Kind != proto.KindFolder && !f.scope(e.Path) {
+					kept = append(kept, e)
+				}
+			}
+			f.errs = append(kept, f.errs...)
+		}
+	}
+	if whole {
+		f.unstable = f.young
+	} else if !f.young.IsZero() && (f.unstable.IsZero() || f.young.Before(f.unstable)) {
+		f.unstable = f.young
 	}
 	f.finish(&rep)
 	return rep, err
@@ -175,7 +200,7 @@ func (f *Folder) finish(rep *Report) {
 	}
 	rep.Errors = all[:min(len(all), maxErrors)]
 	rep.PendingUp, rep.PendingDown = f.pendingUp, f.pendingDown
-	rep.Retry = rep.Retry || f.retry
+	rep.Retry = rep.Retry || f.retry || !f.unstable.IsZero()
 }
 
 // checkRoot makes sure the sync root is the one we set up (design 3.5). It
@@ -351,10 +376,23 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		local, err = f.DB.all()
 	} else {
 		local = map[string]localRow{}
+		var top map[string]bool // the root's directories a root hint walked
 		if rootOnly {
-			if err := f.walkRoot(files, failed, local); err != nil {
+			var err error
+			if top, err = f.walkRoot(files, failed, local); err != nil {
 				return err
 			}
+		}
+		f.scope = func(p string) bool {
+			if rootOnly && (!strings.Contains(p, "/") || top[p[:strings.Index(p, "/")]]) {
+				return true
+			}
+			for _, d := range dirs {
+				if p == d || strings.HasPrefix(p, d+"/") {
+					return true
+				}
+			}
+			return false
 		}
 		for _, d := range dirs {
 			if !f.Matcher.ExcludedPath(d, true) && !builtinPath(d) {
@@ -388,7 +426,9 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			continue
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
-			rep.Retry = true
+			if end := time.Unix(0, e.MtimeNs).Add(f.Stable); f.young.IsZero() || end.Before(f.young) {
+				f.young = end
+			}
 			continue
 		}
 		if rj, ok := f.rejected[p]; ok && rj.size == e.Size && rj.mtime == e.MtimeNs {
@@ -405,7 +445,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			continue
 		}
 		if st, err := f.FS.Stat(p); err != nil || h.size != e.Size || st.Size != e.Size || st.MtimeNs != e.MtimeNs {
-			rep.Retry = true // written while we read it
+			f.retry = true // written while we read it
 			continue
 		}
 		exec := e.Exec
@@ -457,8 +497,11 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 // entered yet (a new directory may hold files and has no watch yet). A change inside an entered directory comes
 // with that directory's own hint; the hourly scan covers a directory that cannot be watched. The rows in scope go
 // to local: the root's files and those below the directories walked or gone.
-func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local map[string]localRow) error {
-	listed, _ := f.FS.ReadDir("") // exact names: on a case-insensitive file system a case-only rename is a vanished directory too
+func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local map[string]localRow) (map[string]bool, error) {
+	listed, err := f.FS.ReadDir("") // exact names: on a case-insensitive file system a case-only rename is a vanished directory too
+	if err != nil {                 // do not take the watched directories for gone: the scan fails and is retried
+		return nil, err
+	}
 	isDir, scope := map[string]bool{}, map[string]bool{}
 	for _, e := range listed {
 		isDir[e.Name] = e.IsDir
@@ -469,12 +512,12 @@ func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local 
 	f.walk("", files, failed, func(p string) bool { return f.watched[p] })
 	rows, err := f.DB.rootFiles()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	maps.Copy(local, rows)
 	gone, err := f.DB.topDirs()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for d := range f.watched {
 		gone[d] = true
@@ -489,11 +532,11 @@ func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local 
 	for d := range scope {
 		rows, err := f.DB.under(d)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		maps.Copy(local, rows)
 	}
-	return nil
+	return scope, nil
 }
 
 // pruneDirs sorts dirs and drops the ones below another. "" (events may have been lost) or "/" means everything,
