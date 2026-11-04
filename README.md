@@ -18,7 +18,7 @@ It is:
 
 It is not: a file-sharing, multi-user or collaboration service; a backup (versions live on the same disk as the data, although every client holds ordinary copies); a service with a file viewer or download in the browser; a macOS, mobile or non-x86-64 server solution. The full list is in the manual (section 18).
 
-The Web UI is in Chinese only. The manual names every button in English and gives the on-screen Chinese text next to it.
+The Web UI speaks Simplified Chinese, Traditional Chinese, English, Japanese and Korean, following the browser by default. The manual names every button in English and gives the Simplified Chinese on-screen text next to it.
 
 ## Quick start
 

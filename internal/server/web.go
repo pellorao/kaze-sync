@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"io"
 	"io/fs"
@@ -29,7 +30,30 @@ import (
 //go:embed web
 var webFS embed.FS
 
-var funcs = template.FuncMap{"size": formatSize, "time": timeTag, "icon": icon, "stText": stText, "stClass": stClass, "add1": func(i int) int { return i + 1 }}
+// funcs are the template functions of one language (the texts they write are in it).
+func funcs(t translator) template.FuncMap {
+	return template.FuncMap{
+		"t": t.T, "tm": t.H, "size": formatSize, "icon": icon, "stClass": stClass, "add1": func(i int) int { return i + 1 },
+		"time":    func(unix int64) template.HTML { return timeTag(t, unix) },
+		"stText":  func(state string) string { return stText(t, state) },
+		"advice":  func(kind string) string { return adviceOf(t, kind) },
+		"fold":    func(kind string, n int) string { return t.T("fold."+kind, "n", n) },
+		"cfg":     func(state string) string { return cfgText(t, state) },
+		"lineErr": func(line int, m string) string { return t.T("js.ruleLine", "n", line, "msg", ruleMsg(t, m)) },
+		"names": func(devs []devTag) string {
+			var out []string
+			for _, d := range devs {
+				out = append(out, d.Name)
+			}
+			return strings.Join(out, ", ")
+		},
+		"urlq": url.QueryEscape, "delq": func(deleted bool) string { return map[bool]string{true: "&deleted=1"}[deleted] },
+		"raw": func(s string) template.HTML { return template.HTML(s) }, // only literals of the templates
+		"countdown": func(unix int64) template.HTML {
+			return template.HTML(`<span data-countdown="` + strconv.FormatInt(unix, 10) + `"></span>`)
+		},
+	}
+}
 
 func formatSize(n int64) string {
 	const unit = 1024
@@ -47,12 +71,12 @@ func formatSize(n int64) string {
 
 // timeTag renders a time as the page shows it: app.js rewrites the text in the zone the settings ask for (design 4.7);
 // without it the page reads in UTC.
-func timeTag(unix int64) template.HTML {
+func timeTag(t translator, unix int64) template.HTML {
 	if unix <= 0 {
-		return "从未"
+		return template.HTML(html.EscapeString(t.T("common.never")))
 	}
-	t := time.Unix(unix, 0).UTC()
-	return template.HTML(`<time datetime="` + t.Format(time.RFC3339) + `">` + t.Format("2006-01-02 15:04:05") + `</time>`)
+	u := time.Unix(unix, 0).UTC()
+	return template.HTML(`<time datetime="` + u.Format(time.RFC3339) + `">` + u.Format("2006-01-02 15:04:05") + `</time>`)
 }
 
 // icon draws an icon of the sprite /static/icons.svg.
@@ -64,16 +88,31 @@ func icon(name string, cls ...string) template.HTML {
 	return template.HTML(`<svg class="` + c + `" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#i-` + name + `"/></svg>`)
 }
 
-func stText(state string) string {
+func stText(t translator, state string) string {
 	switch state {
-	case "idle":
-		return "已同步"
-	case "syncing":
-		return "同步中"
-	case "error":
-		return "有错误"
+	case "idle", "syncing", "error":
+		return t.T("st." + state)
 	}
 	return state
+}
+
+// cfgText says whether a device has the latest configuration: "latest", "pending", or "-" when unknown.
+func cfgText(t translator, state string) string {
+	if state == "-" {
+		return "-"
+	}
+	return t.T("cfg." + state)
+}
+
+// ruleMsg puts the message of the rule parser (English, see package ignore) into the language of the page.
+func ruleMsg(t translator, m string) string {
+	switch m {
+	case ignore.ErrTrailingBackslash:
+		return t.T("rule.trailingBackslash")
+	case ignore.ErrBracket:
+		return t.T("rule.bracket")
+	}
+	return m
 }
 
 func stClass(state string) string {
@@ -88,12 +127,24 @@ func stClass(state string) string {
 	return "st-none"
 }
 
-func parseTemplates() map[string]*template.Template {
+func parseTemplates(t translator) map[string]*template.Template {
 	pages := map[string]*template.Template{}
 	for _, n := range []string{"login", "error", "overview", "device", "folder", "settings", "live"} {
-		pages[n] = template.Must(template.New("layout").Funcs(funcs).ParseFS(webFS, "web/layout.html", "web/"+n+".html"))
+		pages[n] = template.Must(template.New("layout").Funcs(funcs(t)).ParseFS(webFS, "web/layout.html", "web/"+n+".html"))
 	}
 	return pages
+}
+
+// page is a template set in a language, parsed the first time the language is asked for.
+func (s *Server) page(lang, name string) *template.Template {
+	s.tmplMu.Lock()
+	defer s.tmplMu.Unlock()
+	set := s.tmpl[lang]
+	if set == nil {
+		set = parseTemplates(trFor(lang))
+		s.tmpl[lang] = set
+	}
+	return set[name]
 }
 
 // staticFiles serves the embedded files; the ETag of each is the hash of its content, so a browser asks again on
@@ -120,18 +171,19 @@ func staticFiles(static fs.FS) http.Handler {
 
 // userError is shown on the error page; any other error from a handler is a 500.
 type userError struct {
-	status    int
-	msg, back string
+	status int
+	m      msg
+	back   string
 }
 
-func (e userError) Error() string { return e.msg }
+func (e userError) Error() string { return e.m.key }
 
 // dialogState is a page shown with a dialog open: a form the server refused (the page behind the dialog comes back
 // with the input kept and the message under the field, design 4.6) or the result of one (the enrollment command).
 type dialogState struct {
 	status   int // 0: 200
 	dialog   string
-	errs     map[string]string // field name -> message
+	errs     map[string]msg // field name -> message
 	ruleErrs []ignore.LineError
 	extra    map[string]any // more page data
 	page     func(http.ResponseWriter, *http.Request, *dialogState) error
@@ -139,10 +191,10 @@ type dialogState struct {
 
 func (e *dialogState) Error() string { return "form: " + strings.Join(mapValues(e.errs), "; ") }
 
-func mapValues(m map[string]string) []string {
+func mapValues(m map[string]msg) []string {
 	var out []string
 	for _, v := range m {
-		out = append(out, v)
+		out = append(out, v.key)
 	}
 	sort.Strings(out)
 	return out
@@ -150,9 +202,9 @@ func mapValues(m map[string]string) []string {
 
 type pageFn = func(http.ResponseWriter, *http.Request, *dialogState) error
 
-// fieldErr refuses a form: page is shown again with the dialog open and msg under the field.
-func fieldErr(page pageFn, status int, dialog, field, msg string) error {
-	return &dialogState{status: status, dialog: dialog, errs: map[string]string{field: msg}, page: page}
+// fieldErr refuses a form: page is shown again with the dialog open and the message under the field.
+func fieldErr(page pageFn, status int, dialog, field, key string, kv ...any) error {
+	return &dialogState{status: status, dialog: dialog, errs: map[string]msg{field: M(key, kv...)}, page: page}
 }
 
 type handler func(w http.ResponseWriter, r *http.Request) error
@@ -161,8 +213,9 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 	static, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFiles(static)))
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
-		s.render(w, http.StatusOK, "login", "登录", map[string]any{})
+		s.render(w, r, http.StatusOK, "login", trOf(r).T("title.login"), map[string]any{})
 	})
+	mux.HandleFunc("GET /i18n/{lang}", i18nScript)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
 		s.endSession(w, r)
@@ -176,6 +229,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"GET /settings":                     s.settings,
 		"POST /settings":                    s.saveSettings,
 		"POST /settings/timezone":           s.saveTimeZone,
+		"POST /settings/language":           s.setLanguage,
 		"POST /rules":                       s.saveGlobalRules,
 		"POST /rules/validate":              s.validateRules,
 		"POST /rules/preview":               s.previewGlobalRules,
@@ -213,7 +267,8 @@ func (s *Server) web(h handler) http.HandlerFunc {
 				http.Error(w, "internal error", http.StatusInternalServerError)
 			}
 		case errors.As(err, &ue):
-			s.render(w, ue.status, "error", "出错了", map[string]any{"Error": ue.msg, "Back": ue.back})
+			t := trOf(r)
+			s.render(w, r, ue.status, "error", t.T("title.error"), map[string]any{"Error": t.Msg(ue.m), "Back": ue.back})
 		default:
 			slog.Error("web", "path", r.URL.Path, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -221,12 +276,15 @@ func (s *Server) web(h handler) http.HandlerFunc {
 	}
 }
 
-func bad(status int, back, msg string) error { return userError{status, msg, back} }
+func bad(status int, back, key string, kv ...any) error {
+	return userError{status, M(key, kv...), back}
+}
 
 // render shows a page. Every page of a session carries the bell and its popover, so the notifications are computed
 // here unless the handler has done it.
-func (s *Server) render(w http.ResponseWriter, status int, name, title string, data map[string]any) {
-	data["Title"], data["Auth"], data["Page"] = title, name != "login", name
+func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data map[string]any) {
+	lang := requestLang(r)
+	data["Title"], data["Auth"], data["Page"], data["Lang"] = title, name != "login", name, lang
 	if name != "login" {
 		if _, ok := data["Notif"]; !ok {
 			data["Notif"] = s.notifications()
@@ -246,12 +304,13 @@ func (s *Server) render(w http.ResponseWriter, status int, name, title string, d
 		root = "live"
 	}
 	var buf bytes.Buffer
-	if err := s.tmpl[name].ExecuteTemplate(&buf, root, data); err != nil {
+	if err := s.page(lang, name).ExecuteTemplate(&buf, root, data); err != nil {
 		slog.Error("render", "page", name, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Vary", "Accept-Language, Cookie") // the language is chosen by these
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
 }
@@ -263,7 +322,11 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request, ds *dialogState, n
 		if ds.status != 0 {
 			status = ds.status
 		}
-		data["Open"], data["Errs"], data["RuleErrs"] = ds.dialog, ds.errs, ds.ruleErrs
+		errs := map[string]string{}
+		for k, m := range ds.errs {
+			errs[k] = trOf(r).Msg(m)
+		}
+		data["Open"], data["Errs"], data["RuleErrs"] = ds.dialog, errs, ds.ruleErrs
 		vals := map[string]string{}
 		for k, v := range r.PostForm {
 			vals[k] = v[0]
@@ -273,37 +336,36 @@ func (s *Server) show(w http.ResponseWriter, r *http.Request, ds *dialogState, n
 			data[k] = v
 		}
 	}
-	data["Flash"] = flashText(r)
+	data["Flash"] = flashText(trOf(r), r)
 	if r.Method != http.MethodGet { // a page that answers a POST is reloaded from the page's own address
 		data["LiveURL"] = map[string]string{"overview": "/", "settings": "/settings", "device": "/devices/" + r.PathValue("id"),
 			"folder": "/folders/" + r.PathValue("id") + "?dir=" + url.QueryEscape(r.FormValue("dir"))}[name]
 	}
-	s.render(w, status, name, title, data)
+	s.render(w, r, status, name, title, data)
 }
 
 // flashText is the one-line result an action leaves in the redirect URL: a fixed word or numbers, never echoed text.
-func flashText(r *http.Request) string {
+func flashText(t translator, r *http.Request) string {
 	switch r.FormValue("ok") {
 	case "saved":
-		return "已保存"
+		return t.T("flash.saved")
 	case "rules":
 		if n, err := strconv.Atoi(r.FormValue("deleted")); err == nil && n > 0 {
-			return fmt.Sprintf("排除规则已保存, 服务端删除了 %d 个文件", n)
+			return t.T("flash.rulesDeleted", "n", n)
 		}
-		return "排除规则已保存"
+		return t.T("flash.rules")
 	case "restored":
-		return "已恢复"
+		return t.T("flash.restored")
 	}
 	n, err1 := strconv.Atoi(r.FormValue("restored"))
 	failed, err2 := strconv.Atoi(r.FormValue("failed"))
 	if err1 != nil || err2 != nil {
 		return ""
 	}
-	msg := fmt.Sprintf("已恢复 %d 个文件", n)
 	if failed > 0 {
-		msg += fmt.Sprintf(", %d 个失败 (名称冲突或被同时修改)", failed)
+		return t.T("flash.restoredFailed", "n", n, "f", failed)
 	}
-	return msg
+	return t.T("flash.restoredN", "n", n)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +375,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.checkAdminPassword(r.FormValue("password")) {
 		s.authFailed(r, "admin password")
-		s.render(w, http.StatusUnauthorized, "login", "登录", map[string]any{"Error": "密码错误"})
+		t := trOf(r)
+		s.render(w, r, http.StatusUnauthorized, "login", t.T("title.login"), map[string]any{"Error": t.T("login.bad")})
 		return
 	}
 	s.authOK(r)
@@ -472,7 +535,7 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 		if rep := s.reports[d.ID]; rep != nil {
 			seen = max(seen, rep.at.Unix())
 			d.Version = strconv.Itoa(rep.req.AgentVersion)
-			d.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
+			d.ConfigState = map[bool]string{true: "latest", false: "pending"}[rep.req.ConfigVersion == cfgVersion]
 			d.Online = rep.online(s.now())
 			if rep.tooOld > 0 {
 				d.TooOld, d.ConfigState = rep.tooOld, "-"
@@ -490,7 +553,7 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 		return err
 	}
 	data := map[string]any{"Devices": devs, "Folders": fols, "Notif": nv, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint}
-	s.show(w, r, ds, "overview", "总览", data)
+	s.show(w, r, ds, "overview", trOf(r).T("nav.overview"), data)
 	return nil
 }
 
@@ -499,7 +562,7 @@ var deviceName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !deviceName.MatchString(name) {
-		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "设备名称只能用字母, 数字, - 和 _, 至多 32 个字符 (冲突副本的文件名会包含它)")
+		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "err.deviceName")
 	}
 	var n int
 	s.db.QueryRow(`SELECT count(*) FROM devices WHERE name=?`, name).Scan(&n)
@@ -513,7 +576,7 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	}
 	if n > 0 {
 		s.mu.Unlock()
-		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-add-device", "name", "已有同名设备")
+		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-add-device", "name", "err.deviceDup")
 	}
 	code := group(randomBase32(12), 4)
 	expires := s.now().Add(codeLife)
@@ -525,11 +588,11 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) newFolder(w http.ResponseWriter, r *http.Request) error {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" || len(name) > 64 || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 }) {
-		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-new-folder", "name", "文件夹名称不能为空, 至多 64 个字节, 不含控制字符")
+		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-new-folder", "name", "err.folderName")
 	}
 	var n int
 	if s.db.QueryRow(`SELECT count(*) FROM folders WHERE name=?`, name).Scan(&n); n > 0 {
-		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-new-folder", "name", "已有同名文件夹")
+		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-new-folder", "name", "err.folderDup")
 	}
 	id, err := s.createFolder(name)
 	if err != nil {
@@ -548,14 +611,19 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, ds *dialog
 	if ds != nil && ds.dialog == "rules" {
 		rules = r.PostForm.Get("rules")
 	}
-	s.show(w, r, ds, "settings", "设置", map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "SavedRules": MetaString(s.db, "global_rules"), "TimeZone": MetaString(s.db, "time_zone")})
+	langSetting := ""
+	if c, err := r.Cookie(langCookie); err == nil && isLang(c.Value) {
+		langSetting = c.Value
+	}
+	s.show(w, r, ds, "settings", trOf(r).T("nav.settings"), map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "SavedRules": MetaString(s.db, "global_rules"), "TimeZone": MetaString(s.db, "time_zone"),
+		"Langs": languages, "LangSetting": langSetting})
 	return nil
 }
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) error {
 	days, err := strconv.Atoi(r.FormValue("keep_days"))
 	if err != nil || days < 1 || days > 3650 {
-		return fieldErr(s.settingsPage, http.StatusBadRequest, "keep", "keep_days", "保留天数必须是 1 到 3650 的整数")
+		return fieldErr(s.settingsPage, http.StatusBadRequest, "keep", "keep_days", "err.keepDays")
 	}
 	if err := SetMeta(s.db, "keep_days", days); err != nil {
 		return err
@@ -574,7 +642,7 @@ func (s *Server) saveTimeZone(w http.ResponseWriter, r *http.Request) error {
 	tz := ""
 	if r.FormValue("tz_mode") == "fixed" {
 		if tz = strings.TrimSpace(r.FormValue("tz")); len(tz) > 64 || !timeZoneName.MatchString(tz) {
-			return fieldErr(s.settingsPage, http.StatusBadRequest, "tz", "tz", "时区名称无效, 例如 UTC 或 Asia/Shanghai")
+			return fieldErr(s.settingsPage, http.StatusBadRequest, "tz", "tz", "err.timeZone")
 		}
 	}
 	if err := SetMeta(s.db, "time_zone", tz); err != nil {
@@ -704,7 +772,7 @@ func (s *Server) deleteHits(hits []ruleHit) int {
 func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, dialog, back, read, write string, impact func(text string) ([]ruleHit, bool, error), args ...any) error {
 	text := ruleText(r)
 	if len(text) > maxRulesText {
-		return fieldErr(page, http.StatusBadRequest, dialog, "rules", "规则太长")
+		return fieldErr(page, http.StatusBadRequest, dialog, "rules", "err.rulesLong")
 	}
 	if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
 		return &dialogState{status: http.StatusBadRequest, dialog: dialog, ruleErrs: errs, page: page}
@@ -757,17 +825,18 @@ func (s *Server) rulesPreview(impact func(text string) ([]ruleHit, bool, error))
 		r.Body = http.MaxBytesReader(w, r.Body, 2*maxRulesText)
 		text := ruleText(r)
 		if len(text) > maxRulesText {
-			return bad(http.StatusBadRequest, "/", "规则太长")
+			return bad(http.StatusBadRequest, "/", "err.rulesLong")
 		}
 		if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
-			return bad(http.StatusBadRequest, "/", "规则有错误")
+			return bad(http.StatusBadRequest, "/", "err.rulesInvalid")
 		}
 		hits, withFolder, err := impact(text)
 		if err != nil {
 			return err
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		return s.tmpl["settings"].ExecuteTemplate(w, "hits", newHitsView(text, hits, withFolder))
+		w.Header().Set("Vary", "Accept-Language, Cookie")
+		return s.page(requestLang(r), "settings").ExecuteTemplate(w, "hits", newHitsView(text, hits, withFolder))
 	}
 }
 
@@ -776,7 +845,7 @@ func (s *Server) rulesPreview(impact func(text string) ([]ruleHit, bool, error))
 func (s *Server) validateRules(w http.ResponseWriter, r *http.Request) error {
 	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRulesText+1))
 	if err != nil {
-		return bad(http.StatusRequestEntityTooLarge, "/", "规则太长")
+		return bad(http.StatusRequestEntityTooLarge, "/", "err.rulesLong")
 	}
 	type lineErr struct {
 		Line int    `json:"line"`
@@ -787,7 +856,7 @@ func (s *Server) validateRules(w http.ResponseWriter, r *http.Request) error {
 	}{[]lineErr{}}
 	_, errs := ignore.Compile(ruleLines(string(b)), false)
 	for _, e := range errs {
-		out.Errors = append(out.Errors, lineErr{e.Line, e.Msg})
+		out.Errors = append(out.Errors, lineErr{e.Line, ruleMsg(trOf(r), e.Msg)})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(out)
@@ -877,7 +946,7 @@ func (s *Server) loadDevice(r *http.Request) (d deviceRow, err error) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	err = s.db.QueryRow(`SELECT id, name, os, last_seen FROM devices WHERE id=?`, id).Scan(&d.ID, &d.Name, &d.OS, &d.LastSeen)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = bad(http.StatusNotFound, "/", "没有这个设备")
+		err = bad(http.StatusNotFound, "/", "err.noDevice")
 	}
 	return d, err
 }
@@ -929,7 +998,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 			head.ReportedAt = rep.at.Unix()
 		}
 		head.Version = strconv.Itoa(rep.req.AgentVersion)
-		head.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
+		head.ConfigState = map[bool]string{true: "latest", false: "pending"}[rep.req.ConfigVersion == cfgVersion]
 		head.TooOld = rep.tooOld
 		for _, fs := range rep.req.Folders {
 			e, w := noticeKindCounts(fs.Errors)
@@ -951,7 +1020,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 			}
 		}
 	}
-	s.show(w, r, ds, "device", "设备 "+d.Name, data)
+	s.show(w, r, ds, "device", trOf(r).T("title.device", "name", d.Name), data)
 	return nil
 }
 
@@ -959,12 +1028,12 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 // the device's other mapping paths and returns its normalized form (design 3.2).
 func cleanMapping(osName, p string, others []string) (string, error) {
 	if strings.ContainsFunc(p, func(r rune) bool { return r < 0x20 }) {
-		return "", errors.New("路径含控制字符")
+		return "", M("err.pathControl")
 	}
 	norm, sep, fold := path.Clean, "/", func(q string) string { return q }
 	if osName == "windows" {
 		if len(p) < 3 || p[0]|0x20 < 'a' || p[0]|0x20 > 'z' || p[1] != ':' || (p[2] != '\\' && p[2] != '/') {
-			return "", errors.New(`Windows 路径必须是盘符路径, 例如 D:\Docs`)
+			return "", M("err.pathWindows")
 		}
 		sep, fold = `\`, strings.ToLower
 		norm = func(q string) string { // drive, then the rest cleaned like a Linux path ("..", ".", doubled separators)
@@ -972,7 +1041,7 @@ func cleanMapping(osName, p string, others []string) (string, error) {
 			return q[:2] + strings.ReplaceAll(rest, "/", `\`)
 		}
 	} else if !strings.HasPrefix(p, "/") {
-		return "", errors.New("Linux 路径必须以 / 开头")
+		return "", M("err.pathLinux")
 	}
 	contains := func(a, b string) bool { // a is b or a parent of b
 		a, b = fold(strings.TrimSuffix(a, sep)), fold(b)
@@ -981,7 +1050,7 @@ func cleanMapping(osName, p string, others []string) (string, error) {
 	clean := norm(p)
 	for _, o := range others {
 		if contains(clean, o) || contains(o, clean) {
-			return "", fmt.Errorf("路径与该设备的另一个映射 %s 重叠", o)
+			return "", M("err.pathOverlap", "path", o)
 		}
 	}
 	return clean, nil
@@ -996,7 +1065,7 @@ func (s *Server) saveMapping(w http.ResponseWriter, r *http.Request) error {
 	folder, _ := strconv.ParseInt(r.FormValue("folder"), 10, 64)
 	var n int
 	if s.db.QueryRow(`SELECT count(*) FROM folders WHERE id=?`, folder).Scan(&n); n == 0 {
-		return bad(http.StatusNotFound, back, "没有这个文件夹")
+		return bad(http.StatusNotFound, back, "err.noFolder")
 	}
 	err = s.configChange(func(tx *sql.Tx) (bool, error) {
 		if r.FormValue("action") == "delete" {
@@ -1033,7 +1102,8 @@ func (s *Server) saveMapping(w http.ResponseWriter, r *http.Request) error {
 			if old != nil {
 				dialog = "dlg-map-edit"
 			}
-			return false, fieldErr(s.devicePage, http.StatusBadRequest, dialog, "path", err.Error())
+			m, _ := err.(msg)
+			return false, fieldErr(s.devicePage, http.StatusBadRequest, dialog, "path", m.key, m.kv...)
 		}
 		adopt := r.FormValue("adopt") != ""
 		if old != nil && old.path == clean && old.adopt == adopt {

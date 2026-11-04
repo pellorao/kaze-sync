@@ -1,33 +1,39 @@
 {{define "content"}}
-<div class="head"><div class="crumbs"><a href="/">总览</a><span class="sep">/</span><span>设置</span></div></div>
+<div class="head"><div class="crumbs"><a href="/">{{t "nav.overview"}}</a><span class="sep">/</span><span>{{t "nav.settings"}}</span></div></div>
 <div class="set-grid">
 <form class="card" method="post" action="/settings/timezone">
-<div class="card-h"><h2>时区</h2><span class="muted small">只影响 Web UI 中时间的显示与输入</span></div>
+<div class="card-h"><h2>{{t "set.tz"}}</h2><span class="muted small">{{t "set.tzNote"}}</span></div>
 <div class="card-b stack" data-tzcard data-tz="{{.TimeZone}}">
-<label class="radio"><input type="radio" name="tz_mode" value="browser"{{if not .TimeZone}} checked{{end}}> 跟随浏览器 <span class="muted">(当前: <span data-browser-tz>-</span>)</span></label>
-<label class="radio"><input type="radio" name="tz_mode" value="fixed"{{if .TimeZone}} checked{{end}}> 固定为
-<select name="tz" aria-label="时区">{{if .TimeZone}}<option value="{{.TimeZone}}" selected>{{.TimeZone}}</option>{{else}}<option value="UTC">UTC</option>{{end}}</select></label>
+<label class="radio"><input type="radio" name="tz_mode" value="browser"{{if not .TimeZone}} checked{{end}}> {{t "set.follow"}} <span class="muted">{{tm "set.current" "tz" (raw "<span data-browser-tz>-</span>")}}</span></label>
+<label class="radio"><input type="radio" name="tz_mode" value="fixed"{{if .TimeZone}} checked{{end}}> {{t "set.fixed"}}
+<select name="tz" aria-label="{{t "set.tz"}}">{{if .TimeZone}}<option value="{{.TimeZone}}" selected>{{.TimeZone}}</option>{{else}}<option value="UTC">UTC</option>{{end}}</select></label>
 {{with index .Errs "tz"}}<span class="err-msg">{{.}}</span>{{end}}
-<span class="muted small">示例: <time data-sample></time>. 服务端 (如 OpenWrt) 常运行在 UTC; 时间在浏览器中换算, 服务端不需要时区数据.</span>
+<span class="muted small">{{tm "set.sample" "time" (raw "<time data-sample></time>")}}</span>
 </div>
-<div class="card-f"><button class="btn primary">保存</button></div>
+<div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
+</form>
+
+<form class="card" method="post" action="/settings/language">
+<div class="card-h"><h2>{{t "set.lang"}}</h2><span class="muted small">{{t "set.langNote"}}</span></div>
+<div class="card-b"><select name="lang" aria-label="{{t "set.lang"}}"><option value=""{{if not .LangSetting}} selected{{end}}>{{t "set.follow"}}</option>{{range .Langs}}<option value="{{.Code}}"{{if eq .Code $.LangSetting}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+<div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
 </form>
 
 <form class="card" method="post" action="/settings">
-<div class="card-h"><h2>版本保留</h2></div>
-<div class="card-b"><div class="row"><input type="number" name="keep_days" value="{{.KeepDays}}" min="1" max="3650" class="narrow" aria-label="保留天数"><span>天</span>
-<span class="muted small">被覆盖或删除的旧内容保留这么久. 保存后立即清理按新值过期的版本.</span></div>
+<div class="card-h"><h2>{{t "set.keep"}}</h2></div>
+<div class="card-b"><div class="row"><input type="number" name="keep_days" value="{{.KeepDays}}" min="1" max="3650" class="narrow" aria-label="{{t "set.keepDays"}}"><span>{{t "set.days"}}</span>
+<span class="muted small">{{t "set.keepNote"}}</span></div>
 {{with index .Errs "keep_days"}}<span class="err-msg">{{.}}</span>{{end}}</div>
-<div class="card-f"><button class="btn primary">保存</button></div>
+<div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
 </form>
 
 <form class="card" method="post" action="/rules">
-<div class="card-h"><h2>全局排除规则</h2><span class="muted small">所有文件夹共用; 文件夹规则接在其后, 可用 ! 覆盖</span></div>
+<div class="card-h"><h2>{{t "set.rules"}}</h2><span class="muted small">{{t "set.rulesNote"}}</span></div>
 <div class="card-b">
-<div class="ruleedit" data-ruleedit data-saved="{{.SavedRules}}"><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="14" spellcheck="false" wrap="off" aria-label="全局排除规则">{{.Rules}}</textarea></div>
-<div class="rule-errs" aria-live="polite" data-ruleerrs>{{range .RuleErrs}}<div class="err-msg" data-line="{{.Line}}">第 {{.Line}} 行: {{.Msg}}</div>{{end}}</div>
+<div class="ruleedit" data-ruleedit data-saved="{{.SavedRules}}"><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="14" spellcheck="false" wrap="off" aria-label="{{t "set.rules"}}">{{.Rules}}</textarea></div>
+<div class="rule-errs" aria-live="polite" data-ruleerrs>{{range .RuleErrs}}<div class="err-msg" data-line="{{.Line}}">{{lineErr .Line .Msg}}</div>{{end}}</div>
 {{with index .Errs "rules"}}<span class="err-msg">{{.}}</span>{{end}}
-<p class="muted small">gitignore 语法: <code>#</code> 注释, <code>!</code> 取反, 结尾 <code>/</code> 只匹配目录, 含 <code>/</code> 的模式相对文件夹根, <code>**</code> 任意层级.</p>
+<p class="muted small">{{tm "set.rulesHelp"}}</p>
 <div data-hitsbox>{{template "hits" .Hits}}</div></div>
 <div class="card-f">{{template "rulesgo" .Hits}}</div>
 </form>

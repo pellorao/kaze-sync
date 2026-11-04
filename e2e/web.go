@@ -36,6 +36,7 @@ func (w *webClient) do(method, path string, form url.Values, origin string) (int
 	if err != nil {
 		return 0, "", nil, err
 	}
+	req.Header.Set("Accept-Language", "zh-CN") // the checks read the base language
 	if method == "POST" {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", origin)

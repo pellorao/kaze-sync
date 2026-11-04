@@ -28,7 +28,7 @@ func (s *Server) loadFolder(r *http.Request) (f folderRow, err error) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	err = s.db.QueryRow(`SELECT id, name, rules FROM folders WHERE id=?`, id).Scan(&f.ID, &f.Name, &f.Rules)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = bad(http.StatusNotFound, "/", "没有这个文件夹")
+		err = bad(http.StatusNotFound, "/", "err.noFolder")
 	}
 	return f, err
 }
@@ -119,36 +119,35 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 	return out, rows.Err()
 }
 
-var kindLabel = map[string]string{
-	proto.KindInUse: "占用中", proto.KindIO: "读写错误", proto.KindRejected: "被拒绝", proto.KindSkipped: "已跳过", proto.KindFolder: "文件夹错误",
-}
+// kindLabel is the short name of a kind of notice ("in use", "read/write error"...).
+func kindLabel(t translator, kind string) string { return t.T("kind." + kind) }
 
 // unsyncedLabel says why an entry is not on the server.
-func unsyncedLabel(n notice) string {
+func unsyncedLabel(t translator, n notice) string {
 	switch {
 	case strings.HasPrefix(n.Message, proto.LinkNotCreated):
-		return "符号链接未建立"
+		return t.T("unsynced.linkNotCreated")
 	case strings.Contains(n.Message, "symbolic link"):
-		return "符号链接"
+		return t.T("unsynced.symlink")
 	case strings.Contains(n.Message, "UTF-8"):
-		return "非 UTF-8 文件名"
+		return t.T("unsynced.utf8")
 	}
-	return kindLabel[n.Kind]
+	return kindLabel(t, n.Kind)
 }
 
 // decorate adds what the devices report about the entries to the listing: tags on the paths that have notices,
 // "has a conflict" on the originals of conflict copies, and a row for each entry of dir that a device reports as
 // skipped or refused and the server does not have. The data is in memory: no database query.
-func decorate(entries []browseEntry, dir string, notes []notice) []browseEntry {
+func decorate(t translator, entries []browseEntry, dir string, notes []notice) []browseEntry {
 	byPath := map[string]int{}
 	for i, e := range entries {
 		byPath[e.Path] = i
 	}
 	for i, e := range entries {
 		if e.Conflict {
-			entries[i].Tags = append(entries[i].Tags, entryTag{"err", "冲突副本", ""})
-			if j, ok := byPath[e.Orig]; ok && !hasTag(entries[j].Tags, "有冲突") {
-				entries[j].Tags = append(entries[j].Tags, entryTag{"err", "有冲突", ""})
+			entries[i].Tags = append(entries[i].Tags, entryTag{"err", t.T("tag.conflictCopy"), ""})
+			if j, ok := byPath[e.Orig]; ok && !hasTag(entries[j].Tags, t.T("tag.hasConflict")) {
+				entries[j].Tags = append(entries[j].Tags, entryTag{"err", t.T("tag.hasConflict"), ""})
 			}
 		}
 	}
@@ -166,7 +165,7 @@ func decorate(entries []browseEntry, dir string, notes []notice) []browseEntry {
 				if n.Error {
 					class = "err"
 				}
-				entries[j].Tags = append(entries[j].Tags, entryTag{class, kindLabel[n.Kind] + " · " + n.Device, n.Message})
+				entries[j].Tags = append(entries[j].Tags, entryTag{class, kindLabel(t, n.Kind) + " · " + n.Device, n.Message})
 			}
 			continue
 		}
@@ -176,7 +175,7 @@ func decorate(entries []browseEntry, dir string, notes []notice) []browseEntry {
 		note := n
 		byPath[n.Path] = len(entries)
 		entries = append(entries, browseEntry{Name: path.Base(n.Path), Path: n.Path, Unsynced: true, Note: &note,
-			Tags: []entryTag{{"warn", "未同步: " + unsyncedLabel(n) + " · " + n.Device, n.Message}}})
+			Tags: []entryTag{{"warn", t.T("tag.unsynced", "why", unsyncedLabel(t, n), "device", n.Device), n.Message}}})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].IsDir != entries[j].IsDir {
@@ -206,7 +205,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		return err
 	}
 	if r.Header.Get("X-Live") != "" { // a live update wants the bell, not the listing
-		s.render(w, http.StatusOK, "live", "", map[string]any{})
+		s.render(w, r, http.StatusOK, "live", "", map[string]any{})
 		return nil
 	}
 	dir := strings.Trim(r.FormValue("dir"), "/")
@@ -224,7 +223,8 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	if err != nil {
 		return err
 	}
-	entries = decorate(entries, dir, notes)
+	t := trOf(r)
+	entries = decorate(t, entries, dir, notes)
 	type crumb struct{ Name, Path string }
 	var crumbs []crumb
 	for i, p := range strings.Split(dir, "/") {
@@ -271,7 +271,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		data["File"], data["FileOrig"] = file, conflictOriginal(file)
 		data["Open"] = "dlg-versions"
 	}
-	s.show(w, r, ds, "folder", "文件夹 "+f.Name, data)
+	s.show(w, r, ds, "folder", t.T("title.folder", "name", f.Name), data)
 	return nil
 }
 
@@ -313,9 +313,9 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 	var re restoreError
 	switch {
 	case errors.Is(err, errNoVersion):
-		return bad(http.StatusNotFound, back, "没有这个版本")
+		return bad(http.StatusNotFound, back, "err.noVersion")
 	case errors.As(err, &re):
-		return bad(http.StatusConflict, back, "无法恢复: "+re.msg)
+		return bad(http.StatusConflict, back, "err.restoreFailed", "reason", re.msg)
 	case err != nil:
 		return err
 	}
@@ -337,7 +337,7 @@ func (s *Server) restoreDir(w http.ResponseWriter, r *http.Request) error {
 	back := "/folders/" + strconv.FormatInt(f.ID, 10)
 	at, err := ParseTime(r.FormValue("time"))
 	if err != nil {
-		return fieldErr(s.folderPage, http.StatusBadRequest, "dlg-restore", "time", "时间格式: 2026-11-03 22:48:27")
+		return fieldErr(s.folderPage, http.StatusBadRequest, "dlg-restore", "time", "err.timeFormat")
 	}
 	restored, failed, err := s.restoreDirAt(f.ID, p, at)
 	if err != nil {
@@ -357,7 +357,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	p := strings.Trim(r.FormValue("path"), "/")
 	at, err := ParseTime(r.FormValue("time"))
 	if err != nil {
-		return bad(http.StatusBadRequest, "", "时间格式无效")
+		return bad(http.StatusBadRequest, "", "err.timeInvalid")
 	}
 	n, items, note, none, err := s.restorePreview(r.Context(), f.ID, p, at)
 	if errors.Is(err, context.Canceled) {
@@ -374,7 +374,8 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
+	w.Header().Set("Vary", "Accept-Language, Cookie")
+	return s.page(requestLang(r), "folder").ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
 }
 
 // restoreTicksPage answers the restore dialog's time axis: its marks and ends (restoreTicks), as JSON.
@@ -407,7 +408,7 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if n > 0 {
-		return bad(http.StatusConflict, "/folders/"+strconv.FormatInt(f.ID, 10), "文件夹仍映射到设备, 先在设备页删除映射")
+		return bad(http.StatusConflict, "/folders/"+strconv.FormatInt(f.ID, 10), "err.folderMapped")
 	}
 	if _, err := tx.Exec(`DELETE FROM folders WHERE id=?`, f.ID); err != nil {
 		return err

@@ -1,63 +1,63 @@
 {{define "content"}}
-<div class="head"><h1>总览</h1></div>
+<div class="head"><h1>{{t "nav.overview"}}</h1></div>
 <section class="card">
-<div class="card-h"><h2>文件夹</h2><span class="count">{{len .Folders}}</span><span class="sp"></span>
-<button type="button" class="btn" data-dialog="dlg-new-folder">{{icon "plus"}}新建文件夹</button></div>
+<div class="card-h"><h2>{{t "ov.folders"}}</h2><span class="count">{{len .Folders}}</span><span class="sp"></span>
+<button type="button" class="btn" data-dialog="dlg-new-folder">{{icon "plus"}}{{t "ov.newFolder"}}</button></div>
 <div data-live="folders"><table>
-<thead><tr><th>名称</th><th>状态</th><th class="hide-sm">设备</th><th class="r">文件数</th><th class="r">总大小</th><th>通知</th></tr></thead>
+<thead><tr><th>{{t "ov.name"}}</th><th>{{t "ov.status"}}</th><th class="hide-sm">{{t "ov.devices"}}</th><th class="r">{{t "ov.files"}}</th><th class="r">{{t "ov.size"}}</th><th>{{t "nav.notif"}}</th></tr></thead>
 <tbody>
 {{range .Folders}}<tr><td><a href="/folders/{{.ID}}">{{icon "folder"}} {{.Name}}</a></td>
-{{if .Err}}<td colspan="5" class="st-err">无法读取: {{.Err}}</td>{{else}}
-<td>{{if eq .State "unmapped"}}<span class="st-none">未映射</span>{{else if eq .State "error"}}<span class="st-err">有错误</span>{{else if eq .State "syncing"}}<span class="st-sync">同步中{{if .Pending}} · 待传 {{.Pending}}{{end}}</span>{{else if eq .State "offline"}}<span class="st-none">设备离线</span>{{else}}<span class="st-ok">已同步</span>{{end}}</td>
-<td class="hide-sm">{{range .Devs}}<span class="tag dev{{if not .Online}} off{{end}}">{{.Name}}</span> {{else}}<span class="muted small">没有设备</span>{{end}}</td>
+{{if .Err}}<td colspan="5" class="st-err">{{t "ov.unreadable" "err" .Err}}</td>{{else}}
+<td>{{template "folder-state" .}}</td>
+<td class="hide-sm">{{range .Devs}}<span class="tag dev{{if not .Online}} off{{end}}">{{.Name}}</span> {{else}}<span class="muted small">{{t "ov.noDevices"}}</span>{{end}}</td>
 <td class="r num">{{.Files}}</td><td class="r num">{{size .Bytes}}</td>
 <td>{{if .Errors}}<button type="button" class="cnt err" data-notif="ng-{{.ID}}">{{icon "err"}}{{.Errors}}</button>{{end}}{{if .Warnings}}<button type="button" class="cnt warn" data-notif="ng-{{.ID}}">{{icon "warn"}}{{.Warnings}}</button>{{end}}</td>{{end}}
-</tr>{{else}}<tr><td colspan="6" class="muted">还没有文件夹</td></tr>{{end}}
+</tr>{{else}}<tr><td colspan="6" class="muted">{{t "ov.noFolders"}}</td></tr>{{end}}
 </tbody></table></div>
 </section>
 
 <section class="card">
-<div class="card-h"><h2>设备</h2><span class="count">{{len .Devices}}</span><span class="sp"></span>
-<button type="button" class="btn" data-dialog="dlg-add-device">{{icon "plus"}}添加设备</button></div>
+<div class="card-h"><h2>{{t "ov.devices"}}</h2><span class="count">{{len .Devices}}</span><span class="sp"></span>
+<button type="button" class="btn" data-dialog="dlg-add-device">{{icon "plus"}}{{t "ov.addDevice"}}</button></div>
 <div data-live="devices"><table>
-<thead><tr><th>名称</th><th class="hide-sm">系统</th><th>最近连接</th><th>文件夹状态</th><th class="hide-sm">客户端</th><th class="hide-sm">配置</th></tr></thead>
+<thead><tr><th>{{t "ov.name"}}</th><th class="hide-sm">{{t "ov.os"}}</th><th>{{t "ov.lastConn"}}</th><th>{{t "ov.folderStatus"}}</th><th class="hide-sm">{{t "ov.client"}}</th><th class="hide-sm">{{t "ov.config"}}</th></tr></thead>
 <tbody>
 {{range .Devices}}<tr><td class="top"><span class="dot{{if .Online}} ok{{end}}"></span><a href="/devices/{{.ID}}">{{.Name}}</a></td><td class="top hide-sm">{{.OS}}</td>
-<td class="top">{{if .Online}}<span class="st-ok">在线</span>{{else}}<span class="muted num">{{time .LastSeen}}</span>{{end}}</td>
+<td class="top">{{if .Online}}<span class="st-ok">{{t "st.online"}}</span>{{else}}<span class="muted num">{{time .LastSeen}}</span>{{end}}</td>
 <td class="top">{{if .Status}}<div class="status-lines">{{range .Status}}<div class="stl"><span class="f">{{.Folder}}</span> <span class="{{stClass .State}}">{{stText .State}}</span>{{if or .PendingUp .PendingDown}} <span class="muted">↑{{.PendingUp}} ↓{{.PendingDown}}</span>{{end}} <span class="muted num">{{time .Synced}}</span></div>{{end}}</div>{{end}}</td>
-<td class="top hide-sm">{{if .TooOld}}<span class="st-err">{{.TooOld}}, 过旧</span>{{else}}<span class="num">{{.Version}}</span>{{end}}</td><td class="top hide-sm">{{.ConfigState}}</td>
-</tr>{{else}}<tr><td colspan="6" class="muted">还没有设备</td></tr>{{end}}
+<td class="top hide-sm">{{if .TooOld}}<span class="st-err">{{t "st.tooOld" "n" .TooOld}}</span>{{else}}<span class="num">{{.Version}}</span>{{end}}</td><td class="top hide-sm">{{cfg .ConfigState}}</td>
+</tr>{{else}}<tr><td colspan="6" class="muted">{{t "ov.noDevicesYet"}}</td></tr>{{end}}
 </tbody></table></div>
 </section>
 {{end}}
 
 {{define "dialogs"}}
 <dialog id="dlg-new-folder" class="dlg"{{if eq .Open "dlg-new-folder"}} data-autoopen{{end}} aria-labelledby="nf-t"><form method="post" action="/folders/new">
-<div class="dlg-h"><h3 id="nf-t">新建文件夹</h3></div>
-<div class="dlg-b"><div class="field"><label for="nf-name">名称</label><input id="nf-name" type="text" name="name" maxlength="64" required value="{{index .Vals "name"}}" autocomplete="off">
+<div class="dlg-h"><h3 id="nf-t">{{t "ov.newFolder"}}</h3></div>
+<div class="dlg-b"><div class="field"><label for="nf-name">{{t "ov.name"}}</label><input id="nf-name" type="text" name="name" maxlength="64" required value="{{index .Vals "name"}}" autocomplete="off">
 {{with index .Errs "name"}}{{if eq $.Open "dlg-new-folder"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}
-<span class="help">同步文件夹的名称, 至多 64 个字节. 创建后在设备页把它映射到设备上的本机目录.</span></div></div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">新建</button></div>
+<span class="help">{{t "nf.help"}}</span></div></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "nf.submit"}}</button></div>
 </form></dialog>
 
 <dialog id="dlg-add-device" class="dlg"{{if eq .Open "dlg-add-device"}} data-autoopen{{end}} aria-labelledby="ad-t"><form method="post" action="/devices/add">
-<div class="dlg-h"><h3 id="ad-t">添加设备</h3></div>
-<div class="dlg-b"><div class="field"><label for="ad-name">名称</label><input id="ad-name" type="text" name="name" maxlength="32" pattern="[A-Za-z0-9_\-]{1,32}" required value="{{index .Vals "name"}}" autocomplete="off">
+<div class="dlg-h"><h3 id="ad-t">{{t "ov.addDevice"}}</h3></div>
+<div class="dlg-b"><div class="field"><label for="ad-name">{{t "ov.name"}}</label><input id="ad-name" type="text" name="name" maxlength="32" pattern="[A-Za-z0-9_\-]{1,32}" required value="{{index .Vals "name"}}" autocomplete="off">
 {{with index .Errs "name"}}{{if eq $.Open "dlg-add-device"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}
-<span class="help">字母, 数字, - 和 _; 它会出现在冲突副本的文件名中. 提交后显示注册命令.</span></div></div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">生成注册码</button></div>
+<span class="help">{{t "ad.help"}}</span></div></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "ad.submit"}}</button></div>
 </form></dialog>
 
 {{if .Code}}<dialog id="dlg-enroll" class="dlg" data-autoopen aria-labelledby="en-t">
-<div class="dlg-h"><h3 id="en-t">注册设备 {{.CodeName}}</h3></div>
+<div class="dlg-h"><h3 id="en-t">{{t "en.title" "name" .CodeName}}</h3></div>
 <div class="dlg-b">
-<div class="field"><span class="lbl">注册码</span><div class="row"><span class="code-big">{{.Code}}</span><span class="muted small">剩余 <span data-countdown="{{.Expires}}"></span>, 只能使用一次</span></div></div>
+<div class="field"><span class="lbl">{{t "en.code"}}</span><div class="row"><span class="code-big">{{.Code}}</span><span class="muted small">{{tm "en.left" "time" (countdown .Expires)}}</span></div></div>
 <div class="field"><span class="lbl">Linux</span>
-<div class="cmd"><code id="cmd-linux">kaze-syncc enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</code><button type="button" class="btn sm" data-copy="cmd-linux">{{icon "copy"}}复制</button></div></div>
+<div class="cmd"><code id="cmd-linux">kaze-syncc enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</code><button type="button" class="btn sm" data-copy="cmd-linux">{{icon "copy"}}{{t "common.copy"}}</button></div></div>
 <div class="field"><span class="lbl">Windows</span>
-<div class="cmd"><code id="cmd-win">kaze-syncc.exe enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</code><button type="button" class="btn sm" data-copy="cmd-win">{{icon "copy"}}复制</button></div></div>
-<p class="note">{{icon "info"}}<span>在设备上执行其中一条命令. 注册完成后设备会自动出现在设备表中, 然后在设备页为它添加映射.</span></p>
+<div class="cmd"><code id="cmd-win">kaze-syncc.exe enroll {{.Server}} {{.Code}}{{if .Fingerprint}} --fingerprint {{.Fingerprint}}{{end}}</code><button type="button" class="btn sm" data-copy="cmd-win">{{icon "copy"}}{{t "common.copy"}}</button></div></div>
+<p class="note">{{icon "info"}}<span>{{t "en.note"}}</span></p>
 </div>
-<div class="dlg-f"><button type="button" class="btn primary" data-close>完成</button></div>
+<div class="dlg-f"><button type="button" class="btn primary" data-close>{{t "en.done"}}</button></div>
 </dialog>{{end}}
 {{end}}

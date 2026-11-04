@@ -38,7 +38,8 @@ type Server struct {
 	varDir string
 	blobs  *blobstore.Store
 	now    func() time.Time
-	tmpl   map[string]*template.Template
+	tmplMu sync.Mutex
+	tmpl   map[string]map[string]*template.Template // language -> page -> templates (web.go page)
 
 	// Fingerprint is shown in the enrollment commands in self-signed mode; "" otherwise.
 	Fingerprint string
@@ -123,7 +124,7 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 		now = time.Now
 	}
 	return &Server{
-		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: parseTemplates(), PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
+		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
 		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),

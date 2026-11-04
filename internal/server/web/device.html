@@ -1,24 +1,24 @@
 {{define "content"}}
-<div class="head"><div class="crumbs"><a href="/">总览</a><span class="sep">/</span><span>{{.Device.Name}}</span></div>
-<span data-live="dev-state"><span class="tag {{if .Head.Online}}ok{{end}}"><span class="dot{{if .Head.Online}} ok{{end}}"></span>{{if .Head.Online}}在线{{else}}离线{{end}}</span></span>
+<div class="head"><div class="crumbs"><a href="/">{{t "nav.overview"}}</a><span class="sep">/</span><span>{{.Device.Name}}</span></div>
+<span data-live="dev-state"><span class="tag {{if .Head.Online}}ok{{end}}"><span class="dot{{if .Head.Online}} ok{{end}}"></span>{{if .Head.Online}}{{t "st.online"}}{{else}}{{t "st.offlineDev"}}{{end}}</span></span>
 <span class="sp"></span>
-<button type="button" class="btn ghost" data-menu="dev-head" aria-label="设备操作" aria-haspopup="menu">{{icon "more"}}</button></div>
+<button type="button" class="btn ghost" data-menu="dev-head" aria-label="{{t "dev.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
 <div data-live="dev-info"><p class="sub"><span>{{.Device.OS}}</span>
-<span class="dot-sep">客户端版本 {{if .Head.TooOld}}<span class="st-err">{{.Head.TooOld}}, 过旧</span>{{else}}{{.Head.Version}}{{end}}</span>
-<span class="dot-sep">配置{{if eq .Head.ConfigState "-"}}未知{{else}}{{.Head.ConfigState}}{{end}}</span>
-{{if .Head.Online}}<span class="dot-sep st-ok">在线</span>{{else}}<span class="dot-sep">{{if .Head.Known}}离线, 最后上报于 {{time .Head.ReportedAt}}{{else}}最近连接 {{time .Head.LastSeen}}{{end}}</span>{{end}}
-{{if or .Head.Errors .Head.Warnings}}<button type="button" class="dot-sep notice-link" data-notif="">{{if .Head.Errors}}<span class="cnt err">{{icon "err"}}{{.Head.Errors}} 个错误</span>{{end}}{{if .Head.Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Head.Warnings}} 个提醒</span>{{end}}</button>{{end}}</p></div>
+<span class="dot-sep">{{t "dev.client"}} {{if .Head.TooOld}}<span class="st-err">{{t "st.tooOld" "n" .Head.TooOld}}</span>{{else}}{{.Head.Version}}{{end}}</span>
+<span class="dot-sep">{{if eq .Head.ConfigState "-"}}{{t "dev.configUnknown"}}{{else}}{{t "dev.config" "state" (cfg .Head.ConfigState)}}{{end}}</span>
+{{if .Head.Online}}<span class="dot-sep st-ok">{{t "st.online"}}</span>{{else}}<span class="dot-sep">{{if .Head.Known}}{{tm "dev.offlineReported" "time" (time .Head.ReportedAt)}}{{else}}{{tm "notif.lastConn" "time" (time .Head.LastSeen)}}{{end}}</span>{{end}}
+{{if or .Head.Errors .Head.Warnings}}<button type="button" class="dot-sep notice-link" data-notif="">{{if .Head.Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Head.Errors}}</span>{{end}}{{if .Head.Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Head.Warnings}}</span>{{end}}</button>{{end}}</p></div>
 <section class="card">
-<div class="card-h"><h2>同步文件夹</h2><span class="count">{{len .Mappings}}</span><span class="sp"></span>
-<button type="button" class="btn" data-dialog="dlg-map-add"{{if not .Free}} disabled title="没有可添加的文件夹: 所有文件夹都已映射到这台设备, 先在总览新建文件夹"{{end}}>{{icon "plus"}}添加映射</button></div>
+<div class="card-h"><h2>{{t "dev.maps"}}</h2><span class="count">{{len .Mappings}}</span><span class="sp"></span>
+<button type="button" class="btn" data-dialog="dlg-map-add"{{if not .Free}} disabled title="{{t "dev.noFree"}}"{{end}}>{{icon "plus"}}{{t "ma.title"}}</button></div>
 <div data-live="maps"><table>
-<thead><tr><th>文件夹</th><th>本机路径</th><th class="hide-sm">允许接管</th><th>状态</th><th class="act"></th></tr></thead>
+<thead><tr><th>{{t "ov.folders"}}</th><th>{{t "ma.path"}}</th><th class="hide-sm">{{t "dev.adopt"}}</th><th>{{t "ov.status"}}</th><th class="act"></th></tr></thead>
 <tbody>
 {{range .Mappings}}<tr data-folder="{{.FolderID}}" data-name="{{.Folder}}" data-path="{{.Path}}"{{if .Adopt}} data-adopt="1"{{end}}>
-<td><a href="/folders/{{.FolderID}}">{{icon "folder"}} {{.Folder}}</a></td><td class="mono small">{{.Path}}</td><td class="hide-sm">{{if .Adopt}}是{{else}}否{{end}}</td>
-<td>{{if .Reported}}<div class="stat"><span class="{{stClass .State}}">{{stText .State}}</span>{{if or .PendingUp .PendingDown}}<span class="muted">↑{{.PendingUp}} ↓{{.PendingDown}}</span>{{end}}<span class="muted num small">{{time .Synced}}</span>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}}</span>{{end}}</div>{{else}}<span class="muted">未上报</span>{{end}}</td>
-<td class="act"><button type="button" class="more" data-menu="map-row" aria-label="{{.Folder}} 映射的操作" aria-haspopup="menu">{{icon "more"}}</button></td></tr>
-{{else}}<tr><td colspan="5" class="muted">没有映射</td></tr>{{end}}
+<td><a href="/folders/{{.FolderID}}">{{icon "folder"}} {{.Folder}}</a></td><td class="mono small">{{.Path}}</td><td class="hide-sm">{{if .Adopt}}{{t "common.yes"}}{{else}}{{t "common.no"}}{{end}}</td>
+<td>{{if .Reported}}<div class="stat"><span class="{{stClass .State}}">{{stText .State}}</span>{{if or .PendingUp .PendingDown}}<span class="muted">↑{{.PendingUp}} ↓{{.PendingDown}}</span>{{end}}<span class="muted num small">{{time .Synced}}</span>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}}</span>{{end}}</div>{{else}}<span class="muted">{{t "dev.unreported"}}</span>{{end}}</td>
+<td class="act"><button type="button" class="more" data-menu="map-row" aria-label="{{t "dev.mapActions" "name" .Folder}}" aria-haspopup="menu">{{icon "more"}}</button></td></tr>
+{{else}}<tr><td colspan="5" class="muted">{{t "dev.noMaps"}}</td></tr>{{end}}
 </tbody></table></div>
 </section>
 {{end}}
@@ -26,30 +26,30 @@
 {{define "dialogs"}}
 <dialog id="dlg-map-add" class="dlg"{{if eq .Open "dlg-map-add"}} data-autoopen{{end}} aria-labelledby="ma-t"><form method="post" action="/devices/{{.Device.ID}}/mapping">
 <input type="hidden" name="action" value="save">
-<div class="dlg-h"><h3 id="ma-t">添加映射</h3></div>
+<div class="dlg-h"><h3 id="ma-t">{{t "ma.title"}}</h3></div>
 <div class="dlg-b">
-<div class="field"><label for="ma-folder">文件夹</label><select id="ma-folder" name="folder">{{range .Free}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) (index $.Vals "folder")}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
-<div class="field"><label for="ma-path">本机路径</label><input id="ma-path" type="text" class="mono" name="path" required value="{{index .Vals "path"}}" placeholder="{{if eq .Device.OS "windows"}}D:\Docs{{else}}/home/user/Docs{{end}}" autocomplete="off">
+<div class="field"><label for="ma-folder">{{t "ov.folders"}}</label><select id="ma-folder" name="folder">{{range .Free}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) (index $.Vals "folder")}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+<div class="field"><label for="ma-path">{{t "ma.path"}}</label><input id="ma-path" type="text" class="mono" name="path" required value="{{index .Vals "path"}}" placeholder="{{if eq .Device.OS "windows"}}D:\Docs{{else}}/home/user/Docs{{end}}" autocomplete="off">
 {{with index .Errs "path"}}{{if eq $.Open "dlg-map-add"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}</div>
-<label class="check"><input type="checkbox" name="adopt" value="1"{{if index .Vals "adopt"}} checked{{end}}> 允许接管非空目录</label>
-<p class="note">{{icon "info"}}<span>目录不存在时客户端创建它; 目录非空且不是同步目录时, 只有勾选 "允许接管" 才开始对账 (用于从其他同步工具迁移). 这防止把路径误填成整个用户目录后把它全部上传.</span></p>
+<label class="check"><input type="checkbox" name="adopt" value="1"{{if index .Vals "adopt"}} checked{{end}}> {{t "ma.adopt"}}</label>
+<p class="note">{{icon "info"}}<span>{{t "ma.note"}}</span></p>
 </div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">添加</button></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "common.add"}}</button></div>
 </form></dialog>
 
 <dialog id="dlg-map-edit" class="dlg"{{if eq .Open "dlg-map-edit"}} data-autoopen{{end}} aria-labelledby="me-t"><form method="post" action="/devices/{{.Device.ID}}/mapping">
 <input type="hidden" name="action" value="save"><input type="hidden" name="folder" value="{{index .Vals "folder"}}">
-<div class="dlg-h"><h3 id="me-t">编辑映射 <span data-fill="name">{{.EditName}}</span></h3></div>
+<div class="dlg-h"><h3 id="me-t">{{t "me.title"}} <span data-fill="name">{{.EditName}}</span></h3></div>
 <div class="dlg-b">
-<div class="field"><label for="me-path">本机路径</label><input id="me-path" type="text" class="mono" name="path" required value="{{index .Vals "path"}}" autocomplete="off">
+<div class="field"><label for="me-path">{{t "ma.path"}}</label><input id="me-path" type="text" class="mono" name="path" required value="{{index .Vals "path"}}" autocomplete="off">
 {{with index .Errs "path"}}{{if eq $.Open "dlg-map-edit"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}
-<span class="help">修改路径等同于删除旧映射再新增: 旧路径的本机文件原样保留, 在新路径上重新对账.</span></div>
-<label class="check"><input type="checkbox" name="adopt" value="1"{{if index .Vals "adopt"}} checked{{end}}> 允许接管非空目录</label>
+<span class="help">{{t "me.help"}}</span></div>
+<label class="check"><input type="checkbox" name="adopt" value="1"{{if index .Vals "adopt"}} checked{{end}}> {{t "ma.adopt"}}</label>
 </div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">保存</button></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "common.save"}}</button></div>
 </form></dialog>
 
-<form id="f-del-map" method="post" action="/devices/{{.Device.ID}}/mapping" hidden data-confirm="删除这个映射? 客户端停止同步它, 并删除本地状态库和标记文件; 本机文件原样保留." data-confirm-ok="删除" data-danger>
+<form id="f-del-map" method="post" action="/devices/{{.Device.ID}}/mapping" hidden data-confirm="{{t "dev.delMapConfirm"}}" data-confirm-ok="{{t "common.delete"}}" data-danger>
 <input type="hidden" name="action" value="delete"><input type="hidden" name="folder" value=""></form>
-<form id="f-revoke" method="post" action="/devices/{{.Device.ID}}/revoke" hidden data-confirm="吊销设备 {{.Device.Name}}? 它的令牌立即失效, 它的全部映射被删除; 本机文件原样保留." data-confirm-ok="吊销" data-danger></form>
+<form id="f-revoke" method="post" action="/devices/{{.Device.ID}}/revoke" hidden data-confirm="{{t "dev.revokeConfirm" "name" .Device.Name}}" data-confirm-ok="{{t "dev.revoke"}}" data-danger></form>
 {{end}}

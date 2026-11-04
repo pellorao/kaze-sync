@@ -7,6 +7,10 @@
   --mono: "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
   --shadow: 0 8px 24px rgb(0 0 0 / 0.45);
 }
+/* The CJK fallback fonts follow the page language (<html lang>), so that Han characters take the shapes of that language. */
+:root:lang(zh-TW) { --sans: system-ui, "Segoe UI", "Microsoft JhengHei UI", "PingFang TC", sans-serif; --mono: "Cascadia Mono", Consolas, "Microsoft JhengHei", monospace; }
+:root:lang(ja) { --sans: system-ui, "Segoe UI", "Yu Gothic UI", "Hiragino Sans", sans-serif; --mono: "Cascadia Mono", Consolas, "Yu Gothic", monospace; }
+:root:lang(ko) { --sans: system-ui, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; --mono: "Cascadia Mono", Consolas, "Malgun Gothic", monospace; }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); }

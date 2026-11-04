@@ -8,6 +8,17 @@
   const main = $("main");
   const NS = "http://www.w3.org/2000/svg";
 
+  // ---- texts: /i18n/<lang>, loaded before this script, holds the dictionary of the page's language (design 4.9). A text
+  // has {placeholders}; one that has a ".1" variant is written differently for the count 1 (the first number given).
+  const I18N = window.KS_I18N || {};
+  const rt = (key, args) => {
+    let n;
+    for (const k in args || {}) if (typeof args[k] === "number") { n = args[k]; break; }
+    let s = (n === 1 && I18N[key + ".1"]) || I18N[key] || key;
+    for (const k in args || {}) s = s.split("{" + k + "}").join(args[k]);
+    return s;
+  };
+
   function el(tag, attrs, ...kids) {
     const e = document.createElement(tag);
     for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
@@ -97,11 +108,11 @@
     pending = { form: f, submitter: e.submitter };
     $("#cf-msg").textContent = f.dataset.confirm;
     const ok = $("#cf-ok");
-    ok.textContent = f.dataset.confirmOk || "确定";
+    ok.textContent = f.dataset.confirmOk || rt("common.ok");
     ok.className = "btn " + ("danger" in f.dataset ? "danger" : "primary");
     cf.showModal();
   });
-  // ask puts a question to the shared confirmation dialog and runs yes() on "确定" (label ok)
+  // ask puts a question to the shared confirmation dialog and runs yes() on the button (label ok)
   function ask(msg, ok, yes) {
     pending = { run: yes };
     $("#cf-msg").textContent = msg;
@@ -130,21 +141,21 @@
     for (const k in params) { if (params[k] === null) u.searchParams.delete(k); else u.searchParams.set(k, params[k]); }
     location.href = u;
   }
-  const restoreLabel = (d) => d.path ? "恢复此目录到某一时刻…" : "恢复整个文件夹到某一时刻…";
+  const restoreLabel = (d) => rt(d.path ? "js.menu.restoreDir" : "js.menu.restoreFolder");
   const MENUS = {
-    dir: (c) => [["打开", "open", "open"], ["恢复到某一时刻…", "restore", "restore-at"]],
-    file: () => [["版本历史…", "history", "versions"], ["恢复到某一时刻…", "restore", "restore-at"]],
-    gone: () => [["恢复最后的内容…", "restore", "restore-last"], ["版本历史…", "history", "versions"]],
-    conflict: (c) => [["版本历史…", "history", "versions"], c.row.dataset.orig ? ["原文件的版本历史…", "history", "versions-orig"] : null, ["恢复到某一时刻…", "restore", "restore-at"]],
-    unsynced: () => [["详情", "info", "detail"]],
+    dir: (c) => [[rt("js.menu.open"), "open", "open"], [rt("js.menu.restoreAt"), "restore", "restore-at"]],
+    file: () => [[rt("js.menu.versions"), "history", "versions"], [rt("js.menu.restoreAt"), "restore", "restore-at"]],
+    gone: () => [[rt("js.menu.restoreLast"), "restore", "restore-last"], [rt("js.menu.versions"), "history", "versions"]],
+    conflict: (c) => [[rt("js.menu.versions"), "history", "versions"], c.row.dataset.orig ? [rt("js.menu.versionsOrig"), "history", "versions-orig"] : null, [rt("js.menu.restoreAt"), "restore", "restore-at"]],
+    unsynced: () => [[rt("js.menu.detail"), "info", "detail"]],
     blank: (c) => [[restoreLabel(c.row.dataset), "restore", "restore-dir"]],
     "folder-head": (c) => {
       const n = +c.row.dataset.maps;
       return [[restoreLabel(c.row.dataset), "restore", "restore-dir"],
-        ["删除文件夹…", "trash", "del-folder", { danger: true, disabled: n > 0, hint: n > 0 ? `仍有 ${n} 台设备映射, 先在设备页删除映射` : "" }]];
+        [rt("js.menu.delFolder"), "trash", "del-folder", { danger: true, disabled: n > 0, hint: n > 0 ? rt("js.menu.delFolderHint", { n }) : "" }]];
     },
-    "map-row": () => [["编辑映射…", "edit", "edit-map"], ["删除映射…", "trash", "del-map", { danger: true }]],
-    "dev-head": () => [["吊销设备…", "trash", "revoke", { danger: true }]],
+    "map-row": () => [[rt("js.menu.editMap"), "edit", "edit-map"], [rt("js.menu.delMap"), "trash", "del-map", { danger: true }]],
+    "dev-head": () => [[rt("js.menu.revoke"), "trash", "revoke", { danger: true }]],
   };
   const ACTIONS = {
     open: (c) => { location.href = $("a.nm", c.row).href; },
@@ -190,7 +201,7 @@
       menu.append(b);
       if (o && o.hint) menu.append(el("div", { class: "hint" }, o.hint));
     }
-    menu.setAttribute("aria-label", row.dataset.name || "操作");
+    menu.setAttribute("aria-label", row.dataset.name || rt("js.menu.actions"));
     target = { row };
     opener = from || row;
     menu.showPopover();
@@ -365,18 +376,7 @@
   // The axis runs from the oldest state a restore can reach (left) to now (right). The server sends its ticks: the ends
   // of the minutes with a change in the scope. Dragging only moves the line and changes some text; the preview is asked
   // for when the state under the line changes and the line rests. Only the newest request counts, an older one is aborted.
-  // Every text this code writes is in RS, with {placeholders}, so the i18n step can swap the dictionary.
-  const RS = {
-    now: "现在", future: "晚于现在", ago_m: "{m} 分钟前", ago_h: "{h} 小时前", ago_hm: "{h} 小时 {m} 分钟前",
-    ago_d: "{d} 天前", ago_dh: "{d} 天 {h} 小时前",
-    axisNone: "这里没有历史记录", axisFail: "时间轴没有加载, 可直接输入时间",
-    bad: "时间格式应为 {ex}", fail: "预览没有加载, 请再试一次",
-    old: "所选时间早于版本保留期, 那时的内容可能已被清理",
-    go: "恢复 {n} 个文件", go0: "没有可恢复的文件", goWait: "恢复",
-    note2: "时区 {tz}, {how}, 可在 {link} 中改变.", follow: "跟随浏览器", fixed: "在设置中固定", settings: "设置",
-    note3: " 版本保留 {d} 天, 最早可恢复到 {from}.", note3b: " 版本保留 {d} 天.",
-  };
-  const rt = (key, args) => { let s = RS[key]; for (const k in args || {}) s = s.split("{" + k + "}").join(args[k]); return s; };
+  // Every text this code writes is in the dictionary (rt, above), with {placeholders}.
 
   // fromWall: the instant at which the clock of the zone reads w (as UTC); a reading that happens twice takes the earlier
   // instant, one that does not happen the nearest candidate.
@@ -399,7 +399,7 @@
     // `.recent` rect and the two-part branch of makeScale are all that belong to it.
     const ZOOM = { recent: 48 * H, frac: 0.4 };
 
-    const LANG = document.documentElement.lang || "zh-CN";
+    const LANG = document.documentElement.lang || "en";
     const zone = zoneName();
     const form = rd.querySelector("form");
     const input = form.elements.time, go = $("[data-restore-go]", rd), goText = $("span", go);
@@ -494,8 +494,8 @@
         if (!col[c]) { col[c] = 1; marks += `M${c + 0.5} ${BASE + 3}v10`; }
       }
       out += `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${BASE + 0.5}H${W}"/><path class="mk" d="${marks}"/>`;
-      out += `<text class="lb now" x="${W - 5}" y="12" text-anchor="end">${esc(rt("now"))}</text>`;
-      let limit = W - 5 - textW(rt("now"), true) - LABEL_GAP; // labels from right to left; one that would overlap is left out
+      out += `<text class="lb now" x="${W - 5}" y="12" text-anchor="end">${esc(rt("js.now"))}</text>`;
+      let limit = W - 5 - textW(rt("js.now"), true) - LABEL_GAP; // labels from right to left; one that would overlap is left out
       labels.sort((a, b) => b[0] - a[0]);
       for (const [x, s] of labels) {
         if (x + 3 + textW(s) > limit) continue;
@@ -524,12 +524,12 @@
     const keyOf = (ms) => (ms === null ? "bad" : T ? idx(ms) : ms);
     function relText(ms) {
       const m = Math.round((nowMs() - ms) / MIN);
-      if (m < 0) return rt("future");
-      if (m === 0) return rt("now");
+      if (m < 0) return rt("js.future");
+      if (m === 0) return rt("js.now");
       const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mi = m % 60;
-      if (d) return h ? rt("ago_dh", { d, h }) : rt("ago_d", { d });
-      if (h) return mi ? rt("ago_hm", { h, m: mi }) : rt("ago_h", { h });
-      return rt("ago_m", { m: mi });
+      if (d) return h ? rt("js.ago_dh", { d, h }) : rt("js.ago_d", { d });
+      if (h) return mi ? rt("js.ago_hm", { h, m: mi }) : rt("js.ago_h", { h });
+      return rt("js.ago_m", { m: mi });
     }
     // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, the line.
     // It sends nothing: commit asks for the preview.
@@ -579,13 +579,13 @@
       let nodes = r.nodes;
       if (!nodes) { // a result of this script: the box holds no time, or the preview did not load
         nodes = [el("div", { class: "preview-h" + (r.bad ? " warn" : ""), "aria-live": "polite" }, icon(r.bad ? "warn" : "history"),
-          el("span", {}, r.bad ? rt("bad", { ex: "2026-11-03 22:48:27" }) : rt("fail")))];
+          el("span", {}, r.bad ? rt("js.bad", { ex: "2026-11-03 22:48:27" }) : rt("js.fail")))];
       } else if (!nodes.some((n) => n.classList && n.classList.contains("first-n")) && r.ms < nowMs() - keepDays * D) {
-        nodes.splice(1, 0, el("div", { class: "first-n" }, icon("info"), el("span", {}, rt("old")))); // after the head line
+        nodes.splice(1, 0, el("div", { class: "first-n" }, icon("info"), el("span", {}, rt("js.old")))); // after the head line
       }
       pv.replaceChildren(bar, ...nodes);
       renderTimes(pv);
-      goText.textContent = r.n ? rt("go", { n: r.n }) : r.bad || r.fail ? rt("goWait") : rt("go0");
+      goText.textContent = r.n ? rt("js.go", { n: r.n }) : r.bad || r.fail ? rt("common.restore") : rt("js.go0");
       stale();
     }
 
@@ -644,9 +644,9 @@
 
     // ---- the note under the preview: time zone, retention, and the earliest point
     function fillNote() {
-      const [a, b] = rt("note2", { tz: zone, how: rt(body.dataset.tz ? "fixed" : "follow") }).split("{link}");
-      const link = el("a", { href: "/settings" }, rt("settings"));
-      note2.replaceChildren(a, link, b, T ? rt("note3", { d: keepDays, from: fmtT(T.from * 1000) }) : rt("note3b", { d: keepDays }));
+      const [a, b] = rt("js.note2", { tz: zone, how: rt(body.dataset.tz ? "js.fixed" : "js.follow") }).split("{link}");
+      const link = el("a", { href: "/settings" }, rt("nav.settings"));
+      note2.replaceChildren(a, link, b, T ? rt("js.note3", { d: keepDays, from: fmtT(T.from * 1000) }) : rt("js.note3b", { d: keepDays }));
     }
 
     // ---- opening: the preview of the time in the box at once, the axis when its ticks arrive
@@ -669,7 +669,7 @@
         axis.setAttribute("aria-valuemin", T.from);
         axis.setAttribute("aria-valuemax", T.now);
       } else {
-        amsg.textContent = rt(failed ? "axisFail" : "axisNone");
+        amsg.textContent = rt(failed ? "js.axisFail" : "js.axisNone");
         amsg.hidden = false;
       }
       fillNote();
@@ -735,12 +735,12 @@
       } catch (e) { return; }
       if (mine !== seq) return;
       errs = new Map(out.errors.map((x) => [x.line, x.msg]));
-      list.replaceChildren(...out.errors.map((x) => el("div", { class: "err-msg", "data-line": x.line }, `第 ${x.line} 行: ${x.msg}`)));
+      list.replaceChildren(...out.errors.map((x) => el("div", { class: "err-msg", "data-line": x.line }, rt("js.ruleLine", { n: x.line, msg: x.msg }))));
       ta.setAttribute("aria-invalid", errs.size ? "true" : "false");
       draw();
     }, 300);
     ta.addEventListener("input", () => { draw(); validate(); preview.edited(); });
-    // One main button: "预览" while the rules differ from what was previewed, then "保存" (or "保存并删除 N 个文件").
+    // One main button: "Preview" while the rules differ from what was previewed, then "Save" (or "Save and delete N files").
     // The server checks the token of the preview at the save. Without script the button saves and the server answers
     // with the preview first, as it does for a save without a token.
     const form = box.closest("form"), go = $("[data-rulesgo]", form), hitsBox = $("[data-hitsbox]", form);
@@ -750,7 +750,7 @@
       const label = () => {
         const h = $("[data-hits]", hitsBox), n = h ? +h.dataset.hits : 0;
         go.className = "btn " + (shown === ta.value && n ? "danger" : "primary");
-        go.textContent = shown === ta.value ? (n ? `保存并删除 ${n} 个文件` : "保存") : (ta.value === saved0 ? "保存" : "预览");
+        go.textContent = shown === ta.value ? (n ? rt("js.saveDelete", { n }) : rt("common.save")) : (ta.value === saved0 ? rt("common.save") : rt("js.preview"));
         go.disabled = false;
       };
       const self = {
@@ -769,7 +769,7 @@
           } catch (e) { html = null; }
           if (mine !== asking) return;
           if (html === null) { // the rules are invalid or the server is out of reach: the errors list says which
-            hitsBox.replaceChildren(el("div", { class: "err-msg" }, "无法预览, 请检查规则后重试"));
+            hitsBox.replaceChildren(el("div", { class: "err-msg" }, rt("js.previewFail")));
             shown = null;
           } else {
             const doc = new DOMParser().parseFromString(html, "text/html");
@@ -794,7 +794,7 @@
     const dlg = box.closest("dialog"), saved = (box.dataset.saved || "").replace(/^\n/, "");
     if (dlg && box.dataset.saved !== undefined) {
       const dirty = () => ta.value !== saved;
-      dlg.leave = () => { if (dirty()) ask("有未保存的修改, 放弃它们并关闭吗?", "放弃", () => dlg.close()); else dlg.close(); };
+      dlg.leave = () => { if (dirty()) ask(rt("js.discard"), rt("js.discardOk"), () => dlg.close()); else dlg.close(); };
       dlg.addEventListener("cancel", (e) => { if (dirty()) { e.preventDefault(); dlg.leave(); } });
       dlg.addEventListener("close", () => {
         seq++; // a validation still under way would show errors of the discarded text
@@ -810,7 +810,7 @@
     ["keyup", "click", "focus"].forEach((n) => ta.addEventListener(n, draw));
     ta.addEventListener("mousemove", (e) => {
       const line = Math.floor((e.clientY - ta.getBoundingClientRect().top + ta.scrollTop - PAD) / LH) + 1;
-      ta.title = errs.has(line) ? `第 ${line} 行: ${errs.get(line)}` : "";
+      ta.title = errs.has(line) ? rt("js.ruleLine", { n: line, msg: errs.get(line) }) : "";
     });
     draw();
     if (ta.value) validate();
@@ -864,14 +864,14 @@
       document.execCommand("copy");
     }
     const old = b.lastChild.textContent;
-    b.lastChild.textContent = "已复制";
+    b.lastChild.textContent = rt("js.copied");
     setTimeout(() => { b.lastChild.textContent = old; }, 1500);
   });
   $$("[data-countdown]").forEach((c) => {
     const end = +c.dataset.countdown * 1000;
     const tick = () => {
       const s = Math.max(0, Math.round((end - Date.now()) / 1000));
-      c.textContent = s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "已过期";
+      c.textContent = s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : rt("js.expired");
       if (!s) clearInterval(t);
     };
     const t = setInterval(tick, 1000);

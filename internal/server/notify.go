@@ -22,22 +22,21 @@ type notice struct {
 	Kind                  string // a proto kind, or kindConflict
 	Device, Path, Message string
 	Since                 int64
-	Advice, Link          string
+	Link                  string
 	ReportedAt            int64 // when the device last reported, if it is offline; else 0
 }
 
 // kindConflict is the kind of the notice of a conflict copy on the server.
 const kindConflict = "conflict"
 
-var advice = map[string]string{
-	proto.KindRejected: "在该客户端上改名 (大小写冲突时改成不冲突的名称, 非法名称时去掉非法字符), 或用规则排除",
-	proto.KindIO:       "按消息检查该客户端的磁盘或权限",
-	proto.KindFolder:   "挂载磁盘, 或在设备页修改路径或勾选接管",
-	proto.KindInUse:    "关闭占用该文件的程序; SQLite 数据库需要先关闭应用",
-	proto.KindSkipped:  "不需要时用排除规则排除",
+// adviceOf is what to do about a kind of notice, in the language of the page ("" when there is nothing to say).
+func adviceOf(t translator, kind string) string {
+	switch kind {
+	case proto.KindRejected, proto.KindIO, proto.KindFolder, proto.KindInUse, proto.KindSkipped, kindConflict:
+		return t.T("advice." + kind)
+	}
+	return ""
 }
-
-const conflictAdvice = "在任一客户端上比较两份, 删除冲突副本, 或改名以同时保留"
 
 // browseLink points at the directory holding p in the folder's file browser; the page highlights the row.
 func browseLink(folder int64, p string) string {
@@ -77,7 +76,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				continue
 			}
 			for _, e := range fs.Errors {
-				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, Advice: advice[e.Kind], ReportedAt: stale,
+				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale,
 					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped}
 				if e.Kind == proto.KindFolder {
 					n.Link = "/devices/" + strconv.FormatInt(d.id, 10)
@@ -100,7 +99,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 		return nil, err
 	}
 	for _, n := range conflicts {
-		n.Error, n.Kind, n.Message, n.Advice, n.Link = true, kindConflict, "冲突副本", conflictAdvice, browseLink(folder, n.Path)
+		n.Error, n.Kind, n.Link = true, kindConflict, browseLink(folder, n.Path) // the page says what a conflict copy is
 		out = append(out, n)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Error && !out[j].Error })
@@ -146,19 +145,13 @@ type offlineDevice struct {
 // device reports (the popover would otherwise be filled by one device's 300 symbolic links).
 type noticeRow struct {
 	notice
-	Fold bool
-	Text string   // the folded line
-	Sub  []notice // what is folded
+	Fold     bool
+	FoldKind string   // what the folded notices are (a kind, or linkKind)
+	Sub      []notice // what is folded
 }
 
 // foldAbove is the number of notices of one device and kind above which the popover folds them.
 const foldAbove = 5
-
-var foldText = map[string]string{
-	proto.KindRejected: "个条目被拒绝", proto.KindIO: "个读写错误", proto.KindFolder: "个文件夹错误",
-	proto.KindInUse: "个文件正在使用", proto.KindSkipped: "个条目被跳过", kindConflict: "个冲突副本",
-	linkKind: "个符号链接未建立 (Windows 需开启开发人员模式)",
-}
 
 // linkKind is the fold key of the notices of symbolic links a device cannot create (design 6.7): one line per device
 // however few there are, and the line does not change unless the set of links does.
@@ -210,12 +203,11 @@ func foldNotices(notes []notice) []noticeRow {
 		if !ok {
 			i = len(rows)
 			folded[k] = i
-			rows = append(rows, noticeRow{notice: notice{Error: n.Error, Kind: n.Kind, Device: n.Device, Since: n.Since, Advice: n.Advice, ReportedAt: n.ReportedAt}, Fold: true})
+			rows = append(rows, noticeRow{notice: notice{Error: n.Error, Kind: n.Kind, Device: n.Device, Since: n.Since, ReportedAt: n.ReportedAt}, Fold: true, FoldKind: k.kind})
 		}
 		r := &rows[i]
 		r.Sub = append(r.Sub, n)
 		r.Since = min(r.Since, n.Since)
-		r.Text = strconv.Itoa(len(r.Sub)) + " " + foldText[k.kind]
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Error && !rows[j].Error })
 	return rows

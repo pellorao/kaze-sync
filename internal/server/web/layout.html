@@ -1,63 +1,66 @@
 {{define "layout"}}<!doctype html>
-<html lang="zh-CN">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} - kaze-sync</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
+<script src="/i18n/{{.Lang}}" defer></script>
 <script src="/static/app.js" defer></script>
 </head>
 <body data-tz="{{.TZ}}"{{if .LiveURL}} data-live-url="{{.LiveURL}}"{{end}}>
 {{if .Auth}}<header class="bar"><div class="bar-in">
 <a class="logo" href="/">{{icon "logo" "lg"}}kaze-sync</a>
 <span class="sp"></span>
-<span class="conn" data-conn>连接中断</span>
-<button class="icon-btn" type="button" popovertarget="notif" aria-label="通知" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>
-<a class="icon-btn{{if eq .Page "settings"}} on{{end}}" href="/settings" aria-label="设置">{{icon "gear" "lg"}}</a>
-<form method="post" action="/logout"><button class="icon-btn" aria-label="退出">{{icon "logout" "lg"}}</button></form>
+<span class="conn" data-conn>{{t "nav.conn"}}</span>
+<button class="icon-btn" type="button" popovertarget="notif" aria-label="{{t "nav.notif"}}" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>
+<a class="icon-btn{{if eq .Page "settings"}} on{{end}}" href="/settings" aria-label="{{t "nav.settings"}}">{{icon "gear" "lg"}}</a>
+<form method="post" action="/logout"><button class="icon-btn" aria-label="{{t "nav.logout"}}">{{icon "logout" "lg"}}</button></form>
 </div></header>
-<div id="notif" popover class="pop notif" role="dialog" aria-label="通知" data-live="notif">{{template "notif" .Notif}}</div>
+<div id="notif" popover class="pop notif" role="dialog" aria-label="{{t "nav.notif"}}" data-live="notif">{{template "notif" .Notif}}</div>
 {{end}}
-{{if .Flash}}<div class="toast" role="status" data-toast>{{icon "check"}}<span>{{.Flash}}</span><button type="button" class="icon-btn x" data-toast-close aria-label="关闭">{{icon "x"}}</button></div>{{end}}
+{{if .Flash}}<div class="toast" role="status" data-toast>{{icon "check"}}<span>{{.Flash}}</span><button type="button" class="icon-btn x" data-toast-close aria-label="{{t "common.close"}}">{{icon "x"}}</button></div>{{end}}
 <main{{block "mainattr" .}}{{end}}>
 {{template "content" .}}
 </main>
 {{block "dialogs" .}}{{end}}
 {{if .Auth}}<dialog id="dlg-confirm" class="dlg" aria-labelledby="cf-t">
-<div class="dlg-h"><h3 id="cf-t">请确认</h3></div>
+<div class="dlg-h"><h3 id="cf-t">{{t "confirm.title"}}</h3></div>
 <div class="dlg-b"><p id="cf-msg"></p></div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="cf-ok">确定</button></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button type="button" class="btn primary" id="cf-ok">{{t "common.ok"}}</button></div>
 </dialog>{{end}}
 </body>
 </html>{{end}}
 
-{{define "badge"}}{{if .Total}}<span class="badge{{if not .Errors}} warn{{end}}">{{if gt .Total 99}}99+{{else}}{{.Total}}{{end}}</span><span class="sr">通知: {{.Errors}} 个错误, {{.Warnings}} 个提醒</span>{{else}}<span class="sr">没有通知</span>{{end}}{{end}}
+{{define "badge"}}{{if .Total}}<span class="badge{{if not .Errors}} warn{{end}}">{{if gt .Total 99}}99+{{else}}{{.Total}}{{end}}</span><span class="sr">{{t "notif.summary" "e" .Errors "w" .Warnings}}</span>{{else}}<span class="sr">{{t "notif.none"}}</span>{{end}}{{end}}
 
 {{define "notice-item"}}<div class="nitem"><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span>
-<span class="msg">{{.Message}}</span>
-{{if .Path}}<a class="path" href="{{.Link}}">{{.Path}}</a>{{else if .Link}}<a class="path" href="{{.Link}}">设备页</a>{{end}}
-<span class="meta">{{.Device}} · {{time .Since}}{{if .ReportedAt}} · 最后上报于 {{time .ReportedAt}}{{end}}</span>
-{{if .Advice}}<span class="adv">{{.Advice}}</span>{{end}}</div>{{end}}
+<span class="msg">{{if eq .Kind "conflict"}}{{t "tag.conflictCopy"}}{{else}}{{.Message}}{{end}}</span>
+{{if .Path}}<a class="path" href="{{.Link}}">{{.Path}}</a>{{else if .Link}}<a class="path" href="{{.Link}}">{{t "notif.devicePage"}}</a>{{end}}
+<span class="meta">{{.Device}} · {{time .Since}}{{if .ReportedAt}} · {{tm "notif.reportedAt" "time" (time .ReportedAt)}}{{end}}</span>
+{{with advice .Kind}}<span class="adv">{{.}}</span>{{end}}</div>{{end}}
 
-{{define "notif"}}<div class="notif-h"><h3>通知</h3>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}} 个错误</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}} 个提醒</span>{{end}}</div>
+{{define "notif"}}<div class="notif-h"><h3>{{t "nav.notif"}}</h3>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</div>
 <div class="notif-b">
 {{range .Groups}}<div class="grp-h" id="ng-{{.ID}}"><a href="/folders/{{.ID}}">{{.Name}}</a>{{if .Errors}}<span class="cnt err">{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{.Warnings}}</span>{{end}}</div>
-{{range .Rows}}{{if .Fold}}<details class="nitem fold"><summary><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span><span class="msg">{{.Device}}: {{.Text}}</span><span class="meta">最早 {{time .Since}}</span><span class="expand">展开</span></summary>
+{{range .Rows}}{{if .Fold}}<details class="nitem fold"><summary><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span><span class="msg">{{.Device}}: {{fold .FoldKind (len .Sub)}}</span><span class="meta">{{tm "notif.earliest" "time" (time .Since)}}</span><span class="expand">{{t "notif.expand"}}</span></summary>
 {{range .Sub}}{{template "notice-item" .}}{{end}}</details>
 {{else}}{{template "notice-item" .}}{{end}}{{end}}
 {{end}}
-{{if .Offline}}<div class="grp-h" id="ng-dev">设备</div>
-{{range .Offline}}<div class="nitem"><span class="ic warn">{{icon "warn"}}</span><span class="msg"><a href="/devices/{{.ID}}">{{.Name}}</a> {{.Days}} 天未连接</span><span class="meta">最近连接 {{time .Last}}</span><span class="adv">让设备上线, 或吊销</span></div>{{end}}{{end}}
-{{if not .Total}}<p class="empty">没有通知</p>{{end}}
+{{if .Offline}}<div class="grp-h" id="ng-dev">{{t "ov.devices"}}</div>
+{{range .Offline}}<div class="nitem"><span class="ic warn">{{icon "warn"}}</span><span class="msg">{{tm "notif.offlineDays" "href" (printf "/devices/%d" .ID) "name" .Name "d" .Days}}</span><span class="meta">{{tm "notif.lastConn" "time" (time .Last)}}</span><span class="adv">{{t "notif.offlineAdvice"}}</span></div>{{end}}{{end}}
+{{if not .Total}}<p class="empty">{{t "notif.none"}}</p>{{end}}
 </div>
-<div class="notif-f">通知由当前状态算出, 原因消除后自动消失.</div>{{end}}
+<div class="notif-f">{{t "notif.footer"}}</div>{{end}}
 
 
-{{define "hits"}}{{with .}}<div class="preview hits">{{if .Changed}}<div class="preview-h warn" data-changed>{{icon "warn"}}<span>命中文件有变化, 请再核对.</span></div>{{end}}
-{{if .Total}}<div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>预览, 尚未生效: 保存后服务端上命中这些规则的 <b class="num">{{.Total}}</b> 个文件会立即删除 (进入版本历史, 保留期内可恢复). 各设备上的本地文件保留, 之后不再同步.</span></div>
+{{define "hits"}}{{with .}}<div class="preview hits">{{if .Changed}}<div class="preview-h warn" data-changed>{{icon "warn"}}<span>{{t "hits.changed"}}</span></div>{{end}}
+{{if .Total}}<div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>{{tm "hits.warn" "n" .Total}}</span></div>
 <ul>{{range .Paths}}<li><span class="p">{{.}}</span></li>{{end}}</ul>
-{{if gt .More 0}}<div class="more-n">还有 {{.More}} 个</div>{{end}}
-{{else}}<div class="preview-h" data-hits="0">{{icon "info"}}<span>预览, 尚未生效: 没有命中服务端文件.</span></div>{{end}}
+{{if gt .More 0}}<div class="more-n">{{t "hits.more" "n" .More}}</div>{{end}}
+{{else}}<div class="preview-h" data-hits="0">{{icon "info"}}<span>{{t "hits.zero"}}</span></div>{{end}}
 <input type="hidden" name="confirm" value="{{.Token}}"></div>{{end}}{{end}}
-{{define "rulesgo"}}{{if and . .Total}}<button class="btn danger" data-rulesgo>保存并删除 {{.Total}} 个文件</button>{{else}}<button class="btn primary" data-rulesgo>保存</button>{{end}}{{end}}
+{{define "rulesgo"}}{{if and . .Total}}<button class="btn danger" data-rulesgo>{{t "js.saveDelete" "n" .Total}}</button>{{else}}<button class="btn primary" data-rulesgo>{{t "common.save"}}</button>{{end}}{{end}}
+
+{{define "folder-state"}}{{if eq .State "unmapped"}}<span class="st-none">{{t "st.unmapped"}}</span>{{else if eq .State "error"}}<span class="st-err">{{t "st.error"}}</span>{{else if eq .State "syncing"}}<span class="st-sync">{{t "st.syncing"}}{{if .Pending}} · {{t "st.pending" "n" .Pending}}{{end}}</span>{{else if eq .State "offline"}}<span class="st-none">{{t "st.offline"}}</span>{{else}}<span class="st-ok">{{t "st.idle"}}</span>{{end}}{{end}}

@@ -247,6 +247,12 @@ func inClass(name string, c byte, fold bool) (in, known bool) {
 	return false, false
 }
 
+// The messages of LineError, English; the Web UI knows them and shows them in its own language.
+const (
+	ErrTrailingBackslash = "trailing backslash"
+	ErrBracket           = "unterminated or invalid bracket expression"
+)
+
 // malformed reports why pat can never match ("" if it is well formed).
 func malformed(pat string) string {
 	for i := 0; i < len(pat); i++ {
@@ -254,12 +260,12 @@ func malformed(pat string) string {
 		case '\\':
 			i++
 			if i == len(pat) {
-				return "trailing backslash"
+				return ErrTrailingBackslash
 			}
 		case '[':
 			_, end, valid := class(pat, i, 0, false)
 			if !valid {
-				return "unterminated or invalid bracket expression"
+				return ErrBracket
 			}
 			i = end
 		}

@@ -121,10 +121,24 @@ func (e *env) commit(folder int64, ops ...proto.Op) []proto.Result {
 // webClient is a browser-like client with a cookie jar.
 func (e *env) webClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
-	c := e.ts.Client()
-	c.Jar = jar
+	c := &http.Client{Transport: acceptLang{e.ts.Client().Transport, "zh-CN"}, Jar: jar}
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return c
+}
+
+// acceptLang gives every request the Accept-Language of a browser, unless the request has its own. The tests read the
+// pages in the base language.
+type acceptLang struct {
+	base http.RoundTripper
+	lang string
+}
+
+func (a acceptLang) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Header.Get("Accept-Language") == "" {
+		r = r.Clone(r.Context())
+		r.Header.Set("Accept-Language", a.lang)
+	}
+	return a.base.RoundTrip(r)
 }
 
 func (e *env) setAdminPassword(pw string) {

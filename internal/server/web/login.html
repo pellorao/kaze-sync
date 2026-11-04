@@ -2,10 +2,10 @@
 <div class="login"><form class="dlg" method="post" action="/login">
 <div class="dlg-h"><span class="logo">{{icon "logo" "lg"}}kaze-sync</span></div>
 <div class="dlg-b">
-<div class="field"><label for="pw">管理员密码</label><input id="pw" type="password" name="password" autofocus autocomplete="current-password">
+<div class="field"><label for="pw">{{t "login.password"}}</label><input id="pw" type="password" name="password" autofocus autocomplete="current-password">
 {{if .Error}}<span class="err-msg">{{.Error}}</span>{{end}}
-<span class="help">忘记密码时在服务端执行 <code>kaze-syncd admin-password</code> 重置.</span></div>
+<span class="help">{{tm "login.help"}}</span></div>
 </div>
-<div class="dlg-f"><button class="btn primary">登录</button></div>
+<div class="dlg-f"><button class="btn primary">{{t "title.login"}}</button></div>
 </form></div>
 {{end}}

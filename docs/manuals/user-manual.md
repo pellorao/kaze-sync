@@ -6,7 +6,7 @@ This manual describes every operation a kaze-sync user performs: installing the 
 
 Two conventions:
 
-- The Web UI is in Chinese only. Wherever this manual names a button, menu item or message, it gives the English meaning and, in code font, the exact text on screen, for example **Add device** (`添加设备`).
+- The Web UI comes in Simplified Chinese, Traditional Chinese, English, Japanese and Korean (see Settings, section 4). Wherever this manual names a button, menu item or message, it gives the English text and, in code font, the exact text of the Simplified Chinese interface, for example **Add device** (`添加设备`).
 - Commands run on the server are marked `# server`, commands run on a client are marked `# client`. Replace `<...>` with your own value.
 
 Deployment details that are the same for everyone (partitioning the only disk of an OpenWrt box, systemd hardening, the exact memory budget) live in [`docs/operations.md`](../operations.md), which is written in Chinese. This manual points to its sections instead of copying them.
@@ -137,7 +137,7 @@ Every page has a top bar: the **kaze-sync** logo (back to the overview), the not
 | Overview (`总览`) | `/` | Folder table and device table. Buttons: **New folder** (`新建文件夹`), **Add device** (`添加设备`) |
 | Folder | `/folders/<id>` | Browse files, restore, exclusion rules, delete the folder |
 | Device | `/devices/<id>` | The device's mappings, revoke the device |
-| Settings (`设置`) | `/settings` | Time zone, version retention, global exclusion rules |
+| Settings (`设置`) | `/settings` | Time zone, language, version retention, global exclusion rules |
 
 The overview folder table shows for each folder its state (Synced `已同步`, Syncing `同步中` with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, Device offline `设备离线`), the devices that map it, the number of files and the total size, and the number of errors and warnings. The device table shows the system, the last connection time, each folder's state on that device, the client protocol version (shown in red as "N, `过旧`" when it is too old, section 15) and whether the device has the latest configuration.
 
@@ -147,7 +147,7 @@ In the file list a directory row shows the total size of all files below it and 
 
 Times are shown as `2026-11-03 22:48:27` in the browser's time zone by default; hover for the zone name. The pages need JavaScript for the menus, dialogs and live updates, and they are usable at phone width.
 
-**Settings.** **Time zone** (`时区`): follow the browser, or fix an IANA zone for every browser (the list shows each zone with its current UTC offset, such as `+09:00`, summer time included, sorted by that offset from `-12:00` up to `+14:00` and by name within the same offset); it only affects what the Web UI shows and what you type into it. **Version retention** (`版本保留`): days to keep old versions, 1 to 3650, default 30. **Global exclusion rules** (`全局排除规则`): section 7.
+**Settings.** **Time zone** (`时区`): follow the browser, or fix an IANA zone for every browser (the list shows each zone with its current UTC offset, such as `+09:00`, summer time included, sorted by that offset from `-12:00` up to `+14:00` and by name within the same offset); it only affects what the Web UI shows and what you type into it. **Language** (`语言`): follow the browser's language list (the default; English when none of its languages is available) or fix one of the five languages; the choice is kept in this browser only, so a phone and a computer can differ, and times keep the `2026-11-03 22:48:27` format in every language. **Version retention** (`版本保留`): days to keep old versions, 1 to 3650, default 30. **Global exclusion rules** (`全局排除规则`): section 7.
 
 ## 5. Folders and mappings
 
