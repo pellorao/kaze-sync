@@ -10,6 +10,10 @@ import (
 	pp "kaze-sync/internal/proto/path"
 )
 
+// excludedDevice is the device name of the deletions that saving exclusion rules makes (design 8.3). It cannot clash with
+// a real device: their names are letters, digits, "_" and "-".
+const excludedDevice = "web:rules"
+
 // fileRow is a row of files or versions.
 type fileRow struct {
 	path, key string
@@ -33,6 +37,8 @@ func (f *fileRow) entry() *proto.Entry {
 	if f.hash != nil {
 		e.Hash = (*proto.Hash)(f.hash)
 		e.Blocks = proto.SplitHashes(f.blocks)
+	} else {
+		e.Excluded = f.device == excludedDevice
 	}
 	return e
 }

@@ -1,7 +1,10 @@
 package client
 
 import (
+	"net/url"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 
 	cfs "kaze-sync/internal/client/fs"
@@ -81,5 +84,54 @@ func TestRulesCaseModeFollowsSystem(t *testing.T) {
 		if lin.Matcher.Excluded(p, true) != want[0] || win.Matcher.Excluded(p, true) != want[1] {
 			t.Errorf("%s: linux %v windows %v, want %v", p, lin.Matcher.Excluded(p, true), win.Matcher.Excluded(p, true), want)
 		}
+	}
+}
+
+// Saving rules in the Web UI deletes the files they cover on the server (design 8.3), and no device deletes its local
+// copy: not one that already has the rules, and not one that has not applied them yet (the deletion is marked).
+func TestServerDeletionsFromRulesLeaveTheLocalFiles(t *testing.T) {
+	e, f, g1, g2, _ := pair(t)
+	for _, p := range []string{"build/a.o", "build/sub/b.o", "keep.txt", "other.txt"} {
+		g1.put(p, []byte("content of "+p))
+	}
+	g1.sync()
+	g2.sync()
+
+	form := url.Values{"rules": {"build/"}}
+	st, body := e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form)
+	m := regexp.MustCompile(`name="confirm" value="([0-9a-f]+)"`).FindStringSubmatch(body)
+	if st != 409 || m == nil {
+		t.Fatalf("the save should ask first: %d", st)
+	}
+	form.Set("confirm", m[1])
+	if st, _ = e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form); st != 303 {
+		t.Fatalf("confirmed save: %d", st)
+	}
+	if n := e.count(f, `SELECT count(*) FROM files WHERE hash IS NOT NULL`); n != 2 {
+		t.Fatalf("server holds %d files, want 2", n)
+	}
+
+	// g2 has not applied the rules: its matcher excludes nothing, as with an offline device or a pull under way.
+	g2.sync()
+	// g1 has them.
+	g1.restart(g1.f.API, proto.FolderConfig{ID: f, Adopt: true, Rules: []string{"build/"}}, g1.fs)
+	g1.sync()
+	for name, g := range map[string]*engine{"g1": g1, "g2": g2} {
+		for _, p := range []string{"build/a.o", "build/sub/b.o", "keep.txt", "other.txt"} {
+			if got, ok := g.read(p); !ok || got != "content of "+p {
+				t.Errorf("%s: %s = %q %v, the local file must stay", name, p, got, ok)
+			}
+		}
+	}
+	if n := e.count(f, `SELECT count(*) FROM files WHERE hash IS NOT NULL`); n != 2 {
+		t.Fatalf("a device uploaded the excluded files again: %d live files", n)
+	}
+
+	// An ordinary deletion still reaches the other device.
+	g1.fs.Remove("other.txt")
+	g1.sync()
+	g2.sync()
+	if _, ok := g2.read("other.txt"); ok {
+		t.Fatal("an ordinary deletion no longer arrives")
 	}
 }

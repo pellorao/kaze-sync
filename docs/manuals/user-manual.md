@@ -213,7 +213,9 @@ The rule boxes colour comments grey and invalid lines red; hover over a red line
 
 Your own rules (`.venv/`, `node_modules/`, caches, files that change every few seconds and would fill the server with versions) are yours to add. The defaults deliberately do not include them.
 
-**What happens when rules change.** The new rules reach online clients within a second. A path that becomes excluded is simply no longer tracked: the local file stays, and the copy on the server and on other devices stays too (nothing is deleted anywhere). When you remove an exclusion, the client compares both sides again and differences are settled like any other conflict (section 8).
+**What happens when rules change.** The new rules reach online clients within a second. A path that becomes excluded is simply no longer tracked, and the local file stays; the client itself never deletes anything because of a rule (the server copy is dealt with when you save, below). When you remove an exclusion, the client compares both sides again and differences are settled like any other conflict (section 8).
+
+**Saving rules in the Web UI deletes the covered files on the server.** If files that the server already holds match the new rules, the save first lists them (their number and the first 10 paths; for the global rules, with the folder names) and the button turns into a red **Save and delete N files** (`保存并删除 N 个文件`). Press it again to confirm. The files are then deleted on the server like any other deletion, so they enter the version history and can be restored within the retention period. Local copies on every device are kept and are no longer synced, even on a device that is offline or has not applied the rules yet. Files that start matching later are simply not synced; nothing else is deleted. Rules that match no server file, and removing an exclusion, save without this step. Closing the rules dialog with unsaved edits asks whether to discard them; cancelling or pressing Esc throws the edits away.
 
 ## 8. Conflicts and conflict copies
 

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"kaze-sync/internal/ignore"
+	"kaze-sync/internal/proto"
 )
 
 //go:embed web
@@ -283,6 +284,9 @@ func flashText(r *http.Request) string {
 	case "saved":
 		return "已保存"
 	case "rules":
+		if n, err := strconv.Atoi(r.FormValue("deleted")); err == nil && n > 0 {
+			return fmt.Sprintf("排除规则已保存, 服务端删除了 %d 个文件", n)
+		}
 		return "排除规则已保存"
 	case "restored":
 		return "已恢复"
@@ -586,16 +590,130 @@ func ruleLines(text string) []string {
 	return strings.Split(strings.TrimRight(strings.ReplaceAll(text, "\r\n", "\n"), "\n"), "\n")
 }
 
+// ruleHit is a live file on the server that exclusion rules cover.
+type ruleHit struct {
+	Folder     int64
+	Name, Path string // the folder's name, the file's path
+	Seq        int64
+}
+
+// ruleHits lists the live files of a folder that its rules (the global ones, then its own) exclude. The match is
+// case-sensitive: Windows devices fold case, but the server deletes only what the rules name exactly.
+func (s *Server) ruleHits(folder int64, name, global, own string) ([]ruleHit, error) {
+	m, _ := ignore.Compile(append(splitRules(global), splitRules(own)...), false)
+	if m == nil {
+		return nil, nil
+	}
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT path, seq FROM files WHERE hash IS NOT NULL ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ruleHit
+	for rows.Next() {
+		h := ruleHit{Folder: folder, Name: name}
+		if err := rows.Scan(&h.Path, &h.Seq); err != nil {
+			return nil, err
+		}
+		if m.ExcludedPath(h.Path, false) {
+			out = append(out, h)
+		}
+	}
+	return out, rows.Err()
+}
+
+// hitsToken identifies a list of hits: the confirmation of a save is valid for exactly the files the person saw.
+func hitsToken(hits []ruleHit) string {
+	h := sha256.New()
+	for _, x := range hits {
+		fmt.Fprintf(h, "%d\x00%s\n", x.Folder, x.Path)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// hitsView is what the page shows of the hits: the number, the first few paths and the token to confirm them.
+type hitsView struct {
+	Total int
+	Paths []string
+	More  int
+	Token string
+}
+
+const hitsShown = 10
+
+func newHitsView(hits []ruleHit, withFolder bool) *hitsView {
+	v := &hitsView{Total: len(hits), Token: hitsToken(hits)}
+	for _, h := range hits[:min(len(hits), hitsShown)] {
+		if withFolder {
+			v.Paths = append(v.Paths, h.Name+": "+h.Path)
+		} else {
+			v.Paths = append(v.Paths, h.Path)
+		}
+	}
+	v.More = len(hits) - len(v.Paths)
+	return v
+}
+
+// deleteHits deletes the files the rules cover from the server as ordinary versioned deletions, marked as made by
+// the exclusion so that the clients keep their local copies (design 8.3). A file that changed since the hit was
+// listed is left alone. It returns the number deleted.
+func (s *Server) deleteHits(hits []ruleHit) int {
+	deleted := 0
+	for i := 0; i < len(hits); {
+		j := i
+		var ops []proto.Op
+		for j < len(hits) && hits[j].Folder == hits[i].Folder && len(ops) < proto.MaxCommitOps {
+			ops = append(ops, proto.Op{Path: hits[j].Path, BaseSeq: hits[j].Seq})
+			j++
+		}
+		res, err := s.commit(hits[i].Folder, excludedDevice, ops)
+		if err != nil {
+			slog.Error("exclusion delete", "folder", hits[i].Name, "err", err)
+		}
+		for _, r := range res {
+			if r.Status == proto.StatusOK {
+				deleted++
+			}
+		}
+		i = j
+	}
+	if len(hits) > 0 {
+		slog.Info("exclusion delete", "listed", len(hits), "deleted", deleted)
+	}
+	return deleted
+}
+
 // saveRules validates rule text (the trust boundary, design 3.2), stores it with write (whose last
 // argument is the text and whose other arguments are args) and, when it changed, pushes the new configuration.
 // A refused text comes back as the page behind the dialog (page), with the errors listed under the text.
-func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, dialog, back, read, write string, args ...any) error {
+// Files on the server that the new rules cover are deleted by the save (design 8.3), so the first POST only lists them
+// (the dialog comes back with the files and a confirmation token) and the POST that carries the token saves.
+func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, dialog, back, read, write string, impact func(text string) ([]ruleHit, bool, error), args ...any) error {
 	text := strings.TrimRight(strings.ReplaceAll(r.FormValue("rules"), "\r\n", "\n"), "\n")
 	if len(text) > maxRulesText {
 		return fieldErr(page, http.StatusBadRequest, dialog, "rules", "规则太长")
 	}
 	if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
 		return &dialogState{status: http.StatusBadRequest, dialog: dialog, ruleErrs: errs, page: page}
+	}
+	var old string
+	if err := s.db.QueryRow(read, args...).Scan(&old); err != nil {
+		return err
+	}
+	var hits []ruleHit
+	if old != text {
+		var withFolder bool
+		var err error
+		if hits, withFolder, err = impact(text); err != nil {
+			return err
+		}
+		if len(hits) > 0 && r.FormValue("confirm") != hitsToken(hits) {
+			return &dialogState{status: http.StatusConflict, dialog: dialog, page: page, extra: map[string]any{"Hits": newHitsView(hits, withFolder)}}
+		}
 	}
 	err := s.configChange(func(tx *sql.Tx) (bool, error) {
 		var old string
@@ -607,6 +725,9 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 	})
 	if err != nil {
 		return err
+	}
+	if n := s.deleteHits(hits); n > 0 {
+		back += "&deleted=" + strconv.Itoa(n)
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil
@@ -662,7 +783,19 @@ func (s *Server) configChange(change func(tx *sql.Tx) (bool, error)) error {
 }
 
 func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
-	return s.saveRules(w, r, s.settingsPage, "rules", "/settings?ok=rules", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`)
+	// The new global rules act on every folder, each with its own rules after them.
+	impact := func(text string) (all []ruleHit, _ bool, _ error) {
+		fols, err := queryAll(s.db, func(rows *sql.Rows, f *folderRow) error { return rows.Scan(&f.ID, &f.Name, &f.Rules) }, `SELECT id, name, rules FROM folders ORDER BY name`)
+		for _, f := range fols {
+			hits, herr := s.ruleHits(f.ID, f.Name, text, f.Rules)
+			if herr != nil {
+				return nil, false, herr
+			}
+			all = append(all, hits...)
+		}
+		return all, true, err
+	}
+	return s.saveRules(w, r, s.settingsPage, "rules", "/settings?ok=rules", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`, impact)
 }
 
 func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
@@ -670,7 +803,11 @@ func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return s.saveRules(w, r, s.folderPage, "dlg-rules", "/folders/"+strconv.FormatInt(f.ID, 10)+"?ok=rules", `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, f.ID)
+	impact := func(text string) ([]ruleHit, bool, error) {
+		hits, err := s.ruleHits(f.ID, f.Name, MetaString(s.db, "global_rules"), text)
+		return hits, false, err
+	}
+	return s.saveRules(w, r, s.folderPage, "dlg-rules", "/folders/"+strconv.FormatInt(f.ID, 10)+"?ok=rules", `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, impact, f.ID)
 }
 
 type deviceRow struct {

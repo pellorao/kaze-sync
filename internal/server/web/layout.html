@@ -52,3 +52,9 @@
 {{if not .Total}}<p class="empty">没有通知</p>{{end}}
 </div>
 <div class="notif-f">通知由当前状态算出, 原因消除后自动消失.</div>{{end}}
+
+
+{{define "hits"}}{{with .}}<div class="preview hits"><div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>保存后服务端上命中这些规则的 <b class="num">{{.Total}}</b> 个文件会立即删除 (进入版本历史, 保留期内可恢复). 各设备上的本地文件保留, 之后不再同步.</span></div>
+<ul>{{range .Paths}}<li><span class="p">{{.}}</span></li>{{end}}</ul>
+{{if gt .More 0}}<div class="more-n">还有 {{.More}} 个</div>{{end}}
+<input type="hidden" name="confirm" value="{{.Token}}"></div>{{end}}{{end}}

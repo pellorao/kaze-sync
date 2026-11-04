@@ -179,6 +179,9 @@ textarea.code { font-size: 13px; tab-size: 4; }
 .scope svg { color: var(--accent); }
 .preview { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .preview-h { padding: 8px 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); border-bottom: 1px solid var(--line); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.preview-h.danger { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); align-items: flex-start; }
+.preview-h.danger svg { margin-top: 2px; flex: none; }
+.hits { margin-top: 8px; }
 .preview ul { list-style: none; margin: 0; padding: 4px 0; max-height: 200px; overflow-y: auto; }
 .preview li { display: flex; gap: 12px; padding: 3px 12px; font-size: 12px; }
 .preview li .p { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

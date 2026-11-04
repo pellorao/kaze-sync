@@ -303,7 +303,7 @@ func (f *Folder) finishLive(ctx context.Context, e proto.Entry, err error) (appl
 
 // applyDeleted applies a deletion.
 func (f *Folder) applyDeleted(e proto.Entry) (applied, error) {
-	if f.excluded(e.Path) {
+	if e.Excluded || f.excluded(e.Path) { // the rules deleted it on the server: the local copy stays (design 8.3)
 		return done, nil
 	}
 	row, have, err := f.DB.get(e.Path)

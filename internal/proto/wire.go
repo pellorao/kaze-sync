@@ -169,6 +169,10 @@ type Entry struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
 	Exec    bool   `json:"exec"`
+	// Excluded marks a deletion made because exclusion rules now cover the file (design 8.3). A client keeps its local
+	// copy of such a file whatever rules it has at that moment, so a client that has not applied the new rules yet
+	// (an offline one, or a pull under way) cannot delete it. Only deletions carry it.
+	Excluded bool `json:"excluded,omitempty"`
 }
 
 type Result struct {

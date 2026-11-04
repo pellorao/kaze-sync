@@ -61,10 +61,11 @@
 {{with index .Errs "rules"}}<span class="err-msg">{{.}}</span>{{end}}
 <span class="help" id="ru-help">gitignore 语法, 每行一条, <code>#</code> 开头为注释. 接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 <code>!/dir/</code> 再 <code>/dir/*</code> 再 <code>!/dir/file</code>.</span>
 </div>
+{{template "hits" .Hits}}
 <details class="glob"><summary>全局规则 ({{.GlobalCount}} 条, 只读, 在 <a href="/settings">设置</a> 中修改)</summary>
 <pre>{{.Global}}</pre></details>
 </div>
-<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">保存</button></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>取消</button>{{with .Hits}}<button class="btn danger">保存并删除 {{.Total}} 个文件</button>{{else}}<button class="btn primary">保存</button>{{end}}</div>
 </form></dialog>
 
 {{if .File}}<dialog id="dlg-versions" class="dlg wide" data-autoopen data-clear="file,rv" aria-labelledby="vh-t">
