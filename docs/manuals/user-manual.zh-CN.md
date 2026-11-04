@@ -207,7 +207,7 @@ kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HE
 
 规则文本框把注释显示为灰色, 无效行显示为红色; 鼠标悬停在红色行上可以看到消息, 全部错误列在文本框下方. 有无效行时保存会被拒绝, 不会改变任何内容.
 
-**内置排除**始终生效, 不能被覆盖: `.syncroot`, 下载中的临时文件 `.syncpart-*`, 以及 SQLite 数据库的旁文件 `-wal`, `-shm`, `-journal` (第 10 节).
+**内置排除**始终生效, 不能被覆盖: `.syncroot`, 下载中的临时文件 `.syncpart-*` (超过一天没有改动的残留会在下一次扫描时删除), 以及 SQLite 数据库的旁文件 `-wal`, `-shm`, `-journal` (第 10 节).
 
 **默认全局规则**包括: Office 和 Windows 的遗留文件 (`~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `$RECYCLE.BIN/`, `System Volume Information/` 等), 编辑器和锁文件 (`*~`, `.~lock.*`, `.*.sw?`, `*.kate-swp`), 未下载完的文件 (`*.part`, `*.filepart`, `*.crdownload`), macOS 元数据 (`.DS_Store`, `._*`, `.Trashes/` 等), Linux 的遗留文件 (`.Trash-*/`, `.directory`, `.fuse_hidden*`, `.nfs*`), 以及其他同步工具的元数据 (`.stfolder/`, `.stversions/`, `.stignore` 等). 完整列表在设置页. 默认规则只在安装时写入一次, 之后以设置页中的文本为准.
 
@@ -413,7 +413,7 @@ rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据�
 | Linux 客户端 | `~/.local/state/kaze-sync/kaze-syncc.log` (设置了 `$XDG_STATE_HOME` 时在 `$XDG_STATE_HOME/kaze-sync/`) |
 | Windows 客户端 | `%LOCALAPPDATA%\kaze-sync\kaze-syncc.log` |
 
-客户端日志只记启动, 警告和错误; 超过 10 MB 时, 在 agent 下一次启动时移到 `kaze-syncc.log.old`.
+客户端日志只记启动, 警告和错误; 超过 10 MB 时立即移到 `kaze-syncc.log.old` (agent 运行中也一样, 只保留一份旧文件).
 
 **客户端的调试时间线.** 要查明某次变更为什么慢, 在客户端的状态目录 (上表所在目录) 里创建一个名为 `debug` 的空文件, 并重启 agent. 日志里就会多出 `level=DEBUG` 行, 记录文件事件, 扫描, 拉取, 以及每个到服务端的请求和耗时. 用完删掉该文件并重启 agent.
 

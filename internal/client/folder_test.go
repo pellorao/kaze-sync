@@ -364,3 +364,28 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 		t.Fatalf("server version not downloaded: %v", err)
 	}
 }
+
+// Temporary download parts are kept for resuming, but one untouched for more than a day is leftover: the scan
+// removes it.
+func TestScanRemovesStaleDownloadParts(t *testing.T) {
+	_, _, _, g := setup(t)
+	g.put(".syncpart-0123456789abcdef", []byte("partial"))
+	g.put("dir/.syncpart-fedcba9876543210", []byte("partial"))
+	g.put("keep.txt", []byte("x"))
+	base := int64(1_000_000_000_000)
+	g.f.Now = func() time.Time { return time.Unix(0, base).Add(23 * time.Hour) }
+	g.scan()
+	if _, err := g.fs.Stat(".syncpart-0123456789abcdef"); err != nil {
+		t.Fatalf("a part under a day old was removed: %v", err)
+	}
+	g.f.Now = func() time.Time { return time.Unix(0, base).Add(25 * time.Hour) }
+	g.scan()
+	for _, p := range []string{".syncpart-0123456789abcdef", "dir/.syncpart-fedcba9876543210"} {
+		if _, err := g.fs.Stat(p); err == nil {
+			t.Errorf("%s is older than a day and still there", p)
+		}
+	}
+	if _, err := g.fs.Stat("keep.txt"); err != nil {
+		t.Errorf("an ordinary file: %v", err)
+	}
+}

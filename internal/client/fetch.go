@@ -105,6 +105,9 @@ func (f *Folder) placedRow(e *proto.Entry) (localRow, error) {
 		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec}, nil
 }
 
+// maxConflictNames is how many names (one per second) conflictName tries before it gives up.
+const maxConflictNames = 1000
+
 // conflictName returns a free name for the conflict copy of p (design 6.1).
 func (f *Folder) conflictName(p string) (string, error) {
 	dir, base := path.Split(p)
@@ -113,14 +116,17 @@ func (f *Folder) conflictName(p string) (string, error) {
 	if dev == "" {
 		dev = "device"
 	}
-	for t := f.Now(); ; t = t.Add(time.Second) {
+	t := f.Now()
+	for range maxConflictNames {
 		q := dir + strings.TrimSuffix(base, ext) + ".conflict-" + dev + "-" + t.Format("20060102-150405") + ext
 		if _, err := f.FS.Stat(q); errors.Is(err, fs.ErrNotExist) {
 			return q, nil
 		} else if err != nil {
 			return "", err
 		}
+		t = t.Add(time.Second)
 	}
+	return "", fmt.Errorf("no free conflict copy name for %s: %d are taken", p, maxConflictNames)
 }
 
 // renameAway moves the file or directory p to its conflict copy name.
@@ -257,6 +263,9 @@ func (r *blockReader) load(i int) error {
 		return nil
 	}
 	if data, ok := r.prefetch[h]; ok {
+		if len(data) != n {
+			return remoteError{fmt.Errorf("server sent block %s with %d bytes, want %d", h, len(data), n)}
+		}
 		copy(dst, data)
 		r.cur = dst
 		return nil

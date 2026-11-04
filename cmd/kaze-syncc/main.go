@@ -119,10 +119,7 @@ func run(dir string) error {
 		return fmt.Errorf("not enrolled (run enroll first): %w", err)
 	}
 	logFile := filepath.Join(dir, "kaze-syncc.log")
-	if fi, err := os.Stat(logFile); err == nil && fi.Size() > maxLogSize {
-		os.Rename(logFile, logFile+".old")
-	}
-	lf, err := os.OpenFile(logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	lf, err := openLog(logFile, maxLogSize)
 	if err != nil {
 		return err
 	}

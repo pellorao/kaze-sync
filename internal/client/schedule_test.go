@@ -84,3 +84,51 @@ func TestScheduleSlowRetriesRunOutAfterTheirSteps(t *testing.T) {
 		t.Fatalf("a retry beyond the schedule at %v", s.retryAt)
 	}
 }
+
+// With the server unreachable every task fails. The failed pull must wait for the retry time (with growing
+// delays) instead of running again as soon as the task ends: attempts per minute stay bounded.
+func TestScheduleUnreachableServerDoesNotSpin(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	var s schedule
+	s.nextFull = t0.Add(time.Hour)
+	s.pull = true // news from the server, then the server went away
+	end := t0.Add(time.Minute)
+	now, attempts := t0, 0
+	for i := 0; i < 100000 && now.Before(end); i++ {
+		p, ok := s.take(now)
+		if !ok {
+			next := s.next()
+			if next.IsZero() || !next.After(now) {
+				break
+			}
+			now = next
+			continue
+		}
+		attempts++
+		s.done(testConf, now, p, taskResult{err: errors.New("connection refused")})
+	}
+	// delays 10 s, 20 s, 40 s: the attempts at 0, 10, 30 and 70 s
+	if attempts < 2 || attempts > 4 {
+		t.Fatalf("%d attempts in a minute, want 3", attempts)
+	}
+}
+
+// A reset that failed is carried to the retry, not repeated at once.
+func TestScheduleFailedResetWaitsForTheRetry(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	var s schedule
+	s.nextFull = t0.Add(time.Hour)
+	s.pull, s.reset = true, true
+	p, ok := s.take(t0)
+	if !ok || !p.reset || !p.pull {
+		t.Fatalf("plan %+v %v", p, ok)
+	}
+	s.done(testConf, t0, p, taskResult{err: errors.New("boom")})
+	if _, ok := s.take(t0.Add(time.Second)); ok {
+		t.Fatal("the failed pull ran again before the retry time")
+	}
+	p, ok = s.take(t0.Add(testConf.RetryAfter))
+	if !ok || !p.reset || !p.pull {
+		t.Fatalf("at the retry time: %+v %v", p, ok)
+	}
+}

@@ -207,7 +207,7 @@ A folder rule cannot delete a global rule, but because the last match wins it ca
 
 The rule boxes colour comments grey and invalid lines red; hover over a red line to see the message, and the errors are listed under the box. Saving is refused while a line is invalid, and nothing is changed.
 
-**Built-in exclusions** always apply and cannot be overridden: `.syncroot`, temporary download parts `.syncpart-*`, and the side files `-wal`, `-shm`, `-journal` of SQLite databases (section 10).
+**Built-in exclusions** always apply and cannot be overridden: `.syncroot`, temporary download parts `.syncpart-*` (a part untouched for more than a day is deleted by the next scan), and the side files `-wal`, `-shm`, `-journal` of SQLite databases (section 10).
 
 **Default global rules** cover: Office and Windows leftovers (`~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `$RECYCLE.BIN/`, `System Volume Information/` and a few more), editor and lock files (`*~`, `.~lock.*`, `.*.sw?`, `*.kate-swp`), partial downloads (`*.part`, `*.filepart`, `*.crdownload`), macOS metadata (`.DS_Store`, `._*`, `.Trashes/`, and others), Linux leftovers (`.Trash-*/`, `.directory`, `.fuse_hidden*`, `.nfs*`), and metadata of other sync tools (`.stfolder/`, `.stversions/`, `.stignore`, ...). Open the settings page for the full list. The defaults are written once at installation; afterwards the text in the settings page is the truth.
 
@@ -413,7 +413,7 @@ Close the port in your firewall or security group if you opened it by hand.
 | Linux client | `~/.local/state/kaze-sync/kaze-syncc.log` (`$XDG_STATE_HOME/kaze-sync/` if set) |
 | Windows client | `%LOCALAPPDATA%\kaze-sync\kaze-syncc.log` |
 
-The client log records startup, warnings and errors, and is moved to `kaze-syncc.log.old` at the next agent start once it is over 10 MB.
+The client log records startup, warnings and errors, and is moved to `kaze-syncc.log.old` as soon as it grows past 10 MB (also while the agent runs; one old file is kept).
 
 **Debug timeline of the client.** To find out why a change is slow, create an empty file named `debug` in the client's state directory (the directory above) and restart the agent. The log then also has `level=DEBUG` lines for file events, scans, pulls and every request to the server with its duration. Delete the file and restart the agent when done.
 

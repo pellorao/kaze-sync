@@ -21,6 +21,8 @@ type schedule struct {
 	reset      bool // the server went back in time: forget its seqs
 	rewatch    bool // the watcher reported lost events: start a new one
 	retryAt    time.Time
+	holdUntil  time.Time // a pull or reset left over from a failed task waits for this time (the retry time), so that an unreachable server is not asked in a loop
+	fails      int       // consecutive failed tasks: the retry delay doubles with each
 	unstableAt time.Time // when the youngest file the last scans found too fresh to upload becomes stable; no task clears it, only a scan that no longer sees such a file
 	slowTries  int       // retries for files in use so far
 	nextFull   time.Time
@@ -52,12 +54,16 @@ func (s *schedule) event(c schedConf, d string, now time.Time) {
 	}
 }
 
+// maxRetryDelay caps the doubling retry delay after failed tasks (the same cap as the poll loop's).
+const maxRetryDelay = time.Minute
+
 func due(t, now time.Time) bool { return !t.IsZero() && !now.Before(t) }
 
 // take returns the work due at now and clears what it takes; ok is false when nothing is due. A due retry
 // (also one for a file that was too fresh) scans the whole folder: the files it is about may be anywhere.
 func (s *schedule) take(now time.Time) (p plan, ok bool) {
-	p = plan{full: s.full || due(s.nextFull, now), pull: s.pull, reset: s.reset}
+	held := now.Before(s.holdUntil)
+	p = plan{full: s.full || due(s.nextFull, now), pull: s.pull && !held, reset: s.reset && !held}
 	p.retry = due(s.retryAt, now) || due(s.unstableAt, now)
 	if len(s.dirty) > 0 && !now.Before(s.debounceAt) {
 		for d := range s.dirty {
@@ -75,7 +81,13 @@ func (s *schedule) take(now time.Time) (p plan, ok bool) {
 	if p.full || p.retry {
 		p.dirs = nil
 	}
-	s.full, s.pull, s.reset, s.retryAt = false, false, false, time.Time{}
+	if p.pull && s.reset {
+		p.reset = true // a pull forced by a scan still starts from the reset
+	}
+	s.full, s.retryAt = false, time.Time{}
+	if p.pull {
+		s.pull, s.reset = false, false
+	}
 	return p, true
 }
 
@@ -92,8 +104,16 @@ type taskResult struct {
 
 // done records how the task p ended at now.
 func (s *schedule) done(c schedConf, now time.Time, p plan, o taskResult) {
+	if o.err != nil {
+		s.fails++
+	} else {
+		s.fails = 0
+	}
 	if o.err != nil || o.retry {
 		s.retryAt = now.Add(c.RetryAfter)
+		if o.err != nil && s.fails > 1 {
+			s.retryAt = now.Add(min(c.RetryAfter<<min(s.fails-1, 10), max(maxRetryDelay, c.RetryAfter)))
+		}
 		if o.unauth {
 			s.retryAt = now.Add(c.AuthRetry)
 		}
@@ -120,13 +140,16 @@ func (s *schedule) done(c schedConf, now time.Time, p plan, o taskResult) {
 	}
 	if o.err != nil {
 		s.pull, s.reset = s.pull || p.pull, s.reset || p.reset
+		s.holdUntil = s.retryAt // not before the retry time
+	} else if p.pull {
+		s.holdUntil = time.Time{}
 	}
 }
 
 // next is the earliest time something is due, or zero when nothing is scheduled.
 func (s *schedule) next() time.Time {
 	var next time.Time
-	for _, t := range []time.Time{s.retryAt, s.unstableAt, s.nextFull} {
+	for _, t := range []time.Time{s.retryAt, s.unstableAt, s.nextFull, s.heldWork()} {
 		if !t.IsZero() && (next.IsZero() || t.Before(next)) {
 			next = t
 		}
@@ -135,4 +158,12 @@ func (s *schedule) next() time.Time {
 		next = s.debounceAt
 	}
 	return next
+}
+
+// heldWork is when the pull or reset left over from a failed task may run, or zero when none waits.
+func (s *schedule) heldWork() time.Time {
+	if s.pull || s.reset {
+		return s.holdUntil
+	}
+	return time.Time{}
 }

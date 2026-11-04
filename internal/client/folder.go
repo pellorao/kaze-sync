@@ -281,6 +281,9 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 	for _, e := range entries {
 		p := path.Join(dir, e.Name)
 		if builtinExcluded(e.Name, names) || f.Matcher.Excluded(p, e.IsDir) {
+			if isPart(e) && f.Now().UnixNano()-e.MtimeNs > int64(staleDownloadPart) {
+				f.FS.Remove(p) // a download part nobody resumed for a day is leftover
+			}
 			continue
 		}
 		switch {
@@ -297,6 +300,13 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 			files[p] = found{e, busy}
 		}
 	}
+}
+
+// staleDownloadPart is how long a temporary download file may lie untouched before the scan removes it.
+const staleDownloadPart = 24 * time.Hour
+
+func isPart(e cfs.Entry) bool {
+	return !e.IsDir && !e.IsSymlink && strings.HasPrefix(e.Name, ".syncpart-")
 }
 
 // builtinExcluded: the marker, temporary download files and SQLite side files (design 8.1, 5.6).
