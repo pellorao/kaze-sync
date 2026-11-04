@@ -27,6 +27,7 @@ const (
 	retryAfter   = 10 * time.Second
 	stablePeriod = 5 * time.Second
 	maxLogSize   = 10 << 20
+	debugMarker  = "debug" // a file of this name in the state directory turns on debug logging
 )
 
 func main() {
@@ -97,7 +98,11 @@ func run(dir string) error {
 		return err
 	}
 	defer lf.Close()
-	slog.SetDefault(slog.New(slog.NewTextHandler(lf, nil)))
+	opts := &slog.HandlerOptions{}
+	if _, err := os.Stat(filepath.Join(dir, debugMarker)); err == nil { // `touch` it and restart the agent to log the timeline
+		opts.Level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(lf, opts)))
 
 	hc, err := client.NewHTTPClient(dev.Fingerprint)
 	if err != nil {

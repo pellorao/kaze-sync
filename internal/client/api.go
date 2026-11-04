@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,18 @@ var (
 	responseTimeout = 90 * time.Second
 	idleTimeout     = 60 * time.Second
 )
+
+// trace starts timing a step for the debug log (off by default, see docs/operations.md); the returned function
+// logs it with the extra attributes when the step ends.
+func trace(msg string, args ...any) func(more ...any) {
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return func(...any) {}
+	}
+	t0 := time.Now()
+	return func(more ...any) {
+		slog.Debug(msg, append(append(args, "ms", time.Since(t0).Milliseconds()), more...)...)
+	}
+}
 
 var ErrUnauthorized = errors.New("server rejected the device token (revoked? enroll again)")
 
@@ -125,12 +138,18 @@ func (a *API) Poll(ctx context.Context, req proto.PollReq) (proto.PollResp, erro
 	ctx, cancel := context.WithTimeout(ctx, (proto.PollTimeoutS+15)*time.Second)
 	defer cancel()
 	var r proto.PollResp
-	return r, a.json(ctx, "poll", req, &r)
+	done := trace("poll")
+	err := a.json(ctx, "poll", req, &r)
+	done("cursors", fmt.Sprint(r.Cursors), "config", r.Config != nil, "err", err)
+	return r, err
 }
 
 func (a *API) Commit(ctx context.Context, folder int64, ops []proto.Op) ([]proto.Result, error) {
 	var r proto.CommitResp
-	if err := a.json(ctx, "commit", proto.CommitReq{Folder: folder, Ops: ops}, &r); err != nil {
+	done := trace("server commit", "folder", folder, "ops", len(ops))
+	err := a.json(ctx, "commit", proto.CommitReq{Folder: folder, Ops: ops}, &r)
+	done("err", err)
+	if err != nil {
 		return nil, err
 	}
 	if len(r.Results) != len(ops) {
@@ -142,12 +161,17 @@ func (a *API) Commit(ctx context.Context, folder int64, ops []proto.Op) ([]proto
 // UploadBlocks sends a block packet (see proto.WriteBlock).
 func (a *API) UploadBlocks(ctx context.Context, packet []byte) error {
 	var r map[string]int
-	return a.do(ctx, "blocks", bytes.NewReader(packet), "application/octet-stream", &r)
+	done := trace("upload blocks", "bytes", len(packet))
+	err := a.do(ctx, "blocks", bytes.NewReader(packet), "application/octet-stream", &r)
+	done("err", err)
+	return err
 }
 
 // Changes returns one page of the entries of a folder with seq > since.
 func (a *API) Changes(ctx context.Context, folder, since int64) (proto.ChangesResp, error) {
 	var r proto.ChangesResp
+	done := trace("changes", "folder", folder, "since", since)
+	defer func() { done("entries", len(r.Entries)) }()
 	u := fmt.Sprintf("%s/api/v1/changes?folder=%d&since=%d", strings.TrimRight(a.Base, "/"), folder, since)
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -171,7 +195,9 @@ func (a *API) GetBlocks(ctx context.Context, hashes []proto.Hash) (io.ReadCloser
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	req.Header.Set("Authorization", "Bearer "+a.Token)
+	done := trace("download blocks", "blocks", len(hashes))
 	resp, err := a.HC.Do(req)
+	done("err", err)
 	if err != nil {
 		cancel()
 		return nil, err

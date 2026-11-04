@@ -180,6 +180,7 @@ func (a *Agent) cycle(ctx context.Context) {
 		if !ok {
 			continue
 		}
+		slog.Debug("task planned", "folder", r.cfg.ID, "dirs", p.dirs, "full", p.full, "scan", p.scan, "pull", p.pull, "retry", p.retry)
 		r.busy = true
 		tasks = append(tasks, task{r, p})
 	}
@@ -224,12 +225,18 @@ func (a *Agent) work(ctx context.Context, t task) {
 		}
 	}
 	if t.scan && err == nil {
-		if rep, err = f.Scan(ctx, t.dirs...); err != nil && ctx.Err() == nil {
+		done := trace("scan", "folder", r.cfg.ID, "dirs", t.dirs)
+		rep, err = f.Scan(ctx, t.dirs...)
+		done("committed", rep.Committed, "pending_up", rep.PendingUp, "unstable", !f.Unstable().IsZero(), "err", err)
+		if err != nil && ctx.Err() == nil {
 			slog.Warn("scan failed", "folder", r.cfg.ID, "err", err)
 		}
 	}
 	if err == nil && (t.pull || f.retry || f.Seen() < 0) && f.Ready() {
-		if rep, err = f.Pull(ctx); err != nil && ctx.Err() == nil {
+		done := trace("pull", "folder", r.cfg.ID)
+		rep, err = f.Pull(ctx)
+		done("pending_down", rep.PendingDown, "err", err)
+		if err != nil && ctx.Err() == nil {
 			slog.Warn("pull failed", "folder", r.cfg.ID, "err", err)
 		}
 	}
@@ -280,6 +287,7 @@ func (a *Agent) consume(r *runner) {
 	for {
 		select {
 		case d := <-r.events:
+			slog.Debug("watcher event", "folder", r.cfg.ID, "dir", d)
 			a.mu.Lock()
 			r.s.event(a.schedConf(), d, time.Now())
 			a.mu.Unlock()

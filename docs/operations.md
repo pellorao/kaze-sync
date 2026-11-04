@@ -115,6 +115,10 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (可重复执行, 端口, 证书和密码不变); 它复制新二进制, 按 `schema_version` 逐库迁移 (先全局库, 再每个文件夹库), 然后重启服务. 先升级服务端, 再逐台升级客户端: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 服务端升级后, 版本过旧 (低于服务端的 `MinAgentVersion`, 设计 9.3) 的客户端不再同步: 它的日志 (Linux 在 `~/.local/state/kaze-sync/kaze-syncc.log`) 里每分钟一条 `client too old ... upgrade kaze-syncc`, 总览页该设备的版本列显示 "N (过旧, 请升级客户端)"; 按上面的步骤替换这台客户端的二进制并重启 agent 即可, 数据不受影响, 升级后自动继续同步. 只有协议变得不兼容的改动才会提高 `MinAgentVersion`, 其余升级不要求同步升级客户端. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1). 普通 Linux 上执行 `install` 同样会复制新二进制, 迁移数据库并重启服务 (systemd 先 `daemon-reload`).
 
+## 客户端调试日志
+
+默认日志只记启动, 警告和错误. 诊断同步延迟时, 在客户端状态目录 (Linux `~/.local/state/kaze-sync`, Windows `%LOCALAPPDATA%\kaze-sync`) 里创建一个名为 `debug` 的空文件并重启 agent, 日志 (`kaze-syncc.log`) 就多出 `level=DEBUG` 的时间线: 文件事件 (`watcher event`), 去抖到点后的任务 (`task planned`), 扫描 (`scan`) 与拉取 (`pull`) 的耗时和结果, 到服务端的请求 (`poll`, `server commit`, `upload blocks`, `changes`, `download blocks`, 带耗时 `ms`) 和轮询带来的通知 (`poll news`). 用完删掉该文件并重启 agent; 日志仍受 10 MB 轮转限制.
+
 ## 客户端卸载 (手动)
 
 - Linux: `systemctl --user disable --now kaze-sync`, 删除 `~/.config/systemd/user/kaze-sync.service`, 删除状态目录 `~/.local/state/kaze-sync` (含日志); 同步目录里的文件保留.

@@ -127,6 +127,7 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 	}
 	a.mu.Unlock()
 	if news {
+		slog.Debug("poll news", "cursors", fmt.Sprint(resp.Cursors), "config", resp.Config != nil)
 		a.wake()
 	}
 	return news
