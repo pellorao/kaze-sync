@@ -190,7 +190,7 @@ func historyStart(db *sql.DB, earliest, now int64) (start int64, imp bool, err e
 // first record is taken as the end of the folder's initial import (design 7): that is the first state the
 // folder was complete in, and "no difference" would be wrong. Files created after the import count as absent
 // then and are not touched. none says that there is no record at all. A cancelled ctx (the browser dropped the
-// request: the slider moved on) ends the scan with its error.
+// request: the line moved on) ends the scan with its error.
 func restoreDiff(ctx context.Context, db *sql.DB, p string, at time.Time, now int64, visit func(old, cur *fileRow, nowGone bool) error) (note restoreNote, none bool, err error) {
 	earliest, err := earliestRecord(db, p)
 	if err != nil || earliest == 0 {
@@ -220,7 +220,7 @@ func restoreDiff(ctx context.Context, db *sql.DB, p string, at time.Time, now in
 	return note, false, err
 }
 
-// restoreTicks are the points of the restore slider (design 4.6): the times a restore of p can start from, oldest
+// restoreTicks are the marks of the restore time axis (design 4.6): the times a restore of p can start from, oldest
 // first. The first is From, the oldest state a restore can go back to: the end of the initial import or the first
 // record of p, or the start of the keep window when that is later. Then every minute with a change at or below p
 // (a new version, a deletion), as the end of that minute so that the state at the tick holds the change, and last now.

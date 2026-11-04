@@ -32,7 +32,7 @@
 
 {{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}该时刻存在而现在不同的文件: <b class="num">{{.N}}</b> 个{{else if .None}}这里没有任何历史记录{{else}}该时刻与现在没有差别{{end}}</span></div>
 {{if .First}}<div class="first-n">{{icon "info"}}<span>{{if .Import}}所选时间早于最早记录, 按首次导入完成时的状态计算: 首次导入完成于 {{time .First}}{{else}}所选时间早于最早记录, 按最早记录计算: 最早记录为 {{time .First}}{{end}}</span></div>{{end}}
-{{if .Items}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s">{{if .Gone}}现在已删除{{else}}现在内容不同{{end}}</span></li>{{end}}</ul>{{end}}
+{{if .Items}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s">{{if .Gone}}已删除{{else}}已改变{{end}}</span></li>{{end}}</ul>{{end}}
 {{if gt .More 0}}<div class="more-n">还有 {{.More}} 个 (预览最多列出 20 个)</div>{{end}}{{end}}
 
 {{define "dialogs"}}
@@ -41,14 +41,12 @@
 <div class="dlg-h"><h3 id="rs-t">恢复到某一时刻</h3></div>
 <div class="dlg-b">
 <div class="field"><span class="lbl">范围</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{if .Scope}} / {{.Scope}}{{end}}</span></div></div>
-<div class="field"><label for="rs-time">时间</label>
-<input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required>
-{{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}
-<div class="slider" data-slider hidden><input type="range" min="0" max="0" step="1" value="0" disabled aria-label="恢复到的时刻">
-<div class="ends"><span>现在</span><span data-slider-from></span></div></div>
-<span class="help"><span data-tzname>UTC</span>, 可在 <a href="/settings">设置</a> 中改变. 版本保留 {{.KeepDays}} 天.<span class="warnbox" data-oldwarn hidden> 所选时间早于版本保留期, 那时的内容可能已被清理.</span></span></div>
-<div class="preview" data-preview hidden></div>
-<p class="note">{{icon "info"}}<span>只恢复内容, 不删除该时刻之后新建的文件; 当前内容进入版本历史, 可再次恢复.</span></p>
+<div class="when"><div class="when-h"><label for="rs-time">时间</label><span class="rel" data-rel></span>
+<span class="when-in"><button type="button" class="btn step prev" data-step="-1" aria-label="上一个改动" hidden>{{icon "open"}}</button><input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required><button type="button" class="btn step" data-step="1" aria-label="下一个改动" hidden>{{icon "open"}}</button></span></div>
+<div class="axis off" data-axis role="slider" tabindex="-1" aria-label="恢复到的时刻" hidden><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div><div class="axis-msg" hidden></div></div>
+{{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}</div>
+<div class="preview fixed" data-preview hidden></div>
+<div class="note">{{icon "info"}}<div class="lines"><p>只恢复内容, 不删除该时刻之后新建的文件; 当前内容进入版本历史, 可再次恢复.</p><p data-note2><span data-tzname>UTC</span>, 可在 <a href="/settings">设置</a> 中改变. 版本保留 {{.KeepDays}} 天.</p></div></div>
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>恢复</span></button></div>
 </form></dialog>

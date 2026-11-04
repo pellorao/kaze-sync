@@ -64,8 +64,7 @@
     if (!m) return null;
     const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
     if (new Date(guess).getUTCMonth() !== +m[2] - 1) return null;
-    const cands = [-864e5, 864e5].map((d) => guess - (wall(guess + d, zone) - (guess + d))).sort((a, b) => a - b);
-    return cands.find((t) => wall(t, zone) === guess) ?? cands[0];
+    return fromWall(guess, zone);
   }
   const utc = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -362,127 +361,346 @@
   });
   document.addEventListener("click", (e) => { if (e.target.closest("[data-reload]")) location.href = liveURL; });
 
-  // ---- restore to a point in time, with a slider and a preview
-  // The slider runs from now (left) back to the oldest state a restore can reach (right) and snaps to the ticks the
-  // server sends: the ends of the minutes with a change in the scope (design 4.6). Crossing a tick sets the time box
-  // and asks for the preview again; only the newest request counts, an older one is dropped (aborted). While the
-  // server is slow (the last preview took over SLOW ms) the preview waits until the slider rests for SETTLE ms or is released.
-  const SLOW = 150, SETTLE = 300;
-  const rd = $("#dlg-restore");
-  let previewSeq = 0, previewCtl = null, previewTimer = 0, lastMs = 0;
-  let T = null, cur = -1; // the ticks of the scope (null: none loaded) and the one the slider is on
-  function openRestore(path, isDir) {
-    const f = rd.querySelector("form");
-    f.elements.path.value = path;
-    $('[data-fill="scope"]', rd).textContent = rd.dataset.folderName + (path ? " / " + path + (isDir ? "/" : "") : "");
-    if (!f.elements.time.value) f.elements.time.value = fmt(Date.now() - 36e5);
-    rd.showModal();
-    previewNow();
-    loadTicks(path);
+  // ---- restore to a point in time: a time axis with a draggable line, and a preview (design 4.6)
+  // The axis runs from the oldest state a restore can reach (left) to now (right). The server sends its ticks: the ends
+  // of the minutes with a change in the scope. Dragging only moves the line and changes some text; the preview is asked
+  // for when the state under the line changes and the line rests. Only the newest request counts, an older one is aborted.
+  // Every text this code writes is in RS, with {placeholders}, so the i18n step can swap the dictionary.
+  const RS = {
+    now: "现在", future: "晚于现在", ago_m: "{m} 分钟前", ago_h: "{h} 小时前", ago_hm: "{h} 小时 {m} 分钟前",
+    ago_d: "{d} 天前", ago_dh: "{d} 天 {h} 小时前",
+    axisNone: "这里没有历史记录", axisFail: "时间轴没有加载, 可直接输入时间",
+    bad: "时间格式应为 {ex}", fail: "预览没有加载, 请再试一次",
+    old: "所选时间早于版本保留期, 那时的内容可能已被清理",
+    go: "恢复 {n} 个文件", go0: "没有可恢复的文件", goWait: "恢复",
+    note2: "时区 {tz}, {how}, 可在 {link} 中改变.", follow: "跟随浏览器", fixed: "在设置中固定", settings: "设置",
+    note3: " 版本保留 {d} 天, 最早可恢复到 {from}.", note3b: " 版本保留 {d} 天.",
+  };
+  const rt = (key, args) => { let s = RS[key]; for (const k in args || {}) s = s.split("{" + k + "}").join(args[k]); return s; };
+
+  // fromWall: the instant at which the clock of the zone reads w (as UTC); a reading that happens twice takes the earlier
+  // instant, one that does not happen the nearest candidate.
+  function fromWall(w, zone) {
+    const c = [-864e5, 864e5].map((d) => w - (wall(w + d, zone) - (w + d))).sort((a, b) => a - b);
+    return c.find((x) => wall(x, zone) === w) ?? c[0];
   }
-  async function loadTicks(path) {
-    const slider = $("[data-slider]", rd), range = $("input", slider);
-    T = null;
-    range.disabled = true;
-    try {
-      const r = await fetch(`${location.pathname}/restore-ticks?` + new URLSearchParams({ path }), { credentials: "same-origin" });
-      if (!r.ok) return;
-      const t = await r.json();
-      if (rd.querySelector("form").elements.path.value !== path) return;
-      if (t.none || t.ticks.length < 2) { slider.hidden = true; return; }
-      T = t;
-    } catch (e) { return; }
-    range.max = T.now - T.from;
-    range.disabled = false;
-    slider.hidden = false;
-    $("[data-slider-from]", slider).textContent = fmt(T.from * 1000);
-    syncSlider();
-  }
-  // nearest is the index of the tick closest to sec.
-  function nearest(sec) {
-    let lo = 0, hi = T.ticks.length - 1;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (T.ticks[mid] < sec) lo = mid + 1; else hi = mid; }
-    return lo > 0 && sec - T.ticks[lo - 1] <= T.ticks[lo] - sec ? lo - 1 : lo;
-  }
-  function placeSlider(i) {
-    const range = $("[data-slider] input", rd);
-    cur = i;
-    range.value = T.now - T.ticks[i];
-    range.setAttribute("aria-valuetext", fmt(T.ticks[i] * 1000));
-  }
-  // syncSlider moves the slider to the time in the box (typed, or the one the dialog opened with).
-  function syncSlider() {
-    const ms = parseLocal(rd.querySelector("form").elements.time.value, zoneName());
-    if (T && ms !== null) placeSlider(nearest(ms / 1000));
-  }
-  // slideTo puts the slider on tick i, writes its time into the box and asks for the preview; releasing the slider
-  // asks at once for a preview that is still waiting.
-  function slideTo(i, release) {
-    if (!T) return;
-    i = Math.max(0, Math.min(T.ticks.length - 1, i));
-    if (i !== cur) {
-      placeSlider(i);
-      rd.querySelector("form").elements.time.value = fmt(T.ticks[i] * 1000);
-      previewSoon();
+
+  function restoreDialog(rd) {
+    const MIN = 6e4, H = 36e5, D = 864e5;
+    // tunables
+    const MINOR_PX = 4;           // the closest two short ticks may be
+    const LABEL_GAP = 8;          // free space after a date label
+    const STEP_WAIT = 300;        // keys and step buttons: ask for the preview once they rest this long
+    const TYPE_WAIT = 400;        // typing: the same
+    const PAGE = 10;              // PageUp / PageDown move this many changes
+    const BASE = 36, AXIS_H = 52; // the axis' baseline and height in the svg
+    // The zoom of the last 48 hours (design 4.6, the user's open question Q1, option A): a span longer than recent / frac is
+    // drawn in two parts, the last `recent` ms in the right `frac` of the width. Set ZOOM to null for a linear axis; the
+    // `.recent` rect and the two-part branch of makeScale are all that belong to it.
+    const ZOOM = { recent: 48 * H, frac: 0.4 };
+
+    const LANG = document.documentElement.lang || "zh-CN";
+    const zone = zoneName();
+    const form = rd.querySelector("form");
+    const input = form.elements.time, go = $("[data-restore-go]", rd), goText = $("span", go);
+    const axis = $("[data-axis]", rd), svg = $("svg", axis), cur = $(".axis-cur", axis), shade = $(".axis-shade", axis), amsg = $(".axis-msg", axis);
+    const rel = $("[data-rel]", rd), pv = $("[data-preview]", rd), steps = $$("[data-step]", rd), note2 = $("[data-note2]", rd);
+    const bar = el("div", { class: "progress", hidden: "" });
+    const keepDays = +rd.dataset.keepDays;
+    // fmtT: the time as the box shows it; whole minutes (the ticks, the dragged line) without seconds, the two ends with them
+    const fmtT = (ms) => fmt(ms, zone).slice(0, ms % MIN ? 19 : 16);
+    let T = null;     // the ticks of the scope: {now, from, ticks} (null: none loaded, none to show, or failed)
+    let S = null;     // the scale of the drawn axis
+    let W = 0;        // its width
+    let sel = null;   // the selected time (ms); null: the box holds no time
+    let shown = null, asked = null, askedMs = 0, result = null, ctl = null, waitT = 0, typeT = 0;
+    const nowMs = () => (T ? T.now * 1000 : Date.now());
+
+    // ---- scale: linear, or two linear parts (see ZOOM)
+    function makeScale(from, now, w) {
+      const split = ZOOM && now - from > ZOOM.recent / ZOOM.frac ? Math.round(w * (1 - ZOOM.frac)) : 0;
+      const segs = split ? [{ a: from, b: now - ZOOM.recent, x0: 0, x1: split }, { a: now - ZOOM.recent, b: now, x0: split, x1: w }]
+        : [{ a: from, b: now, x0: 0, x1: w }];
+      const last = segs[segs.length - 1];
+      return {
+        segs,
+        x: (ms) => { const s = segs.find((g) => ms <= g.b) || last; return s.x0 + (ms - s.a) / (s.b - s.a) * (s.x1 - s.x0); },
+        t: (x) => { const s = segs.find((g) => x <= g.x1) || last; return s.a + (x - s.x0) / (s.x1 - s.x0) * (s.b - s.a); },
+      };
     }
-    if (release && previewTimer) previewNow();
-  }
-  function previewSoon() {
-    clearTimeout(previewTimer);
-    previewTimer = 0;
-    if (lastMs <= SLOW) { previewNow(); return; }
-    $("[data-restore-go]", rd).disabled = true; // the preview on the screen is for another time
-    previewTimer = setTimeout(previewNow, SETTLE);
-  }
-  function previewNow() {
-    clearTimeout(previewTimer);
-    previewTimer = 0;
-    if (previewCtl) previewCtl.abort();
-    const f = rd.querySelector("form"), go = $("[data-restore-go]", rd), box = $("[data-preview]", rd);
-    const ms = parseLocal(f.elements.time.value, zoneName());
-    $("[data-oldwarn]", rd).hidden = ms === null || ms >= Date.now() - rd.dataset.keepDays * 864e5;
-    go.disabled = true;
-    if (ms === null) { box.hidden = true; $("span", go).textContent = "恢复"; return; }
-    const seq = ++previewSeq, ctl = previewCtl = new AbortController(), t0 = performance.now();
-    box.hidden = false;
-    if (!$(".progress", box)) box.prepend(el("div", { class: "progress" }));
-    const q = new URLSearchParams({ path: f.elements.path.value, time: utc(ms) });
-    fetch(`${location.pathname}/restore-preview?${q}`, { credentials: "same-origin", signal: ctl.signal })
-      .then((r) => r.ok ? r.text() : Promise.reject(r.status))
-      .then((html) => {
-        if (seq !== previewSeq) return;
-        lastMs = performance.now() - t0;
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        box.replaceChildren(...Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)));
-        renderTimes(box);
-        const n = +$("[data-count]", box).dataset.count;
-        go.disabled = n === 0;
-        $("span", go).textContent = n ? `恢复 ${n} 个文件` : "没有可恢复的文件";
-      })
-      .catch(() => { if (seq === previewSeq) box.hidden = true; });
-  }
-  if (rd) {
-    const f = rd.querySelector("form");
-    const zn = $("[data-tzname]", rd);
-    zn.textContent = zoneName() + (body.dataset.tz ? ", 在设置中固定" : ", 跟随浏览器");
-    f.elements.time.addEventListener("input", debounce(() => { syncSlider(); previewNow(); }, 400));
-    const range = $("[data-slider] input", rd);
-    const at = (v) => T ? nearest(T.now - v) : -1;
-    range.addEventListener("input", () => slideTo(at(+range.value), false));
-    range.addEventListener("change", () => slideTo(at(+range.value), true)); // released: settle on the tick and ask now
-    range.addEventListener("keydown", (e) => { // a step is one tick, not one second
-      const step = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -10, PageUp: 10 }[e.key];
-      if (!T || (step === undefined && e.key !== "Home" && e.key !== "End")) return;
+    // tick levels, aligned to the calendar of the zone: every h hours, days of the month 1, 1+d, ..., months m
+    const LEVELS = [1, 2, 3, 6, 12].map((h) => ({ h, ms: h * H }))
+      .concat([1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D })), [1, 3, 6, 12].map((m) => ({ m, ms: m * 30.44 * D })));
+    const DAY = LEVELS[5];
+    function ticksOf(lv, a, b) {
+      const out = [], p = parts(a, zone);
+      if (lv.m) {
+        for (let i = 0; ; i++) {
+          const w = Date.UTC(+p.year, +p.month - 1 + i, 1), ms = fromWall(w, zone);
+          if (ms > b) return out;
+          if (ms >= a && new Date(w).getUTCMonth() % lv.m === 0) out.push(ms);
+        }
+      }
+      for (let i = 0; ; i++) {
+        const w = Date.UTC(+p.year, +p.month - 1, +p.day + i), ms = fromWall(w, zone);
+        if (ms > b) return out;
+        if (lv.d) {
+          const dom = new Date(w).getUTCDate();
+          if (ms >= a && (dom - 1) % lv.d === 0 && (lv.d === 1 || dom <= 31 - lv.d / 2)) out.push(ms);
+          continue;
+        }
+        for (let h = 0; h < 24; h += lv.h) { const x = ms + h * H; if (x > b) break; if (x >= a) out.push(x); } // DST days: approximate
+      }
+    }
+    const ctx = document.createElement("canvas").getContext("2d");
+    let font = "";
+    const textW = (s, bold) => {
+      if (!font) font = "11px " + getComputedStyle(document.body).getPropertyValue("--sans");
+      ctx.font = (bold ? "600 " : "") + font;
+      return ctx.measureText(s).width;
+    };
+    const labelFmts = {};
+    const labelFmt = (lv) => labelFmts[!!lv.m] || (labelFmts[!!lv.m] = new Intl.DateTimeFormat(LANG,
+      lv.m ? { timeZone: zone, year: "numeric", month: "short" } : { timeZone: zone, month: "short", day: "numeric" }));
+    const sampleW = {};
+    const labelW = (lv) => sampleW[!!lv.m] ?? (sampleW[!!lv.m] = textW(labelFmt(lv).format(Date.UTC(2026, 11, 28, 12))));
+    function levelsFor(seg) {
+      const k = (seg.x1 - seg.x0) / (seg.b - seg.a), sp = (lv) => lv.ms * k, top = LEVELS[LEVELS.length - 1];
+      const minor = LEVELS.find((lv) => sp(lv) >= MINOR_PX) || top;
+      const label = LEVELS.find((lv) => lv.ms >= D && sp(lv) >= labelW(lv) + LABEL_GAP) || top;
+      const tall = minor.ms < D ? DAY : label;
+      return { short: minor.ms < tall.ms ? minor : null, tall, label };
+    }
+    const px = (x) => Math.round(x) + 0.5;
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    function render() {
+      W = axis.clientWidth;
+      if (!T || !W) { svg.innerHTML = ""; S = null; return; }
+      S = makeScale(T.from * 1000, T.now * 1000, W);
+      svg.setAttribute("viewBox", `0 0 ${W} ${AXIS_H}`);
+      let out = "", tall = "", short = "", marks = "";
+      const labels = [];
+      if (S.segs.length > 1) out += `<rect class="recent" x="${S.segs[1].x0}" y="0" width="${W - S.segs[1].x0}" height="${BASE}"/>`;
+      for (const g of S.segs) {
+        const L = levelsFor(g), tt = ticksOf(L.tall, g.a, g.b), ts = new Set(tt);
+        tt.forEach((ms) => { tall += `M${px(S.x(ms))} 0V${BASE}`; });
+        if (L.short) ticksOf(L.short, g.a, g.b).forEach((ms) => { if (!ts.has(ms)) short += `M${px(S.x(ms))} ${BASE - 6}V${BASE}`; });
+        const f = labelFmt(L.label);
+        ticksOf(L.label, g.a, g.b).forEach((ms) => labels.push([S.x(ms), f.format(ms)]));
+      }
+      const col = new Uint8Array(W); // one mark per pixel column that holds a change
+      for (let i = 1; i < T.ticks.length - 1; i++) {
+        const c = Math.min(W - 1, Math.round(S.x(T.ticks[i] * 1000)));
+        if (!col[c]) { col[c] = 1; marks += `M${c + 0.5} ${BASE + 3}v10`; }
+      }
+      out += `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${BASE + 0.5}H${W}"/><path class="mk" d="${marks}"/>`;
+      out += `<text class="lb now" x="${W - 5}" y="12" text-anchor="end">${esc(rt("now"))}</text>`;
+      let limit = W - 5 - textW(rt("now"), true) - LABEL_GAP; // labels from right to left; one that would overlap is left out
+      labels.sort((a, b) => b[0] - a[0]);
+      for (const [x, s] of labels) {
+        if (x + 3 + textW(s) > limit) continue;
+        out += `<text class="lb" x="${Math.round(x) + 3}" y="12">${esc(s)}</text>`;
+        limit = x - 4;
+      }
+      svg.innerHTML = out;
+      place();
+    }
+    function place() {
+      cur.hidden = shade.hidden = sel === null;
+      if (!S || sel === null) return;
+      const x = S.x(Math.min(T.now * 1000, Math.max(T.from * 1000, sel)));
+      cur.style.transform = shade.style.transform = `translateX(${x}px)`;
+    }
+
+    // ---- selection: the time, its state key, and whether the preview on the screen still belongs to it
+    // idx: the last tick at or before ms (in ms); -1 before the first. From the last change to now nothing differs: one state.
+    function idx(ms) {
+      const k = T.ticks, s = ms / 1000;
+      if (s < k[0]) return -1;
+      let lo = 0, hi = k.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (k[mid] <= s) lo = mid; else hi = mid - 1; }
+      return Math.min(lo, k.length - 2);
+    }
+    const keyOf = (ms) => (ms === null ? "bad" : T ? idx(ms) : ms);
+    function relText(ms) {
+      const m = Math.round((nowMs() - ms) / MIN);
+      if (m < 0) return rt("future");
+      if (m === 0) return rt("now");
+      const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mi = m % 60;
+      if (d) return h ? rt("ago_dh", { d, h }) : rt("ago_d", { d });
+      if (h) return mi ? rt("ago_hm", { h, m: mi }) : rt("ago_h", { h });
+      return rt("ago_m", { m: mi });
+    }
+    // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, the line.
+    // It sends nothing: commit asks for the preview.
+    function setSel(ms, typed) {
+      sel = ms;
+      if (!typed && ms !== null) input.value = fmtT(ms);
+      rel.textContent = ms === null ? "" : relText(ms);
+      place();
+      if (T && ms !== null) {
+        axis.setAttribute("aria-valuenow", Math.round(ms / 1000));
+        axis.setAttribute("aria-valuetext", fmtT(ms) + ", " + relText(ms));
+      }
+      stale();
+    }
+    function stale() {
+      const s = !(result && result.fail) && keyOf(sel) !== shown;
+      pv.classList.toggle("stale", s);
+      go.disabled = s || !result || !result.n;
+    }
+    function abort() { if (ctl) { ctl.abort(); ctl = null; } }
+    // commit asks for the preview of the selected time unless the screen shows it or it is already asked for.
+    function commit() {
+      clearTimeout(waitT);
+      const key = keyOf(sel);
+      if (key === asked) return;
+      abort();
+      if (key === shown) { asked = null; bar.hidden = true; return; }
+      asked = key;
+      askedMs = sel;
+      if (key === "bad") { show(key, { bad: true }); return; }
+      bar.hidden = false;
+      const ms = sel, c = ctl = new AbortController();
+      const q = new URLSearchParams({ path: form.elements.path.value, time: utc(ms) });
+      fetch(`${location.pathname}/restore-preview?${q}`, { credentials: "same-origin", signal: c.signal })
+        .then((r) => r.ok ? r.text() : Promise.reject(r.status))
+        .then((html) => {
+          if (c !== ctl) return;
+          const doc = new DOMParser().parseFromString(html, "text/html"), cnt = $("[data-count]", doc);
+          show(keyOf(ms), { ms, n: cnt ? +cnt.dataset.count : 0, nodes: Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)) });
+        })
+        .catch((e) => { if (c === ctl && !(e && e.name === "AbortError")) show(null, { fail: true }); });
+    }
+    function show(key, res) {
+      shown = key; asked = null; result = res; ctl = null;
+      bar.hidden = true;
+      const r = res;
+      let nodes = r.nodes;
+      if (!nodes) { // a result of this script: the box holds no time, or the preview did not load
+        nodes = [el("div", { class: "preview-h" + (r.bad ? " warn" : ""), "aria-live": "polite" }, icon(r.bad ? "warn" : "history"),
+          el("span", {}, r.bad ? rt("bad", { ex: "2026-11-03 22:48:27" }) : rt("fail")))];
+      } else if (!nodes.some((n) => n.classList && n.classList.contains("first-n")) && r.ms < nowMs() - keepDays * D) {
+        nodes.splice(1, 0, el("div", { class: "first-n" }, icon("info"), el("span", {}, rt("old")))); // after the head line
+      }
+      pv.replaceChildren(bar, ...nodes);
+      renderTimes(pv);
+      goText.textContent = r.n ? rt("go", { n: r.n }) : r.bad || r.fail ? rt("goWait") : rt("go0");
+      stale();
+    }
+
+    // ---- input: pointer on the axis, keys on the axis, the step buttons, typing
+    let drag = null, raf = 0, lastX = 0;
+    const atX = (x) => Math.min(T.now * 1000, Math.max(T.from * 1000, Math.round(S.t(Math.max(0, Math.min(W, x))) / MIN) * MIN));
+    axis.addEventListener("pointerdown", (e) => {
+      if (!T || !S || e.button > 0) return;
+      const r = axis.getBoundingClientRect(); // read once: no layout reads while the line moves
+      drag = { left: r.left + 1, start: sel, moved: false, touch: e.pointerType === "touch" };
+      axis.setPointerCapture(e.pointerId);
+      axis.focus({ preventScroll: true });
+      if (!drag.touch) setSel(atX(e.clientX - drag.left)); // a touch may still turn into a scroll: wait for a move
       e.preventDefault();
-      // the slider's right is the past: right and up go back in time, to lower ticks
-      slideTo(e.key === "Home" ? T.ticks.length - 1 : e.key === "End" ? 0 : cur - step, false);
     });
-    f.addEventListener("submit", (e) => { // the server reads UTC: send the time the person typed as UTC
-      const ms = parseLocal(f.elements.time.value, zoneName());
-      if (ms === null) { e.preventDefault(); previewNow(); return; }
-      f.elements.time.value = utc(ms);
+    axis.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      drag.moved = true;
+      lastX = e.clientX - drag.left;
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (drag) setSel(atX(lastX)); });
     });
+    axis.addEventListener("pointerup", (e) => {
+      if (!drag) return;
+      if (!drag.moved) setSel(atX(e.clientX - drag.left)); // a tap puts the line there
+      drag = null;
+      commit();
+    });
+    axis.addEventListener("pointercancel", () => { if (drag) { setSel(drag.start); drag = null; } }); // it was a scroll
+    function stepTo(j) {
+      const n = T.ticks.length - 1;
+      setSel(j >= n - 1 ? T.now * 1000 : T.ticks[Math.max(0, j)] * 1000);
+      clearTimeout(waitT);
+      waitT = setTimeout(commit, STEP_WAIT);
+    }
+    const here = () => idx(sel === null ? T.now * 1000 : sel);
+    axis.addEventListener("keydown", (e) => {
+      if (!T) return;
+      const i = here(), n = T.ticks.length - 1;
+      const j = { ArrowLeft: i - 1, ArrowDown: i - 1, ArrowRight: i + 1, ArrowUp: i + 1, PageDown: i - PAGE, PageUp: i + PAGE, Home: 0, End: n }[e.key];
+      if (j === undefined) return;
+      e.preventDefault();
+      stepTo(j);
+    });
+    steps.forEach((b) => b.addEventListener("click", () => { if (T) stepTo(here() + +b.dataset.step); }));
+    input.addEventListener("input", () => {
+      clearTimeout(typeT);
+      typeT = setTimeout(() => { setSel(parseLocal(input.value, zone), true); commit(); }, TYPE_WAIT);
+    });
+    new ResizeObserver(() => { if (axis.clientWidth !== W) render(); }).observe(axis);
+    form.addEventListener("submit", (e) => { // the server reads UTC: send the time the person typed as UTC
+      const ms = parseLocal(input.value, zone);
+      if (ms === null) { e.preventDefault(); setSel(null, true); commit(); return; }
+      input.value = utc(ms);
+    });
+    rd.addEventListener("close", () => { abort(); clearTimeout(waitT); clearTimeout(typeT); });
+
+    // ---- the note under the preview: time zone, retention, and the earliest point
+    function fillNote() {
+      const [a, b] = rt("note2", { tz: zone, how: rt(body.dataset.tz ? "fixed" : "follow") }).split("{link}");
+      const link = el("a", { href: "/settings" }, rt("settings"));
+      note2.replaceChildren(a, link, b, T ? rt("note3", { d: keepDays, from: fmtT(T.from * 1000) }) : rt("note3b", { d: keepDays }));
+    }
+
+    // ---- opening: the preview of the time in the box at once, the axis when its ticks arrive
+    async function loadTicks(path) {
+      let t = null, failed = false;
+      try {
+        const r = await fetch(`${location.pathname}/restore-ticks?` + new URLSearchParams({ path }), { credentials: "same-origin" });
+        if (!r.ok) failed = true; else t = await r.json();
+      } catch (e) { failed = true; }
+      if (form.elements.path.value !== path || !rd.open) return;
+      if (t && !t.none && t.ticks.length >= 2) T = t;
+      if (T) { // what was asked for or shown by the minute now has a state: the same state is not asked for again
+        if (shown !== null && result && result.ms !== undefined) shown = idx(result.ms);
+        if (asked !== null && asked !== "bad") asked = idx(askedMs);
+      }
+      axis.classList.toggle("off", !T);
+      axis.tabIndex = T ? 0 : -1;
+      steps.forEach((b) => { b.disabled = !T; });
+      if (T) {
+        axis.setAttribute("aria-valuemin", T.from);
+        axis.setAttribute("aria-valuemax", T.now);
+      } else {
+        amsg.textContent = rt(failed ? "axisFail" : "axisNone");
+        amsg.hidden = false;
+      }
+      fillNote();
+      render();
+      setSel(sel, true); // the distance from now and the state under the line follow the server's clock
+      commit();
+    }
+    // open: path is the scope; isDir says how to write it (null: the page wrote it already)
+    function open(path, isDir) {
+      form.elements.path.value = path;
+      if (isDir !== null) $('[data-fill="scope"]', rd).textContent = rd.dataset.folderName + (path ? " / " + path + (isDir ? "/" : "") : "");
+      if (!input.value) input.value = fmtT(Math.floor(Date.now() / MIN) * MIN - H);
+      abort();
+      T = S = null; shown = asked = result = null;
+      axis.hidden = false;
+      axis.classList.add("off");
+      amsg.hidden = true;
+      steps.forEach((b) => { b.hidden = false; b.disabled = true; });
+      pv.hidden = false;
+      pv.replaceChildren(bar);
+      fillNote();
+      render();
+      if (!rd.open) rd.showModal();
+      setSel(parseLocal(input.value, zone), true);
+      commit();
+      loadTicks(path);
+    }
+    return { open };
   }
+  const restore = $("#dlg-restore") && restoreDialog($("#dlg-restore"));
+  function openRestore(path, isDir) { restore.open(path, isDir); }
 
   // ---- version history: the restore asks in its own row
   document.addEventListener("click", (e) => {
@@ -671,7 +889,7 @@
   // ---- start
   renderTimes(document);
   $$("[data-ruleedit]").forEach(ruleEditor);
-  $$("dialog[data-autoopen]").forEach(openDialog);
+  $$("dialog[data-autoopen]").forEach((d) => { if (restore && d.id === "dlg-restore") restore.open(d.querySelector("form").elements.path.value, null); else openDialog(d); });
   const hit = decodeURIComponent(location.hash.slice(1));
   if (hit) {
     const row = $$("tr[data-path]").find((r) => r.dataset.path === hit);

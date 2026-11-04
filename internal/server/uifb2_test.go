@@ -85,7 +85,7 @@ type ticksReply struct {
 	None      bool
 }
 
-// The slider snaps to the end of every minute with a change in its scope, between the oldest state a restore can
+// The time axis marks the end of every minute with a change in its scope, between the oldest state a restore can
 // go back to and now.
 func TestRestoreTicks(t *testing.T) {
 	e := newEnv(t)
@@ -150,7 +150,7 @@ func TestRestoreTicks(t *testing.T) {
 	if r = get("nothing"); !r.None || len(r.Ticks) != 0 {
 		t.Errorf("a path without history: %+v", r)
 	}
-	// The keep window bounds the slider: a day, then the changes inside it.
+	// The keep window bounds the axis: a day, then the changes inside it.
 	SetMeta(e.s.db, "keep_days", 1)
 	step("45m30s")
 	e.clk.Add(47 * time.Hour)
@@ -171,7 +171,7 @@ func mustDur(t *testing.T, s string) time.Duration {
 	return d
 }
 
-// A request the browser dropped (the slider moved on) stops the scan.
+// A request the browser dropped (the line moved on) stops the scan.
 func TestRestorePreviewStopsWhenTheRequestIsCancelled(t *testing.T) {
 	e := newEnv(t)
 	f := e.folder("Docs")

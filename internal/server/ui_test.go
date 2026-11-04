@@ -90,6 +90,15 @@ func TestFormErrorsRedisplayTheDialog(t *testing.T) {
 	if st != 400 || !strings.Contains(body, `<dialog id="dlg-restore" class="dlg" data-folder-name="F" data-keep-days="30" data-autoopen`) || !strings.Contains(body, `value="yesterday"`) {
 		t.Fatalf("restore: %d\n%s", st, body)
 	}
+	// The dialog is a time box with a time axis (hidden until the script shows it), not a range input.
+	for _, w := range []string{`data-axis`, `role="slider"`, `data-rel`, `data-step="-1"`, `data-step="1"`, `class="preview fixed" data-preview hidden`, `data-note2`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("the restore dialog lacks %s", w)
+		}
+	}
+	if strings.Contains(body, `type="range"`) || strings.Contains(body, "data-slider") {
+		t.Error("the restore dialog still has the slider")
+	}
 }
 
 func TestRulesValidateUsesTheServerParser(t *testing.T) {
@@ -333,6 +342,11 @@ func TestRestorePreviewMatchesTheRestore(t *testing.T) {
 			st, page := e.get(c, base+"/restore-preview?"+url.Values{"path": {tc.path}, "time": {at}}.Encode())
 			if st != 200 || count(page) != tc.n {
 				t.Fatalf("%d, %d files, want %d\n%s", st, count(page), tc.n, page)
+			}
+			if tc.path == "proj" { // the second column is short: b was deleted, a changed
+				if !strings.Contains(page, `<span class="s">已删除</span>`) || !strings.Contains(page, `<span class="s">已改变</span>`) || strings.Contains(page, "现在内容不同") || strings.Contains(page, "现在已删除") {
+					t.Errorf("the status column:\n%s", page)
+				}
 			}
 			for _, w := range tc.want {
 				if !strings.Contains(page, ">"+w+"<") {

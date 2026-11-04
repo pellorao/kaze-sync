@@ -361,7 +361,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	}
 	n, items, note, none, err := s.restorePreview(r.Context(), f.ID, p, at)
 	if errors.Is(err, context.Canceled) {
-		return nil // the browser dropped the request: the slider moved on
+		return nil // the browser dropped the request: the line moved on
 	}
 	if err != nil {
 		return err
@@ -377,7 +377,7 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	return s.tmpl["folder"].ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
 }
 
-// restoreTicksPage answers the restore dialog's slider: the points it snaps to (restoreTicks), as JSON.
+// restoreTicksPage answers the restore dialog's time axis: its marks and ends (restoreTicks), as JSON.
 func (s *Server) restoreTicksPage(w http.ResponseWriter, r *http.Request) error {
 	f, err := s.loadFolder(r)
 	if err != nil {
