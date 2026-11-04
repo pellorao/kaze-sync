@@ -570,6 +570,11 @@ func TestListingChangedOnlyForWhatThePageShows(t *testing.T) {
 		}
 		return a
 	}
+	for _, bad := range []string{"abc", "-1", ""} { // a since that is not a number is a bad request, not "since 0"
+		if st, _ := e.get(c, "/folders/"+itoa(f)+"/changed?since="+bad); st != http.StatusBadRequest {
+			t.Errorf("since=%q: %d", bad, st)
+		}
+	}
 	since := cur()
 	if a := ask(since, "", "sub", "other"); a.Changed || a.Seq != since {
 		t.Fatalf("nothing happened: %+v", a)

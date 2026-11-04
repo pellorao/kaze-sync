@@ -317,6 +317,31 @@ func TestDeleteFolder(t *testing.T) {
 	}
 }
 
+// A file of the folder that cannot be removed must not stop the others from going, and the deletion has
+// succeeded (the row is gone, a retry would only find a 404).
+func TestDeleteFolderKeepsGoingWhenAFileCannotBeRemoved(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	gone := e.folder("gone")
+	e.commit(gone, e.op("x", 0, "x"))
+	path := FolderDBPath(e.s.varDir, gone)
+	os.Remove(path + "-wal")
+	if err := os.MkdirAll(filepath.Join(path+"-wal", "block"), 0o755); err != nil { // os.Remove fails on a directory that is not empty
+		t.Fatal(err)
+	}
+	os.WriteFile(path+"-shm", []byte("x"), 0o600)
+	if st, _ := e.post(c, "/folders/"+itoa(gone)+"/delete", nil); st != 303 {
+		t.Fatalf("delete: %d", st)
+	}
+	for _, suffix := range []string{"", "-shm"} {
+		if _, err := os.Stat(path + suffix); err == nil {
+			t.Errorf("%s%s remains", filepath.Base(path), suffix)
+		}
+	}
+}
+
 // opFull is an op for a file of several blocks with a mode and an mtime.
 func (e *env) opFull(path string, base int64, data []byte, exec bool, mtimeNs int64) proto.Op {
 	h := proto.Hash(sha256.Sum256(data))

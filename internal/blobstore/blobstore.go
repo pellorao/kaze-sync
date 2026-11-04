@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -191,6 +192,8 @@ func (s *Store) put(h Hash, data []byte) error {
 		return err
 	}
 	dst := s.blobPath(h)
+	_, statErr := os.Stat(filepath.Dir(dst))
+	newDirs := statErr != nil
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -203,7 +206,33 @@ func (s *Store) put(h Hash, data []byte) error {
 		}
 		return err
 	}
+	// The rename is durable only once the directory is: the database may soon reference this blob.
+	dir := filepath.Dir(dst)
+	if err := syncDir(dir); err != nil {
+		return err
+	}
+	if newDirs { // the fan-out directories were created now: their own entries must reach the disk too
+		for _, d := range []string{filepath.Dir(dir), filepath.Join(s.dir, "blobs")} {
+			if err := syncDir(d); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+// syncDir flushes a directory's entries to disk (a variable so that tests can observe it). Windows cannot sync a
+// directory; the server runs on Linux there, only the tests run on Windows.
+var syncDir = func(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func (s *Store) Open(h Hash) (*os.File, error) { return os.Open(s.blobPath(h)) }

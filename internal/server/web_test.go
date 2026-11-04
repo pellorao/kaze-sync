@@ -281,6 +281,10 @@ func TestCleanMapping(t *testing.T) {
 		{"windows", `E:\Docs`, []string{`D:\Docs`}, `E:\Docs`},
 		{"windows", `D:\Docs2`, []string{`D:\Docs`}, `D:\Docs2`},
 		{"windows", `D:\`, []string{`D:\Docs`}, ""},
+		{"windows", `D:\a\..\Docs`, nil, `D:\Docs`}, // dot segments and doubled separators are cleaned like on Linux
+		{"windows", `D:\a\..\Docs`, []string{`D:\Docs\Sub`}, ""},
+		{"windows", `D:\x\\y\.\z`, nil, `D:\x\y\z`},
+		{"windows", `D:\..`, nil, `D:\`},
 	} {
 		got, err := cleanMapping(tc.os, tc.path, tc.others)
 		if (err != nil) != (tc.want == "") || got != tc.want {

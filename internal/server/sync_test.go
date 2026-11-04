@@ -297,3 +297,36 @@ func hasCounts(page string, f int64, errs, warns int) bool {
 	}
 	return one("err", errs) && one("warn", warns)
 }
+
+// A block file that does not have the size the server saw (here: longer than a block) is never sent in part:
+// the connection breaks after the good blocks, and the server logs it.
+func TestBlocksGetNeverSendsPartOfABlockFile(t *testing.T) {
+	e := newEnv(t)
+	_, tok := e.enrollDevice("d1", "linux")
+	good := e.block([]byte("good"))
+	bad := proto.Hash{7, 7}
+	x := bad.String()
+	p := filepath.Join(e.s.varDir, "blobs", x[:2], x[2:4], x)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, make([]byte, proto.BlockSize+1), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(proto.BlocksGetReq{Hashes: []proto.Hash{good, bad}})
+	req, _ := http.NewRequest("POST", e.ts.URL+"/api/v1/blocks/get", bytes.NewReader(b))
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := e.ts.Client().Do(req)
+	if err != nil { // the connection broke before any byte of the answer arrived
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	buf := make([]byte, proto.BlockSize)
+	r := bytes.NewReader(body)
+	proto.ReadBlock(r, buf) // the good block may have been sent
+	if _, _, err := proto.ReadBlock(r, buf); err == nil {
+		t.Fatal("the oversized file was sent")
+	}
+}

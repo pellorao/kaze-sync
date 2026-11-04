@@ -391,12 +391,14 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 		return
 	}
 	var total int64
-	for _, h := range req.Hashes {
+	sizes := make([]int64, len(req.Hashes))
+	for i, h := range req.Hashes {
 		n, ok, err := s.blobs.Size(h)
 		if err != nil || !ok {
 			http.Error(w, "missing block "+h.String(), http.StatusNotFound)
 			return
 		}
+		sizes[i] = n
 		if total += n + 36; total > proto.MaxBlockBody {
 			http.Error(w, "too much data in one request", http.StatusBadRequest)
 			return
@@ -404,7 +406,7 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	buf := make([]byte, proto.BlockSize)
-	for _, h := range req.Hashes {
+	for i, h := range req.Hashes {
 		f, err := s.blobs.Open(h)
 		if err == nil {
 			var n int
@@ -412,6 +414,10 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 			f.Close()
 			if err == io.ErrUnexpectedEOF || err == io.EOF {
 				err = nil
+			}
+			if err == nil && int64(n) != sizes[i] { // the file changed or is not a block: never send part of it
+				slog.Error("block file has an unexpected size", "block", h.String(), "read", n, "size", sizes[i])
+				err = io.ErrUnexpectedEOF
 			}
 			if err == nil {
 				err = proto.WriteBlock(w, h, buf[:n])

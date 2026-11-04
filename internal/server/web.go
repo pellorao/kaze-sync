@@ -910,12 +910,9 @@ func cleanMapping(osName, p string, others []string) (string, error) {
 			return "", errors.New(`Windows 路径必须是盘符路径, 例如 D:\Docs`)
 		}
 		sep, fold = `\`, strings.ToLower
-		norm = func(q string) string {
-			q = strings.TrimRight(strings.ReplaceAll(q, "/", `\`), `\`)
-			if len(q) == 2 {
-				q += `\`
-			}
-			return q
+		norm = func(q string) string { // drive, then the rest cleaned like a Linux path ("..", ".", doubled separators)
+			rest := path.Clean("/" + strings.ReplaceAll(q[2:], `\`, "/"))
+			return q[:2] + strings.ReplaceAll(rest, "/", `\`)
 		}
 	} else if !strings.HasPrefix(p, "/") {
 		return "", errors.New("Linux 路径必须以 / 开头")

@@ -401,9 +401,9 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 	s.bumpLocked()
 	s.mu.Unlock()
 	p := FolderDBPath(s.varDir, f.ID)
-	for _, suffix := range []string{"", "-wal", "-shm"} {
+	for _, suffix := range []string{"", "-wal", "-shm"} { // the row is gone, so the folder is: a file that cannot be removed is only logged, the others still go
 		if err := os.Remove(p + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			slog.Warn("cannot remove a file of the deleted folder", "folder", f.Name, "file", p+suffix, "err", err)
 		}
 	}
 	slog.Info("folder deleted", "folder", f.Name)

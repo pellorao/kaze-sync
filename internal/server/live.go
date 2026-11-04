@@ -90,7 +90,11 @@ func (s *Server) folderChanged(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	now := metaInt(db, "next_seq") - 1 // taken first: what changes during the query is seen by the next one
-	since, _ := strconv.ParseInt(r.FormValue("since"), 10, 64)
+	since, err := strconv.ParseInt(r.FormValue("since"), 10, 64)
+	if err != nil || since < 0 {
+		http.Error(w, "bad since", http.StatusBadRequest)
+		return nil
+	}
 	dir, deleted := strings.Trim(r.FormValue("dir"), "/"), r.FormValue("deleted") != ""
 	shown := map[string]bool{}
 	for _, n := range r.Form["d"] {

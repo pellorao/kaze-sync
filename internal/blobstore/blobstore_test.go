@@ -280,3 +280,25 @@ func TestWriterStoresEveryBlockByWait(t *testing.T) {
 		t.Errorf("%d temporary files left", n)
 	}
 }
+
+// A stored blob's directory entry is flushed (rename alone is not durable), and so are the fan-out directories
+// when they were just created.
+func TestPutSyncsTheDirectories(t *testing.T) {
+	var synced []string
+	old := syncDir
+	syncDir = func(d string) error { synced = append(synced, d); return nil }
+	defer func() { syncDir = old }()
+	s := newStore(t)
+	data := []byte("durable")
+	h := hashOf(t, data)
+	put(t, s, data)
+	want := []string{filepath.Dir(s.blobPath(h)), filepath.Dir(filepath.Dir(s.blobPath(h))), filepath.Join(s.dir, "blobs")}
+	if strings.Join(synced, "|") != strings.Join(want, "|") {
+		t.Fatalf("first put synced %v, want %v", synced, want)
+	}
+	synced = nil
+	put(t, s, data) // the same blob again: the directories exist
+	if len(synced) != 1 || synced[0] != want[0] {
+		t.Fatalf("second put synced %v", synced)
+	}
+}
