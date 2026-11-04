@@ -323,11 +323,11 @@ func TestBrowseVersionsAndRestore(t *testing.T) {
 	e.commit(f, proto.Op{Path: "sub/b.txt", BaseSeq: 2})
 
 	_, root := e.get(c, "/folders/"+itoa(f))
-	if !strings.Contains(root, "sub/") || !strings.Contains(root, "a.txt") || strings.Contains(root, "b.txt") {
+	if !strings.Contains(root, `?dir=sub"`) || !strings.Contains(root, "a.txt") || strings.Contains(root, "b.txt") {
 		t.Fatalf("root listing:\n%s", root)
 	}
 	_, sub := e.get(c, "/folders/"+itoa(f)+"?dir=sub")
-	if strings.Contains(sub, "b.txt") || !strings.Contains(sub, "deep/") {
+	if strings.Contains(sub, "b.txt") || !strings.Contains(sub, `?dir=sub%2fdeep"`) {
 		t.Fatalf("sub listing hides deleted files:\n%s", sub)
 	}
 	_, subDel := e.get(c, "/folders/"+itoa(f)+"?dir=sub&deleted=1")
@@ -370,8 +370,11 @@ func TestOverviewAndKeepDays(t *testing.T) {
 	f := e.folder("Docs")
 	e.commit(f, e.op("a", 0, "12345"), e.op("b", 0, "123"))
 	_, body := e.get(c, "/")
-	if !strings.Contains(body, "Docs") || !strings.Contains(body, ">2<") || !strings.Contains(body, "8 B") || !strings.Contains(body, `value="30"`) {
+	if !strings.Contains(body, "Docs</a>") || !strings.Contains(body, `<td class="r num">2</td><td class="r num">8 B</td>`) {
 		t.Fatalf("overview:\n%s", body)
+	}
+	if _, set := e.get(c, "/settings"); !strings.Contains(set, `name="keep_days" value="30"`) {
+		t.Fatalf("settings:\n%s", set)
 	}
 	if st, _ := e.post(c, "/settings", url.Values{"keep_days": {"0"}}); st != 400 {
 		t.Fatal("keep_days 0 accepted")
@@ -403,7 +406,7 @@ func TestRulesEditingValidatesBumpsAndBroadcasts(t *testing.T) {
 	v := metaInt(e.s.db, "config_version")
 
 	// The global rules start as the factory defaults and the pages show them.
-	if _, body := e.get(c, "/"); !strings.Contains(body, "Thumbs.db") {
+	if _, body := e.get(c, "/settings"); !strings.Contains(body, "Thumbs.db") {
 		t.Fatal("default rules not shown")
 	}
 	// An invalid line is reported with its number and nothing changes.
@@ -495,7 +498,7 @@ func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
 		t.Fatalf("enroll: %d %q", st, msg)
 	}
 	_, body := e.get(c, "/")
-	if !strings.Contains(body, "1 (过旧, 请升级客户端)") {
+	if !strings.Contains(body, `<span class="st-err">1, 过旧</span>`) {
 		t.Fatalf("overview does not show the old client:\n%s", body)
 	}
 

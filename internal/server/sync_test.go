@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -217,13 +218,13 @@ func TestNotificationsFromEverySource(t *testing.T) {
 
 	_, over := e.get(c, "/")
 	// Errors: rejected, io, folder, conflict copy; warnings: in use and skipped.
-	if !strings.Contains(over, `<a href="/folders/`+itoa(f)+`">Docs</a></td><td>4</td><td>2</td>`) {
+	if !hasCounts(over, f, 4, 2) {
 		t.Fatalf("overview summary:\n%s", over)
 	}
 	_, page := e.get(c, "/folders/"+itoa(f))
 	for _, want := range []string{"illegal name", "disk full", "marker file missing", "in use", "too large", "冲突副本",
-		`href="/folders/` + itoa(f) + `?dir=dir"`, `href="/folders/` + itoa(f) + `?dir=db"`, `href="/devices/` + itoa(dev) + `"`,
-		`href="/folders/` + itoa(f) + `?dir="`, "laptop"} {
+		`href="/folders/` + itoa(f) + `?dir=dir#dir%2Fbad:name.txt"`, `href="/folders/` + itoa(f) + `?dir=db#db%2Fx.sqlite"`,
+		`href="/folders/` + itoa(f) + `?dir=#huge.iso"`, "laptop"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("folder page lacks %q", want)
 		}
@@ -233,7 +234,7 @@ func TestNotificationsFromEverySource(t *testing.T) {
 	e.restart()
 	e.login(c, "pw") // sessions are in memory
 	_, over = e.get(c, "/")
-	if !strings.Contains(over, `Docs</a></td><td>1</td><td>0</td>`) {
+	if !hasCounts(over, f, 1, 0) {
 		t.Fatalf("after restart the reports are gone but the conflict copy stays:\n%s", over)
 	}
 
@@ -241,7 +242,7 @@ func TestNotificationsFromEverySource(t *testing.T) {
 	e.report(tok, f)
 	e.commit(f, proto.Op{Path: "a.conflict-laptop-20261101-120000.txt", BaseSeq: 1})
 	_, over = e.get(c, "/")
-	if strings.Contains(over, "<h2>通知</h2>") {
+	if strings.Contains(over, `class="badge`) {
 		t.Fatalf("notices remain:\n%s", over)
 	}
 }
@@ -259,7 +260,7 @@ func TestOfflineDeviceNoticeSurvivesRestart(t *testing.T) {
 	e.restart()
 	e.login(c, "pw") // sessions are in memory
 	_, over := e.get(c, "/")
-	if !strings.Contains(over, `/devices/`+itoa(dev)+`">old</a> (8 天未连接)`) {
+	if !strings.Contains(over, `/devices/`+itoa(dev)+`">old</a> 8 天未连接`) {
 		t.Fatalf("offline notice missing:\n%s", over)
 	}
 	e.report(tok, f) // the device is back
@@ -282,4 +283,17 @@ func (e *env) restart() {
 	e.s = s2
 	e.ts.Config.Handler = s2.Handler()
 	e.t.Cleanup(func() { s2.Close() })
+}
+
+// hasCounts reports whether the overview row of folder f shows the notification counters errs and warns (0: no counter).
+func hasCounts(page string, f int64, errs, warns int) bool {
+	one := func(kind string, n int) bool {
+		re := regexp.MustCompile(`class="cnt ` + kind + `" data-notif="ng-` + itoa(f) + `"><svg[^>]*><use[^>]*/></svg>(\d+)</button>`)
+		m := re.FindStringSubmatch(page)
+		if n == 0 {
+			return m == nil
+		}
+		return m != nil && m[1] == itoa(int64(n))
+	}
+	return one("err", errs) && one("warn", warns)
 }

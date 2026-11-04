@@ -46,6 +46,9 @@ type Server struct {
 	// PollTimeout is how long a poll hangs without news.
 	PollTimeout time.Duration
 
+	// EventGap is the shortest time between two pushes on /events (design 4.1).
+	EventGap time.Duration
+
 	fmu  sync.Mutex        // guards fdbs
 	fdbs map[int64]*sql.DB // open folder databases
 
@@ -59,6 +62,11 @@ type Server struct {
 	fails    map[string]*failure
 	reports  map[int64]*report
 	notify   chan struct{} // closed (and replaced) when the config changes
+	uiGen    int64         // the version of everything the Web UI shows (design 4.1)
+	uiCh     chan struct{} // closed (and replaced) when uiGen goes up
+	stats    map[int64]folderStat
+	evDone   chan struct{} // closed by StopEvents: the /events streams end
+	evOnce   sync.Once
 }
 
 type pendingCode struct {
@@ -71,8 +79,9 @@ type report struct {
 	req       proto.PollReq
 	at        time.Time // when the last poll ended (or the report arrived)
 	lastWrite time.Time
-	pending   int // polls hanging now
-	tooOld    int // the version of the client when its last request was refused as too old; 0 once it polls again
+	pending   int         // polls hanging now
+	tooOld    int         // the version of the client when its last request was refused as too old; 0 once it polls again
+	offline   *time.Timer // fires when the device counts as offline: the Web UI then updates
 }
 
 // onlineWindow is how long after its last poll a device still counts as online.
@@ -113,7 +122,8 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 		now = time.Now
 	}
 	return &Server{
-		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: parseTemplates(), PollTimeout: proto.PollTimeoutS * time.Second,
+		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: parseTemplates(), PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
+		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),
 	}
@@ -191,6 +201,7 @@ func (s *Server) createFolder(name string) (int64, error) {
 	s.fmu.Lock()
 	s.fdbs[id] = db
 	s.fmu.Unlock()
+	s.uiBump()
 	return id, nil
 }
 
@@ -219,6 +230,7 @@ func (s *Server) broadcast() {
 	s.mu.Lock()
 	close(s.notify)
 	s.notify = make(chan struct{})
+	s.bumpLocked()
 	s.mu.Unlock()
 }
 

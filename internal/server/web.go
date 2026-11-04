@@ -2,16 +2,19 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -25,7 +28,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-var funcs = template.FuncMap{"size": formatSize}
+var funcs = template.FuncMap{"size": formatSize, "time": timeTag, "icon": icon, "stText": stText, "stClass": stClass, "add1": func(i int) int { return i + 1 }}
 
 func formatSize(n int64) string {
 	const unit = 1024
@@ -41,19 +44,77 @@ func formatSize(n int64) string {
 	return fmt.Sprintf("%.1f %ciB", f, suffix[i])
 }
 
-func formatTime(unix int64) string {
-	if unix == 0 {
+// timeTag renders a time as the page shows it: app.js rewrites the text in the zone the settings ask for (design 4.7);
+// without it the page reads in UTC.
+func timeTag(unix int64) template.HTML {
+	if unix <= 0 {
 		return "从未"
 	}
-	return time.Unix(unix, 0).UTC().Format("2006-01-02 15:04:05 UTC")
+	t := time.Unix(unix, 0).UTC()
+	return template.HTML(`<time datetime="` + t.Format(time.RFC3339) + `">` + t.Format("2006-01-02 15:04:05") + `</time>`)
+}
+
+// icon draws an icon of the sprite /static/icons.svg.
+func icon(name string, cls ...string) template.HTML {
+	c := "i"
+	if len(cls) > 0 {
+		c += " " + cls[0]
+	}
+	return template.HTML(`<svg class="` + c + `" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#i-` + name + `"/></svg>`)
+}
+
+func stText(state string) string {
+	switch state {
+	case "idle":
+		return "已同步"
+	case "syncing":
+		return "同步中"
+	case "error":
+		return "有错误"
+	}
+	return state
+}
+
+func stClass(state string) string {
+	switch state {
+	case "idle":
+		return "st-ok"
+	case "syncing":
+		return "st-sync"
+	case "error":
+		return "st-err"
+	}
+	return "st-none"
 }
 
 func parseTemplates() map[string]*template.Template {
 	pages := map[string]*template.Template{}
-	for _, n := range []string{"login", "error", "overview", "device", "folder"} {
+	for _, n := range []string{"login", "error", "overview", "device", "folder", "settings", "live"} {
 		pages[n] = template.Must(template.New("layout").Funcs(funcs).ParseFS(webFS, "web/layout.html", "web/"+n+".html"))
 	}
 	return pages
+}
+
+// staticFiles serves the embedded files; the ETag of each is the hash of its content, so a browser asks again on
+// every visit but downloads only what changed (design: low traffic).
+func staticFiles(static fs.FS) http.Handler {
+	etags := map[string]string{}
+	fs.WalkDir(static, ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := fs.ReadFile(static, p)
+			sum := sha256.Sum256(b)
+			etags[p] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		}
+		return nil
+	})
+	files := http.FileServerFS(static)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tag := etags[strings.TrimPrefix(r.URL.Path, "/")]; tag != "" {
+			w.Header().Set("ETag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
 }
 
 // userError is shown on the error page; any other error from a handler is a 500.
@@ -64,11 +125,40 @@ type userError struct {
 
 func (e userError) Error() string { return e.msg }
 
+// dialogState is a page shown with a dialog open: a form the server refused (the page behind the dialog comes back
+// with the input kept and the message under the field, design 4.6) or the result of one (the enrollment command).
+type dialogState struct {
+	status   int // 0: 200
+	dialog   string
+	errs     map[string]string // field name -> message
+	ruleErrs []ignore.LineError
+	extra    map[string]any // more page data
+	page     func(http.ResponseWriter, *http.Request, *dialogState) error
+}
+
+func (e *dialogState) Error() string { return "form: " + strings.Join(mapValues(e.errs), "; ") }
+
+func mapValues(m map[string]string) []string {
+	var out []string
+	for _, v := range m {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+type pageFn = func(http.ResponseWriter, *http.Request, *dialogState) error
+
+// fieldErr refuses a form: page is shown again with the dialog open and msg under the field.
+func fieldErr(page pageFn, status int, dialog, field, msg string) error {
+	return &dialogState{status: status, dialog: dialog, errs: map[string]string{field: msg}, page: page}
+}
+
 type handler func(w http.ResponseWriter, r *http.Request) error
 
 func (s *Server) webRoutes(mux *http.ServeMux) {
 	static, _ := fs.Sub(webFS, "web")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFiles(static)))
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusOK, "login", "登录", map[string]any{})
 	})
@@ -77,20 +167,25 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		s.endSession(w, r)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
+	mux.HandleFunc("GET /events", s.events)
 	for pattern, h := range map[string]handler{
-		"GET /{$}":                       s.overview,
-		"POST /devices/add":              s.addDevice,
-		"POST /folders/new":              s.newFolder,
-		"POST /settings":                 s.saveSettings,
-		"POST /rules":                    s.saveGlobalRules,
-		"GET /devices/{id}":              s.devicePage,
-		"POST /devices/{id}/mapping":     s.saveMapping,
-		"POST /devices/{id}/revoke":      s.revoke,
-		"GET /folders/{id}":              s.folderPage,
-		"POST /folders/{id}/restore":     s.restore,
-		"POST /folders/{id}/restore-dir": s.restoreDir,
-		"POST /folders/{id}/delete":      s.deleteFolder,
-		"POST /folders/{id}/rules":       s.saveFolderRules,
+		"GET /{$}":                          s.overview,
+		"POST /devices/add":                 s.addDevice,
+		"POST /folders/new":                 s.newFolder,
+		"GET /settings":                     s.settings,
+		"POST /settings":                    s.saveSettings,
+		"POST /settings/timezone":           s.saveTimeZone,
+		"POST /rules":                       s.saveGlobalRules,
+		"POST /rules/validate":              s.validateRules,
+		"GET /devices/{id}":                 s.devicePageH,
+		"POST /devices/{id}/mapping":        s.saveMapping,
+		"POST /devices/{id}/revoke":         s.revoke,
+		"GET /folders/{id}":                 s.folderPageH,
+		"GET /folders/{id}/restore-preview": s.restorePreviewPage,
+		"POST /folders/{id}/restore":        s.restore,
+		"POST /folders/{id}/restore-dir":    s.restoreDir,
+		"POST /folders/{id}/delete":         s.deleteFolder,
+		"POST /folders/{id}/rules":          s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
 	}
@@ -103,11 +198,16 @@ func (s *Server) web(h handler) http.HandlerFunc {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
+		var ds *dialogState
+		var ue userError
 		switch err := h(w, r); {
 		case err == nil:
-		case errors.As(err, new(userError)):
-			var ue userError
-			errors.As(err, &ue)
+		case errors.As(err, &ds):
+			if err := ds.page(w, r, ds); err != nil {
+				slog.Error("web", "path", r.URL.Path, "err", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			}
+		case errors.As(err, &ue):
 			s.render(w, ue.status, "error", "出错了", map[string]any{"Error": ue.msg, "Back": ue.back})
 		default:
 			slog.Error("web", "path", r.URL.Path, "err", err)
@@ -118,10 +218,30 @@ func (s *Server) web(h handler) http.HandlerFunc {
 
 func bad(status int, back, msg string) error { return userError{status, msg, back} }
 
+// render shows a page. Every page of a session carries the bell and its popover, so the notifications are computed
+// here unless the handler has done it.
 func (s *Server) render(w http.ResponseWriter, status int, name, title string, data map[string]any) {
-	data["Title"], data["Auth"] = title, name != "login"
+	data["Title"], data["Auth"], data["Page"] = title, name != "login", name
+	if name != "login" {
+		if _, ok := data["Notif"]; !ok {
+			data["Notif"] = s.notifications()
+		}
+		data["TZ"] = MetaString(s.db, "time_zone")
+	}
+	for _, k := range []string{"Errs", "Vals"} {
+		if _, ok := data[k]; !ok {
+			data[k] = map[string]string{}
+		}
+	}
+	if _, ok := data["Open"]; !ok {
+		data["Open"] = ""
+	}
+	root := "layout"
+	if name == "live" {
+		root = "live"
+	}
 	var buf bytes.Buffer
-	if err := s.tmpl[name].ExecuteTemplate(&buf, "layout", data); err != nil {
+	if err := s.tmpl[name].ExecuteTemplate(&buf, root, data); err != nil {
 		slog.Error("render", "page", name, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -129,6 +249,53 @@ func (s *Server) render(w http.ResponseWriter, status int, name, title string, d
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	w.Write(buf.Bytes())
+}
+
+// show renders a page that may carry a dialog state, and the one-line result of the previous action.
+func (s *Server) show(w http.ResponseWriter, r *http.Request, ds *dialogState, name, title string, data map[string]any) {
+	status := http.StatusOK
+	if ds != nil {
+		if ds.status != 0 {
+			status = ds.status
+		}
+		data["Open"], data["Errs"], data["RuleErrs"] = ds.dialog, ds.errs, ds.ruleErrs
+		vals := map[string]string{}
+		for k, v := range r.PostForm {
+			vals[k] = v[0]
+		}
+		data["Vals"] = vals
+		for k, v := range ds.extra {
+			data[k] = v
+		}
+	}
+	data["Flash"] = flashText(r)
+	if r.Method != http.MethodGet { // a page that answers a POST is reloaded from the page's own address
+		data["LiveURL"] = map[string]string{"overview": "/", "settings": "/settings", "device": "/devices/" + r.PathValue("id"),
+			"folder": "/folders/" + r.PathValue("id") + "?dir=" + url.QueryEscape(r.FormValue("dir"))}[name]
+	}
+	s.render(w, status, name, title, data)
+}
+
+// flashText is the one-line result an action leaves in the redirect URL: a fixed word or numbers, never echoed text.
+func flashText(r *http.Request) string {
+	switch r.FormValue("ok") {
+	case "saved":
+		return "已保存"
+	case "rules":
+		return "排除规则已保存"
+	case "restored":
+		return "已恢复"
+	}
+	n, err1 := strconv.Atoi(r.FormValue("restored"))
+	failed, err2 := strconv.Atoi(r.FormValue("failed"))
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	msg := fmt.Sprintf("已恢复 %d 个文件", n)
+	if failed > 0 {
+		msg += fmt.Sprintf(", %d 个失败 (名称冲突或被同时修改)", failed)
+	}
+	return msg
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -166,29 +333,128 @@ func queryAll[T any](db interface {
 	return out, rows.Err()
 }
 
-func (s *Server) overview(w http.ResponseWriter, r *http.Request) error {
-	return s.overviewPage(w, r, "", "")
+// devTag is a device named in a folder's row.
+type devTag struct {
+	ID     int64
+	Name   string
+	Online bool
 }
 
-func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, codeName string) error {
-	type dev struct {
-		ID                                       int64
-		Name, OS, LastSeen, Version, ConfigState string
-		Online                                   bool
-		Status                                   []deviceStatus
+// mappedDevices lists, per folder, the devices that map it.
+func (s *Server) mappedDevices() (map[int64][]devTag, error) {
+	type row struct {
+		folder int64
+		devTag
+	}
+	rows, err := queryAll(s.db, func(rows *sql.Rows, r *row) error { return rows.Scan(&r.folder, &r.ID, &r.Name) },
+		`SELECT m.folder_id, d.id, d.name FROM mappings m JOIN devices d ON d.id=m.device_id ORDER BY d.name`)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	out := map[int64][]devTag{}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range rows {
+		r.Online = s.reports[r.ID] != nil && s.reports[r.ID].online(now)
+		out[r.folder] = append(out[r.folder], r.devTag)
+	}
+	return out, nil
+}
+
+// folderStatus sums up what the devices that map a folder report: "unmapped", "error", "syncing" (with the number of
+// pending files), "idle", or "offline" when none of them is online.
+func (s *Server) folderStatus(folder int64, devs []devTag) (state string, pending int) {
+	if len(devs) == 0 {
+		return "unmapped", 0
+	}
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	online, syncing, failed := false, false, false
+	for _, d := range devs {
+		rep := s.reports[d.ID]
+		if rep == nil {
+			continue
+		}
+		on := rep.online(now)
+		online = online || on
+		for _, fs := range rep.req.Folders {
+			if fs.ID != folder {
+				continue
+			}
+			if errs, _ := noticeKindCounts(fs.Errors); errs > 0 || fs.State == "error" {
+				failed = true
+			}
+			if on && (fs.State == "syncing" || fs.PendingUp+fs.PendingDown > 0) {
+				syncing = true
+				pending += fs.PendingUp + fs.PendingDown
+			}
+		}
+	}
+	switch {
+	case failed:
+		return "error", 0
+	case !online:
+		return "offline", 0
+	case syncing:
+		return "syncing", pending
+	}
+	return "idle", 0
+}
+
+type ovFolder struct {
+	ID, Files, Bytes int64
+	Name, Err        string // Err: the folder's database cannot be read; the rest of the page still works (design 2.3)
+	State            string
+	Pending          int
+	Devs             []devTag
+	Errors, Warnings int
+}
+
+type ovDevice struct {
+	ID                             int64
+	Name, OS, Version, ConfigState string
+	LastSeen                       int64
+	Online                         bool
+	TooOld                         int
+	Status                         []deviceStatus
+}
+
+func (s *Server) overview(w http.ResponseWriter, r *http.Request) error {
+	return s.overviewPage(w, r, nil)
+}
+
+func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialogState) error {
+	fols, err := queryAll(s.db, func(rows *sql.Rows, f *ovFolder) error { return rows.Scan(&f.ID, &f.Name) }, `SELECT id, name FROM folders ORDER BY name`)
+	if err != nil {
+		return err
 	}
 	folderNames := map[int64]string{}
-	if rows, err := s.db.Query(`SELECT id, name FROM folders`); err == nil {
-		for rows.Next() {
-			var id int64
-			var n string
-			rows.Scan(&id, &n)
-			folderNames[id] = n
+	for _, f := range fols {
+		folderNames[f.ID] = f.Name
+	}
+	mapped, err := s.mappedDevices()
+	if err != nil {
+		return err
+	}
+	nv := s.notifications()
+	counts := map[int64]noticeGroup{}
+	for _, g := range nv.Groups {
+		counts[g.ID] = g
+	}
+	for i := range fols {
+		f := &fols[i]
+		f.Devs = mapped[f.ID]
+		f.State, f.Pending = s.folderStatus(f.ID, f.Devs)
+		f.Errors, f.Warnings = counts[f.ID].Errors, counts[f.ID].Warnings
+		if f.Files, f.Bytes, err = s.folderStats(f.ID); err != nil {
+			slog.Error("overview", "folder", f.ID, "err", err)
+			f.Err = err.Error()
 		}
-		rows.Close()
 	}
 	cfgVersion := metaInt(s.db, "config_version")
-	devs, err := queryAll(s.db, func(rows *sql.Rows, d *dev) error {
+	devs, err := queryAll(s.db, func(rows *sql.Rows, d *ovDevice) error {
 		var seen int64
 		if err := rows.Scan(&d.ID, &d.Name, &d.OS, &seen); err != nil {
 			return err
@@ -201,67 +467,22 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, code, code
 			d.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
 			d.Online = rep.online(s.now())
 			if rep.tooOld > 0 {
-				d.Version, d.ConfigState = fmt.Sprintf("%d (过旧, 请升级客户端)", rep.tooOld), "-"
+				d.TooOld, d.ConfigState = rep.tooOld, "-"
 			}
 			for _, fs := range rep.req.Folders {
-				d.Status = append(d.Status, deviceStatus{Folder: folderNames[fs.ID], State: fs.State, Synced: formatTime(fs.LastSyncedAt), PendingUp: fs.PendingUp, PendingDown: fs.PendingDown})
+				d.Status = append(d.Status, deviceStatus{FolderID: fs.ID, Folder: folderNames[fs.ID], State: fs.State, Synced: fs.LastSyncedAt, PendingUp: fs.PendingUp, PendingDown: fs.PendingDown})
 			}
 			sort.Slice(d.Status, func(i, j int) bool { return d.Status[i].Folder < d.Status[j].Folder })
 		}
 		s.mu.Unlock()
-		d.LastSeen = formatTime(seen)
+		d.LastSeen = seen
 		return nil
 	}, `SELECT id, name, os, last_seen FROM devices ORDER BY name`)
 	if err != nil {
 		return err
 	}
-	type fol struct {
-		ID, Files, Bytes int64
-		Name, Err        string // Err: the folder's database cannot be read; the rest of the page still works (design 2.3)
-	}
-	fols, err := queryAll(s.db, func(rows *sql.Rows, f *fol) error {
-		return rows.Scan(&f.ID, &f.Name)
-	}, `SELECT id, name FROM folders ORDER BY name`)
-	if err != nil {
-		return err
-	}
-	for i := range fols {
-		db, err := s.folderDB(fols[i].ID)
-		if err == nil {
-			err = db.QueryRow(`SELECT count(*), coalesce(sum(size), 0) FROM files WHERE hash IS NOT NULL`).Scan(&fols[i].Files, &fols[i].Bytes)
-		}
-		if err != nil {
-			slog.Error("overview", "folder", fols[i].ID, "err", err)
-			fols[i].Err = err.Error()
-		}
-	}
-	var summary []folderSummary
-	for _, f := range fols {
-		if f.Err != "" {
-			continue
-		}
-		notes, err := s.folderNotices(f.ID)
-		if err != nil {
-			return err
-		}
-		fs := folderSummary{ID: f.ID, Name: f.Name}
-		for _, n := range notes {
-			if n.Error {
-				fs.Errors++
-			} else {
-				fs.Warnings++
-			}
-		}
-		if len(notes) > 0 {
-			summary = append(summary, fs)
-		}
-	}
-	offline, err := s.offlineDevices()
-	if err != nil {
-		return err
-	}
-	s.render(w, http.StatusOK, "overview", "总览", map[string]any{"Devices": devs, "Folders": fols, "Summary": summary, "Offline": offline, "KeepDays": metaInt(s.db, "keep_days"), "Rules": MetaString(s.db, "global_rules"),
-		"Code": code, "CodeName": codeName, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint})
+	data := map[string]any{"Devices": devs, "Folders": fols, "Notif": nv, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint}
+	s.show(w, r, ds, "overview", "总览", data)
 	return nil
 }
 
@@ -270,7 +491,7 @@ var deviceName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !deviceName.MatchString(name) {
-		return bad(http.StatusBadRequest, "/", "设备名称只能用字母, 数字, - 和 _, 至多 32 个字符 (冲突副本的文件名会包含它)")
+		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "设备名称只能用字母, 数字, - 和 _, 至多 32 个字符 (冲突副本的文件名会包含它)")
 	}
 	var n int
 	s.db.QueryRow(`SELECT count(*) FROM devices WHERE name=?`, name).Scan(&n)
@@ -284,59 +505,96 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	}
 	if n > 0 {
 		s.mu.Unlock()
-		return bad(http.StatusConflict, "/", "已有同名设备")
+		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-add-device", "name", "已有同名设备")
 	}
 	code := group(randomBase32(12), 4)
-	s.codes[sha(normalizeSecret(code))] = pendingCode{name, s.now().Add(codeLife)}
+	expires := s.now().Add(codeLife)
+	s.codes[sha(normalizeSecret(code))] = pendingCode{name, expires}
 	s.mu.Unlock()
-	return s.overviewPage(w, r, code, name)
+	return s.overviewPage(w, r, &dialogState{dialog: "dlg-enroll", extra: map[string]any{"Code": code, "CodeName": name, "Expires": expires.Unix()}})
 }
 
 func (s *Server) newFolder(w http.ResponseWriter, r *http.Request) error {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" || len(name) > 64 || strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 }) {
-		return bad(http.StatusBadRequest, "/", "文件夹名称不能为空, 至多 64 个字节, 不含控制字符")
+		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-new-folder", "name", "文件夹名称不能为空, 至多 64 个字节, 不含控制字符")
 	}
 	var n int
 	if s.db.QueryRow(`SELECT count(*) FROM folders WHERE name=?`, name).Scan(&n); n > 0 {
-		return bad(http.StatusConflict, "/", "已有同名文件夹")
+		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-new-folder", "name", "已有同名文件夹")
 	}
-	if _, err := s.createFolder(name); err != nil {
+	id, err := s.createFolder(name)
+	if err != nil {
 		return err
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/folders/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+	return nil
+}
+
+func (s *Server) settings(w http.ResponseWriter, r *http.Request) error {
+	return s.settingsPage(w, r, nil)
+}
+
+func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, ds *dialogState) error {
+	rules := MetaString(s.db, "global_rules")
+	if ds != nil && ds.dialog == "rules" {
+		rules = r.PostForm.Get("rules")
+	}
+	s.show(w, r, ds, "settings", "设置", map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "TimeZone": MetaString(s.db, "time_zone")})
 	return nil
 }
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) error {
 	days, err := strconv.Atoi(r.FormValue("keep_days"))
 	if err != nil || days < 1 || days > 3650 {
-		return bad(http.StatusBadRequest, "/", "保留天数必须是 1 到 3650 的整数")
+		return fieldErr(s.settingsPage, http.StatusBadRequest, "keep", "keep_days", "保留天数必须是 1 到 3650 的整数")
 	}
 	if err := SetMeta(s.db, "keep_days", days); err != nil {
 		return err
 	}
 	s.requestGC() // clears the versions that the new value has expired at once
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/settings?ok=saved", http.StatusSeeOther)
+	return nil
+}
+
+// timeZoneName matches the names of the IANA zones ("UTC", "Asia/Shanghai", "America/Argentina/Buenos_Aires",
+// "Etc/GMT+8"). The server holds no zone database (OpenWrt has none); the browser converts, so it is the browser
+// that knows whether a name exists, and it falls back to its own zone for an unknown one.
+var timeZoneName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$`)
+
+func (s *Server) saveTimeZone(w http.ResponseWriter, r *http.Request) error {
+	tz := ""
+	if r.FormValue("tz_mode") == "fixed" {
+		if tz = strings.TrimSpace(r.FormValue("tz")); len(tz) > 64 || !timeZoneName.MatchString(tz) {
+			return fieldErr(s.settingsPage, http.StatusBadRequest, "tz", "tz", "时区名称无效, 例如 UTC 或 Asia/Shanghai")
+		}
+	}
+	if err := SetMeta(s.db, "time_zone", tz); err != nil {
+		return err
+	}
+	s.uiBump()
+	http.Redirect(w, r, "/settings?ok=saved", http.StatusSeeOther)
 	return nil
 }
 
 // maxRulesText bounds a rule set: every device receives it with its configuration.
 const maxRulesText = 64 << 10
 
+// ruleLines splits the text of a rule box the way saveRules and the validation take it.
+func ruleLines(text string) []string {
+	return strings.Split(strings.TrimRight(strings.ReplaceAll(text, "\r\n", "\n"), "\n"), "\n")
+}
+
 // saveRules validates rule text (the trust boundary, design 3.2), stores it with write (whose last
 // argument is the text and whose other arguments are args) and, when it changed, pushes the new configuration.
-func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, back, read, write string, args ...any) error {
+// A refused text comes back as the page behind the dialog (page), with the errors listed under the text.
+func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, dialog, back, read, write string, args ...any) error {
 	text := strings.TrimRight(strings.ReplaceAll(r.FormValue("rules"), "\r\n", "\n"), "\n")
 	if len(text) > maxRulesText {
-		return bad(http.StatusBadRequest, back, "规则太长")
+		return fieldErr(page, http.StatusBadRequest, dialog, "rules", "规则太长")
 	}
 	if _, errs := ignore.Compile(strings.Split(text, "\n"), false); len(errs) > 0 {
-		var msgs []string
-		for _, e := range errs {
-			msgs = append(msgs, fmt.Sprintf("第 %d 行: %s", e.Line, e.Msg))
-		}
-		return bad(http.StatusBadRequest, back, strings.Join(msgs, "; "))
+		return &dialogState{status: http.StatusBadRequest, dialog: dialog, ruleErrs: errs, page: page}
 	}
 	err := s.configChange(func(tx *sql.Tx) (bool, error) {
 		var old string
@@ -351,6 +609,28 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, back, read, w
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil
+}
+
+// validateRules answers the rule boxes while the user types: the errors of the same parser that saveRules uses, so
+// that the browser and the server never disagree.
+func (s *Server) validateRules(w http.ResponseWriter, r *http.Request) error {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRulesText+1))
+	if err != nil {
+		return bad(http.StatusRequestEntityTooLarge, "/", "规则太长")
+	}
+	type lineErr struct {
+		Line int    `json:"line"`
+		Msg  string `json:"msg"`
+	}
+	out := struct {
+		Errors []lineErr `json:"errors"`
+	}{[]lineErr{}}
+	_, errs := ignore.Compile(ruleLines(string(b)), false)
+	for _, e := range errs {
+		out.Errors = append(out.Errors, lineErr{e.Line, e.Msg})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(w).Encode(out)
 }
 
 // configChange runs change in a transaction. When change reports a change, the configuration version goes up in the
@@ -381,7 +661,7 @@ func (s *Server) configChange(change func(tx *sql.Tx) (bool, error)) error {
 }
 
 func (s *Server) saveGlobalRules(w http.ResponseWriter, r *http.Request) error {
-	return s.saveRules(w, r, "/", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`)
+	return s.saveRules(w, r, s.settingsPage, "rules", "/settings?ok=rules", `SELECT value FROM meta WHERE key='global_rules'`, `UPDATE meta SET value=? WHERE key='global_rules'`)
 }
 
 func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
@@ -389,7 +669,7 @@ func (s *Server) saveFolderRules(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return s.saveRules(w, r, "/folders/"+strconv.FormatInt(f.ID, 10), `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, f.ID)
+	return s.saveRules(w, r, s.folderPage, "dlg-rules", "/folders/"+strconv.FormatInt(f.ID, 10)+"?ok=rules", `SELECT rules FROM folders WHERE id=?`, `UPDATE folders SET rules=? WHERE id=?`, f.ID)
 }
 
 type deviceRow struct {
@@ -407,15 +687,24 @@ func (s *Server) loadDevice(r *http.Request) (d deviceRow, err error) {
 	return d, err
 }
 
-func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) error {
+func (s *Server) devicePageH(w http.ResponseWriter, r *http.Request) error {
+	return s.devicePage(w, r, nil)
+}
+
+func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogState) error {
 	d, err := s.loadDevice(r)
 	if err != nil {
 		return err
 	}
 	type mapping struct {
-		FolderID     int64
-		Folder, Path string
-		Adopt        bool
+		FolderID         int64
+		Folder, Path     string
+		Adopt, Reported  bool
+		State            string
+		Synced           int64
+		PendingUp        int
+		PendingDown      int
+		Errors, Warnings int
 	}
 	maps, err := queryAll(s.db, func(rows *sql.Rows, m *mapping) error {
 		return rows.Scan(&m.FolderID, &m.Folder, &m.Path, &m.Adopt)
@@ -429,7 +718,45 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s.render(w, http.StatusOK, "device", "设备 "+d.Name, map[string]any{"Device": d, "Mappings": maps, "Free": free, "LastSeen": formatTime(d.LastSeen)})
+	head := struct {
+		Online, Known        bool
+		Version, ConfigState string
+		TooOld               int
+		LastSeen, ReportedAt int64
+		Errors, Warnings     int
+	}{LastSeen: d.LastSeen, Version: "-", ConfigState: "-"}
+	cfgVersion := metaInt(s.db, "config_version")
+	s.mu.Lock()
+	if rep := s.reports[d.ID]; rep != nil {
+		head.Known, head.LastSeen = true, max(d.LastSeen, rep.at.Unix())
+		head.Online = rep.online(s.now())
+		if !head.Online {
+			head.ReportedAt = rep.at.Unix()
+		}
+		head.Version = strconv.Itoa(rep.req.AgentVersion)
+		head.ConfigState = map[bool]string{true: "最新", false: "待更新"}[rep.req.ConfigVersion == cfgVersion]
+		head.TooOld = rep.tooOld
+		for _, fs := range rep.req.Folders {
+			e, w := noticeKindCounts(fs.Errors)
+			head.Errors, head.Warnings = head.Errors+e, head.Warnings+w
+			for i := range maps {
+				if maps[i].FolderID == fs.ID {
+					m := &maps[i]
+					m.Reported, m.State, m.Synced, m.PendingUp, m.PendingDown, m.Errors, m.Warnings = true, fs.State, fs.LastSyncedAt, fs.PendingUp, fs.PendingDown, e, w
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+	data := map[string]any{"Device": d, "Head": head, "Mappings": maps, "Free": free}
+	if ds != nil && ds.dialog == "dlg-map-edit" {
+		for _, m := range maps {
+			if strconv.FormatInt(m.FolderID, 10) == r.PostForm.Get("folder") {
+				data["EditName"] = m.Folder
+			}
+		}
+	}
+	s.show(w, r, ds, "device", "设备 "+d.Name, data)
 	return nil
 }
 
@@ -510,7 +837,11 @@ func (s *Server) saveMapping(w http.ResponseWriter, r *http.Request) error {
 		}
 		clean, err := cleanMapping(d.OS, strings.TrimSpace(r.FormValue("path")), others)
 		if err != nil {
-			return false, bad(http.StatusBadRequest, back, err.Error())
+			dialog := "dlg-map-add"
+			if old != nil {
+				dialog = "dlg-map-edit"
+			}
+			return false, fieldErr(s.devicePage, http.StatusBadRequest, dialog, "path", err.Error())
 		}
 		adopt := r.FormValue("adopt") != ""
 		if old != nil && old.path == clean && old.adopt == adopt {
@@ -546,197 +877,9 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.mu.Lock()
 	delete(s.reports, d.ID)
+	s.bumpLocked()
 	s.mu.Unlock()
 	slog.Info("device revoked", "device", d.Name)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-	return nil
-}
-
-type folderRow struct {
-	ID          int64
-	Name, Rules string
-}
-
-func (s *Server) loadFolder(r *http.Request) (f folderRow, err error) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	err = s.db.QueryRow(`SELECT id, name, rules FROM folders WHERE id=?`, id).Scan(&f.ID, &f.Name, &f.Rules)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = bad(http.StatusNotFound, "/", "没有这个文件夹")
-	}
-	return f, err
-}
-
-type browseEntry struct {
-	Name, Path, Mtime, Device string
-	IsDir, Gone               bool
-	Size                      int64
-}
-
-// browse lists the entries directly below dir ("" or "a/b"); directories are
-// derived from the paths below them. Tombstones count only when deleted is set.
-func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, error) {
-	db, err := s.folderDB(folder)
-	if err != nil {
-		return nil, err
-	}
-	prefix, q, args := "", `SELECT path, size, mtime_ns, device, hash IS NULL FROM files WHERE true`, []any{}
-	if dir != "" {
-		prefix = dir + "/"
-		q += ` AND path >= ? AND path < ?` // "0" is the character after "/"
-		args = append(args, prefix, dir+"0")
-	}
-	rows, err := db.Query(q+` ORDER BY path`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []browseEntry
-	seen := map[string]bool{}
-	for rows.Next() {
-		var p, dev string
-		var size, mtime int64
-		var gone bool
-		if err := rows.Scan(&p, &size, &mtime, &dev, &gone); err != nil {
-			return nil, err
-		}
-		if gone && !deleted {
-			continue
-		}
-		rest := p[len(prefix):]
-		if name, _, isDir := strings.Cut(rest, "/"); isDir {
-			if !seen[name] {
-				seen[name] = true
-				out = append(out, browseEntry{Name: name, Path: prefix + name, IsDir: true})
-			}
-			continue
-		}
-		out = append(out, browseEntry{Name: rest, Path: p, Size: size, Mtime: formatTime(mtime / 1e9), Device: dev, Gone: gone})
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].IsDir && !out[j].IsDir })
-	return out, rows.Err()
-}
-
-func (s *Server) folderPage(w http.ResponseWriter, r *http.Request) error {
-	f, err := s.loadFolder(r)
-	if err != nil {
-		return err
-	}
-	dir := strings.Trim(r.FormValue("dir"), "/")
-	deleted := r.FormValue("deleted") != ""
-	entries, err := s.browse(f.ID, dir, deleted)
-	if err != nil {
-		return err
-	}
-	type crumb struct{ Name, Path string }
-	var crumbs []crumb
-	for i, p := range strings.Split(dir, "/") {
-		if p != "" {
-			crumbs = append(crumbs, crumb{p, strings.Join(strings.Split(dir, "/")[:i+1], "/")})
-		}
-	}
-	notes, err := s.folderNotices(f.ID)
-	if err != nil {
-		return err
-	}
-	var maps int
-	if err := s.db.QueryRow(`SELECT count(*) FROM mappings WHERE folder_id=?`, f.ID).Scan(&maps); err != nil {
-		return err
-	}
-	data := map[string]any{"Notices": notes, "Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "CanDelete": maps == 0}
-	_, err1 := strconv.Atoi(r.FormValue("restored"))
-	if _, err2 := strconv.Atoi(r.FormValue("failed")); err1 == nil && err2 == nil {
-		data["Restored"], data["Failed"] = r.FormValue("restored"), r.FormValue("failed") // numbers only: nothing else is echoed
-	}
-	if file := r.FormValue("file"); file != "" {
-		if data["Versions"], err = s.versionList(f.ID, file); err != nil {
-			return err
-		}
-		data["File"] = file
-	}
-	s.render(w, http.StatusOK, "folder", "文件夹 "+f.Name, data)
-	return nil
-}
-
-// restore commits an old version as the new current state (restoreVersion).
-func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
-	f, err := s.loadFolder(r)
-	if err != nil {
-		return err
-	}
-	back := "/folders/" + strconv.FormatInt(f.ID, 10)
-	vid, _ := strconv.ParseInt(r.FormValue("version"), 10, 64)
-	p, err := s.restoreVersion(f.ID, vid)
-	var re restoreError
-	switch {
-	case errors.Is(err, errNoVersion):
-		return bad(http.StatusNotFound, back, "没有这个版本")
-	case errors.As(err, &re):
-		return bad(http.StatusConflict, back, "无法恢复: "+re.msg)
-	case err != nil:
-		return err
-	}
-	http.Redirect(w, r, back+"?dir="+url.QueryEscape(r.FormValue("dir"))+"&file="+url.QueryEscape(p), http.StatusSeeOther)
-	return nil
-}
-
-// restoreDir brings back what a directory held at a point in time (restoreDirAt).
-func (s *Server) restoreDir(w http.ResponseWriter, r *http.Request) error {
-	f, err := s.loadFolder(r)
-	if err != nil {
-		return err
-	}
-	dir := strings.Trim(r.FormValue("dir"), "/")
-	back := "/folders/" + strconv.FormatInt(f.ID, 10)
-	at, err := ParseTime(r.FormValue("time"))
-	if err != nil {
-		return bad(http.StatusBadRequest, back, err.Error())
-	}
-	restored, failed, err := s.restoreDirAt(f.ID, dir, at)
-	if err != nil {
-		return err
-	}
-	slog.Info("restore dir", "folder", f.Name, "dir", dir, "at", at, "restored", restored, "failed", failed)
-	http.Redirect(w, r, fmt.Sprintf("%s?dir=%s&restored=%d&failed=%d", back, url.QueryEscape(dir), restored, failed), http.StatusSeeOther)
-	return nil
-}
-
-// deleteFolder removes a folder that no device maps, with its database. Its blocks go at the next GC.
-func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
-	f, err := s.loadFolder(r)
-	if err != nil {
-		return err
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var n int
-	if err := tx.QueryRow(`SELECT count(*) FROM mappings WHERE folder_id=?`, f.ID).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
-		return bad(http.StatusConflict, "/folders/"+strconv.FormatInt(f.ID, 10), "文件夹仍映射到设备, 先在设备页删除映射")
-	}
-	if _, err := tx.Exec(`DELETE FROM folders WHERE id=?`, f.ID); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	s.fmu.Lock()
-	if db := s.fdbs[f.ID]; db != nil {
-		db.Close()
-		delete(s.fdbs, f.ID)
-	}
-	s.fmu.Unlock()
-	path := FolderDBPath(s.varDir, f.ID)
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.Remove(path + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	slog.Info("folder deleted", "folder", f.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
 }

@@ -1,4 +1,5 @@
 {{define "content"}}
-<p class="err">{{.Error}}</p>
-<p><a href="{{.Back}}">返回</a></p>
+<div class="head"><h1>{{.Title}}</h1></div>
+<section class="card"><div class="card-b"><p class="err-msg">{{.Error}}</p>
+<p><a class="btn" href="{{if .Back}}{{.Back}}{{else}}/{{end}}">返回</a></p></div></section>
 {{end}}

@@ -4,18 +4,51 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} - kaze-sync</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
-{{block "head" .}}{{end}}
 <script src="/static/app.js" defer></script>
 </head>
-<body>
-<header>
-<a href="/">kaze-sync</a>
-{{if .Auth}}<form method="post" action="/logout"><button>退出</button></form>{{end}}
-</header>
-<main>
-<h1>{{.Title}}</h1>
+<body data-tz="{{.TZ}}"{{if .LiveURL}} data-live-url="{{.LiveURL}}"{{end}}>
+{{if .Auth}}<header class="bar"><div class="bar-in">
+<a class="logo" href="/">{{icon "logo" "lg"}}kaze-sync</a>
+<span class="sp"></span>
+<span class="conn" data-conn>连接中断</span>
+<button class="icon-btn" type="button" popovertarget="notif" aria-label="通知" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>
+<a class="icon-btn{{if eq .Page "settings"}} on{{end}}" href="/settings" aria-label="设置">{{icon "gear" "lg"}}</a>
+<form method="post" action="/logout"><button class="icon-btn" aria-label="退出">{{icon "logout" "lg"}}</button></form>
+</div></header>
+<div id="notif" popover class="pop notif" role="dialog" aria-label="通知" data-live="notif">{{template "notif" .Notif}}</div>
+{{end}}
+{{if .Flash}}<div class="toast" role="status" data-toast>{{icon "check"}}<span>{{.Flash}}</span><button type="button" class="icon-btn x" data-toast-close aria-label="关闭">{{icon "x"}}</button></div>{{end}}
+<main{{block "mainattr" .}}{{end}}>
 {{template "content" .}}
 </main>
+{{block "dialogs" .}}{{end}}
+{{if .Auth}}<dialog id="dlg-confirm" class="dlg" aria-labelledby="cf-t">
+<div class="dlg-h"><h3 id="cf-t">请确认</h3></div>
+<div class="dlg-b"><p id="cf-msg"></p></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button type="button" class="btn primary" id="cf-ok">确定</button></div>
+</dialog>{{end}}
 </body>
 </html>{{end}}
+
+{{define "badge"}}{{if .Total}}<span class="badge{{if not .Errors}} warn{{end}}">{{if gt .Total 99}}99+{{else}}{{.Total}}{{end}}</span><span class="sr">通知: {{.Errors}} 个错误, {{.Warnings}} 个提醒</span>{{else}}<span class="sr">没有通知</span>{{end}}{{end}}
+
+{{define "notice-item"}}<div class="nitem"><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span>
+<span class="msg">{{.Message}}</span>
+{{if .Path}}<a class="path" href="{{.Link}}">{{.Path}}</a>{{else if .Link}}<a class="path" href="{{.Link}}">设备页</a>{{end}}
+<span class="meta">{{.Device}} · {{time .Since}}{{if .ReportedAt}} · 最后上报于 {{time .ReportedAt}}{{end}}</span>
+{{if .Advice}}<span class="adv">{{.Advice}}</span>{{end}}</div>{{end}}
+
+{{define "notif"}}<div class="notif-h"><h3>通知</h3>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}} 个错误</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}} 个提醒</span>{{end}}</div>
+<div class="notif-b">
+{{range .Groups}}<div class="grp-h" id="ng-{{.ID}}"><a href="/folders/{{.ID}}">{{.Name}}</a>{{if .Errors}}<span class="cnt err">{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{.Warnings}}</span>{{end}}</div>
+{{range .Rows}}{{if .Fold}}<details class="nitem fold"><summary><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span><span class="msg">{{.Device}}: {{.Text}}</span><span class="meta">最早 {{time .Since}}</span><span class="expand">展开</span></summary>
+{{range .Sub}}{{template "notice-item" .}}{{end}}</details>
+{{else}}{{template "notice-item" .}}{{end}}{{end}}
+{{end}}
+{{if .Offline}}<div class="grp-h" id="ng-dev">设备</div>
+{{range .Offline}}<div class="nitem"><span class="ic warn">{{icon "warn"}}</span><span class="msg"><a href="/devices/{{.ID}}">{{.Name}}</a> {{.Days}} 天未连接</span><span class="meta">最近连接 {{time .Last}}</span><span class="adv">让设备上线, 或吊销</span></div>{{end}}{{end}}
+{{if not .Total}}<p class="empty">没有通知</p>{{end}}
+</div>
+<div class="notif-f">通知由当前状态算出, 原因消除后自动消失.</div>{{end}}

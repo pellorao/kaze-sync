@@ -1,58 +1,102 @@
+{{define "mainattr"}} data-folder="{{.Folder.ID}}" data-seq="{{.Seq}}"{{end}}
+
 {{define "content"}}
-<p>
-<a href="/folders/{{.Folder.ID}}">根</a>{{range .Crumbs}} / <a href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
- &nbsp; <a href="/folders/{{.Folder.ID}}?dir={{.Dir}}{{if not .Deleted}}&amp;deleted=1{{end}}">{{if .Deleted}}隐藏已删除{{else}}显示已删除{{end}}</a>
-</p>
-{{if .Notices}}
-<h2>通知</h2>
-<table>
-<tr><th>级别</th><th>来源设备</th><th>路径</th><th>消息</th><th>起始时间</th><th>处理</th></tr>
-{{range .Notices}}<tr>
-<td>{{if .Error}}错误{{else}}提醒{{end}}</td><td>{{.Device}}{{if .Reported}} <span class="muted">({{.Reported}})</span>{{end}}</td>
-<td>{{if .Link}}<a href="{{.Link}}">{{if .Path}}{{.Path}}{{else}}设备页{{end}}</a>{{else}}{{.Path}}{{end}}</td><td>{{.Message}}</td><td>{{.Since}}</td><td>{{.Advice}}</td>
-</tr>{{end}}
-</table>
+<div class="head"><div class="crumbs"><a href="/">总览</a><span class="sep">/</span>{{if .Dir}}<a href="/folders/{{.Folder.ID}}{{if .Deleted}}?deleted=1{{end}}">{{.Folder.Name}}</a>{{range $i, $c := .Crumbs}}<span class="sep">/</span>{{if eq (len $.Crumbs) (add1 $i)}}<span>{{$c.Name}}</span>{{else}}<a href="/folders/{{$.Folder.ID}}?dir={{$c.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{$c.Name}}</a>{{end}}{{end}}{{else}}<span>{{.Folder.Name}}</span>{{end}}</div>
+<span class="sp"></span>
+<a class="toggle{{if .Deleted}} on{{end}}" role="switch" aria-checked="{{if .Deleted}}true{{else}}false{{end}}" href="/folders/{{.Folder.ID}}?{{if .Dir}}dir={{.Dir}}{{end}}{{if not .Deleted}}{{if .Dir}}&amp;{{end}}deleted=1{{end}}"><span class="sw"></span>显示已删除</a>
+{{if not .Dir}}<button type="button" class="btn" data-dialog="dlg-rules">{{icon "rules"}}排除规则{{if .RuleCount}} <span class="n">{{.RuleCount}}</span>{{end}}</button>{{end}}
+<button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}" aria-label="文件夹操作" aria-haspopup="menu">{{icon "more"}}</button></div>
+<p class="sub"><span>{{if .Mapped}}{{.Mapped}} 台设备: {{range $i, $d := .Devs}}{{if $i}}, {{end}}{{$d.Name}}{{end}}{{else}}没有设备映射{{end}}</span>
+<span class="dot-sep num">{{.Files}} 个文件</span><span class="dot-sep num">{{size .Bytes}}</span>
+<span class="dot-sep">{{if eq .State "unmapped"}}<span class="st-none">未映射</span>{{else if eq .State "error"}}<span class="st-err">有错误</span>{{else if eq .State "syncing"}}<span class="st-sync">同步中{{if .Pending}} · 待传 {{.Pending}}{{end}}</span>{{else if eq .State "offline"}}<span class="st-none">设备离线</span>{{else}}<span class="st-ok">已同步</span>{{end}}</span>
+{{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}} 个错误</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}} 个提醒</span>{{end}}</button>{{end}}</p>
+<section class="card" data-menu-area="blank" data-path="{{.Dir}}">
+<div class="list-h"><span>{{len .Entries}} 项</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}内容有更新, 刷新</button></div>
+{{if .Entries}}<table class="files">
+<thead><tr><th>名称</th><th class="size r">大小</th><th class="time">修改时间</th><th class="act"></th></tr></thead>
+<tbody>
+{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else if .Conflict}}conflict{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if .Orig}} data-orig="{{.Orig}}"{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{.Note.Advice}}"{{end}}>
+<td class="name"><div class="fname">{{if .IsDir}}{{icon "folder" "dir"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
+{{else if .Unsynced}}{{icon "link" "file"}}<span class="t nm">{{.Name}}</span>
+{{else}}{{icon "file" "file"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
+<span class="tags">{{if and .IsDir .Gone}}<span class="tag">只有已删除的内容</span>{{else if and .Gone (not .IsDir)}}<span class="tag">已删除</span>{{end}}{{range .Tags}}<span class="tag {{.Class}}"{{if .Title}} title="{{.Title}}"{{end}}>{{.Text}}</span>{{end}}</span></div>
+{{if or .Size .Time}}{{if not .IsDir}}<div class="sm-meta">{{if not .Gone}}{{size .Size}} · {{else}}删除于 {{end}}{{time .Time}}</div>{{end}}{{end}}</td>
+<td class="size">{{if and (not .IsDir) (not .Gone) (not .Unsynced)}}{{size .Size}}{{end}}</td>
+<td class="time">{{if and (not .IsDir) (not .Unsynced)}}{{if .Gone}}删除于 {{end}}{{time .Time}}{{end}}</td>
+<td class="act"><button type="button" class="more" data-menu="row" aria-label="{{.Name}} 的操作" aria-haspopup="menu">{{icon "more"}}</button></td></tr>
 {{end}}
-{{if .Versions}}
-<h2>{{.File}} 的版本</h2>
-<table>
-<tr><th>时间</th><th>大小</th><th>来源设备</th><th></th></tr>
+</tbody></table>
+{{else}}<div class="empty">{{if and (not .Dir) (not .Mapped)}}还没有设备同步这个文件夹. 在设备页为设备添加映射, 就会开始同步.{{else if .Deleted}}此目录没有文件, 也没有已删除的文件{{else}}此目录为空{{end}}</div>{{end}}
+</section>
+{{end}}
+
+{{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}该时刻存在而现在不同的文件: <b class="num">{{.N}}</b> 个{{else}}该时刻与现在没有差别{{end}}</span></div>
+{{if .Items}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s">{{if .Gone}}现在已删除{{else}}现在内容不同{{end}}</span></li>{{end}}</ul>{{end}}
+{{if gt .More 0}}<div class="more-n">还有 {{.More}} 个 (预览最多列出 20 个)</div>{{end}}{{end}}
+
+{{define "dialogs"}}
+<dialog id="dlg-restore" class="dlg" data-folder-name="{{.Folder.Name}}" data-keep-days="{{.KeepDays}}"{{if eq .Open "dlg-restore"}} data-autoopen{{end}} aria-labelledby="rs-t"><form method="post" action="/folders/{{.Folder.ID}}/restore-dir">
+<input type="hidden" name="path" value="{{.Scope}}"><input type="hidden" name="dir" value="{{.Dir}}">
+<div class="dlg-h"><h3 id="rs-t">恢复到某一时刻</h3></div>
+<div class="dlg-b">
+<div class="field"><span class="lbl">范围</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{if .Scope}} / {{.Scope}}{{end}}</span></div></div>
+<div class="field"><label for="rs-time">时间</label>
+<input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required>
+{{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}
+<div class="chips"><button type="button" class="chip" data-ago="1h">1 小时前</button><button type="button" class="chip" data-ago="today">今天 0 点</button><button type="button" class="chip" data-ago="1d">昨天此时</button><button type="button" class="chip" data-ago="7d">7 天前</button></div>
+<span class="help"><span data-tzname>UTC</span>, 可在 <a href="/settings">设置</a> 中改变. 版本保留 {{.KeepDays}} 天.<span class="warnbox" data-oldwarn hidden> 所选时间早于版本保留期, 那时的内容可能已被清理.</span></span></div>
+<div class="preview" data-preview hidden></div>
+<p class="note">{{icon "info"}}<span>只恢复内容, 不删除该时刻之后新建的文件; 当前内容进入版本历史, 可再次恢复.</span></p>
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>恢复</span></button></div>
+</form></dialog>
+
+<dialog id="dlg-rules" class="dlg wide"{{if eq .Open "dlg-rules"}} data-autoopen{{end}} aria-labelledby="ru-t"><form method="post" action="/folders/{{.Folder.ID}}/rules">
+<div class="dlg-h">{{icon "rules"}}<h3 id="ru-t">{{.Folder.Name}} 的排除规则</h3></div>
+<div class="dlg-b">
+<div class="field">
+<div class="ruleedit" data-ruleedit><pre class="hl" aria-hidden="true"></pre><textarea class="code" name="rules" rows="12" spellcheck="false" wrap="off" aria-describedby="ru-help">{{.Rules}}</textarea></div>
+<div class="rule-errs" aria-live="polite" data-ruleerrs>{{range .RuleErrs}}<div class="err-msg" data-line="{{.Line}}">第 {{.Line}} 行: {{.Msg}}</div>{{end}}</div>
+{{with index .Errs "rules"}}<span class="err-msg">{{.}}</span>{{end}}
+<span class="help" id="ru-help">gitignore 语法, 每行一条, <code>#</code> 开头为注释. 接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 <code>!/dir/</code> 再 <code>/dir/*</code> 再 <code>!/dir/file</code>.</span>
+</div>
+<details class="glob"><summary>全局规则 ({{.GlobalCount}} 条, 只读, 在 <a href="/settings">设置</a> 中修改)</summary>
+<pre>{{.Global}}</pre></details>
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>取消</button><button class="btn primary">保存</button></div>
+</form></dialog>
+
+{{if .File}}<dialog id="dlg-versions" class="dlg wide" data-autoopen data-clear="file,rv" aria-labelledby="vh-t">
+<div class="dlg-h">{{icon "history"}}<h3 id="vh-t">版本历史 <span class="mono muted small">{{.File}}</span></h3><button type="button" class="icon-btn x" data-close aria-label="关闭">{{icon "x"}}</button></div>
+<div class="dlg-b">
+{{if .Restored}}<div class="okbar">{{icon "check"}}已恢复为 {{time .Restored}} 的版本</div>{{end}}
+<table class="vers">
+<thead><tr><th>时间</th><th class="r">大小</th><th>来源设备</th><th class="r"></th></tr></thead>
+<tbody>
 {{range .Versions}}<tr>
-<td>{{.Time}}</td><td>{{size .Size}}</td><td>{{.Device}}</td>
-<td>{{if .Current}}当前{{else if .Deleted}}删除{{else}}<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="inline" data-confirm="恢复这个版本? 当前内容会进入版本列表.">
-<input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><button>恢复</button></form>{{end}}</td>
-</tr>{{end}}
-</table>
-{{end}}
-<h2>恢复目录到某一时刻</h2>
-{{if .Restored}}<p>已恢复 {{.Restored}} 个文件{{if ne .Failed "0"}}, {{.Failed}} 个失败 (名称冲突或被同时修改){{end}}.</p>{{end}}
-<form method="post" action="/folders/{{.Folder.ID}}/restore-dir" data-confirm="把 {{if .Dir}}{{.Dir}}/{{else}}整个文件夹{{end}} 下在该时刻存在而现在不同的文件恢复成当时的内容? 之后新建的文件不受影响.">
-<p class="muted">范围: {{if .Dir}}{{.Dir}}/{{else}}整个文件夹{{end}}. 只恢复内容, 不删除任何文件; 当前内容进入版本列表.</p>
-<p><label>时间 (UTC) <input type="text" name="time" placeholder="2026-11-02 12:00" required></label><input type="hidden" name="dir" value="{{.Dir}}"> <button>恢复</button></p>
-</form>
+<td class="num">{{time .Time}}</td><td class="r num">{{if not .Deleted}}{{size .Size}}{{end}}</td><td>{{.Device}}</td>
+<td class="r">{{if .Current}}{{if .Deleted}}<span class="tag">已删除</span>{{else}}<span class="tag ok">当前</span>{{end}}{{else}}<button type="button" class="btn sm" data-ask>{{icon "restore"}}恢复</button>
+<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="ask" hidden><span class="q">恢复这个版本? 当前内容会进入版本历史</span> <button type="button" class="btn sm" data-ask-cancel>取消</button> <button class="btn sm primary">恢复</button>
+<input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"></form>{{end}}</td>
+</tr>{{else}}<tr><td colspan="4" class="muted">没有这个文件的历史</td></tr>{{end}}
+</tbody></table>
+{{if .FileOrig}}<p class="note">{{icon "info"}}<span>这是冲突副本: <a href="/folders/{{.Folder.ID}}?dir={{.Dir}}&amp;file={{.FileOrig}}{{if .Deleted}}&amp;deleted=1{{end}}">{{.FileOrig}} 的版本历史</a></span></p>{{end}}
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>关闭</button></div>
+</dialog>{{end}}
 
-<h2>文件夹排除规则</h2>
-<form method="post" action="/folders/{{.Folder.ID}}/rules">
-<p class="muted">接在全局规则之后, 最后匹配的规则生效; 被排除目录下的内容不能重新包含, 需先 !/dir/ 再 /dir/* 再 !/dir/file.</p>
-<p><textarea name="rules" rows="8" class="wide" spellcheck="false">{{.Folder.Rules}}</textarea></p>
-<p><button>保存</button></p>
-</form>
+<dialog id="dlg-unsynced" class="dlg" aria-labelledby="un-t">
+<div class="dlg-h"><h3 id="un-t">未同步的条目</h3></div>
+<div class="dlg-b">
+<div class="field"><span class="lbl">路径</span><span class="mono" data-fill="path"></span></div>
+<div class="field"><span class="lbl">消息</span><span data-fill="msg"></span></div>
+<div class="field"><span class="lbl">设备, 起始时间</span><span><span data-fill="device"></span> · <time data-fill="since"></time></span></div>
+<div class="field"><span class="lbl">处理</span><span class="muted" data-fill="advice"></span></div>
+</div>
+<div class="dlg-f"><button type="button" class="btn primary" data-close>关闭</button></div>
+</dialog>
 
-<h2>内容</h2>
-<table>
-<tr><th>名称</th><th>大小</th><th>修改时间</th><th>来源设备</th><th></th></tr>
-{{range .Entries}}<tr>
-{{if .IsDir}}<td><a href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}/</a></td><td></td><td></td><td></td><td></td>
-{{else}}<td>{{.Name}}{{if .Gone}} <span class="muted">(已删除)</span>{{end}}</td><td>{{if not .Gone}}{{size .Size}}{{end}}</td><td>{{.Mtime}}</td><td>{{.Device}}</td>
-<td><a href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">版本</a></td>{{end}}
-</tr>{{else}}<tr><td colspan="5" class="muted">空</td></tr>{{end}}
-</table>
-
-{{if .CanDelete}}
-<h2>删除文件夹</h2>
-<form method="post" action="/folders/{{.Folder.ID}}/delete" data-confirm="永久删除文件夹 {{.Folder.Name}} 及其全部历史版本?">
-<p class="muted">没有设备映射它时才可删除; 它的块在下次清理时回收.</p>
-<p><button>删除</button></p>
-</form>
-{{end}}
+<form id="f-restore-last" method="post" action="/folders/{{.Folder.ID}}/restore" hidden data-confirm="恢复这个已删除文件的最后内容? 它会作为新文件同步到所有设备." data-confirm-ok="恢复">
+<input type="hidden" name="path" value=""><input type="hidden" name="dir" value="{{.Dir}}"></form>
+<form id="f-del-folder" method="post" action="/folders/{{.Folder.ID}}/delete" hidden data-confirm="永久删除文件夹 {{.Folder.Name}} 及其全部历史版本? 它的块在下次清理时回收." data-confirm-ok="删除" data-danger></form>
 {{end}}

@@ -38,6 +38,7 @@ func Run(ctx context.Context, data string) error {
 	}
 	go func() {
 		<-ctx.Done()
+		s.StopEvents() // Shutdown would wait for the streams
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(sctx)

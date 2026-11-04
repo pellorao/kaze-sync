@@ -206,7 +206,7 @@ func TestRestoreDirToPointInTime(t *testing.T) {
 	e.clk.Add(30 * time.Minute)
 	e.commit(f, e.op("proj/a", 1, "a2"), proto.Op{Path: "proj/b", BaseSeq: 2}, e.op("proj/d", 0, "d1"), e.op("other", 4, "o2"))
 	post := func(dir, at string) (int, string) {
-		resp, err := c.PostForm(e.ts.URL+base+"/restore-dir", url.Values{"dir": {dir}, "time": {at}})
+		resp, err := c.PostForm(e.ts.URL+base+"/restore-dir", url.Values{"path": {dir}, "time": {at}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +236,7 @@ func TestRestoreDirToPointInTime(t *testing.T) {
 	if _, loc := post("", t1); !strings.Contains(loc, "restored=1") || !bytes.Equal(e.liveHash(f, "other"), sum("o1")) {
 		t.Errorf("whole-folder restore: %s", loc)
 	}
-	if st, _ := e.post(c, base+"/restore-dir", url.Values{"dir": {""}, "time": {"yesterday"}}); st != 400 {
+	if st, _ := e.post(c, base+"/restore-dir", url.Values{"path": {""}, "time": {"yesterday"}}); st != 400 {
 		t.Errorf("bad time: %d", st)
 	}
 	_, page := e.get(c, base+"?restored=3&failed=0")
@@ -268,7 +268,7 @@ func TestRestoreDirManyFiles(t *testing.T) {
 		t.Fatal("not deleted")
 	}
 	e.commit(f, e.op("proj/new", 0, "created after the deletion"))
-	resp, err := c.PostForm(e.ts.URL+"/folders/"+itoa(f)+"/restore-dir", url.Values{"dir": {"proj"}, "time": {t1}})
+	resp, err := c.PostForm(e.ts.URL+"/folders/"+itoa(f)+"/restore-dir", url.Values{"path": {"proj"}, "time": {t1}})
 	if err != nil || !strings.Contains(resp.Header.Get("Location"), fmt.Sprintf("restored=%d&failed=0", n)) {
 		t.Fatalf("restore: %v %v", err, resp)
 	}
@@ -286,14 +286,14 @@ func TestDeleteFolder(t *testing.T) {
 	e.commit(gone, e.op("x", 0, "x"))
 	dev, _ := e.enrollDevice("d", "linux")
 	e.mapFolder(dev, gone, "/g")
-	if _, page := e.get(c, "/folders/"+itoa(gone)); strings.Contains(page, "删除文件夹") {
-		t.Error("the page offers the deletion of a mapped folder")
+	if _, page := e.get(c, "/folders/"+itoa(gone)); !strings.Contains(page, `data-menu="folder-head" data-maps="1"`) {
+		t.Error("the page does not tell the menu that the folder is mapped (the deletion is disabled then)")
 	}
 	if st, _ := e.post(c, "/folders/"+itoa(gone)+"/delete", nil); st != 409 {
 		t.Fatalf("deleting a mapped folder: %d", st)
 	}
 	e.s.db.Exec(`DELETE FROM mappings`)
-	if _, page := e.get(c, "/folders/"+itoa(gone)); !strings.Contains(page, "删除文件夹") {
+	if _, page := e.get(c, "/folders/"+itoa(gone)); !strings.Contains(page, `data-menu="folder-head" data-maps="0"`) || !strings.Contains(page, `id="f-del-folder"`) {
 		t.Error("the page lacks the deletion of an unmapped folder")
 	}
 	path := FolderDBPath(e.s.varDir, gone)

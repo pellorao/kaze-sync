@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -128,6 +129,7 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := res.LastInsertId()
 	slog.Info("device enrolled", "device", pc.name, "os", req.OS)
+	s.uiBump()
 	writeJSON(w, proto.EnrollResp{DeviceID: id, Name: pc.name, Token: tok})
 }
 
@@ -229,8 +231,15 @@ func (s *Server) pollStart(id int64, req proto.PollReq) {
 		rep = &report{}
 		s.reports[id] = rep
 	}
+	changed := !rep.online(s.now()) || !reflect.DeepEqual(rep.req, req)
 	rep.req, rep.at, rep.tooOld = req, s.now(), 0
 	rep.pending++
+	if rep.offline != nil {
+		rep.offline.Stop()
+	}
+	if changed {
+		s.bumpLocked()
+	}
 	s.mu.Unlock()
 }
 
@@ -245,6 +254,13 @@ func (s *Server) pollEnd(id int64) {
 	}
 	rep.pending--
 	rep.at = now
+	if rep.pending == 0 { // the Web UI shows the device as offline once the window has passed
+		if rep.offline == nil {
+			rep.offline = time.AfterFunc(onlineWindow+time.Second, s.uiBump)
+		} else {
+			rep.offline.Reset(onlineWindow + time.Second)
+		}
+	}
 	due := now.Sub(rep.lastWrite) >= lastSeenEvery
 	if due {
 		rep.lastWrite = now

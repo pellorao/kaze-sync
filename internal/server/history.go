@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 
 type versionItem struct {
 	ID               int64
-	Time, Device     string
+	Time             int64
+	Device           string
 	Size             int64
 	Current, Deleted bool
 }
@@ -31,15 +33,12 @@ func (s *Server) versionList(folder int64, file string) ([]versionItem, error) {
 	var out []versionItem
 	var cur fileRow
 	if err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, file)); err == nil {
-		out = append(out, versionItem{Time: formatTime(cur.createdAt), Device: cur.device, Size: cur.size, Current: true, Deleted: cur.hash == nil})
+		out = append(out, versionItem{Time: cur.createdAt, Device: cur.device, Size: cur.size, Current: true, Deleted: cur.hash == nil})
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	old, err := queryAll(db, func(rows *sql.Rows, v *versionItem) error {
-		var t int64
-		err := rows.Scan(&v.ID, &t, &v.Device, &v.Size)
-		v.Time = formatTime(t)
-		return err
+		return rows.Scan(&v.ID, &v.Time, &v.Device, &v.Size)
 	}, `SELECT id, created_at, device, size FROM versions WHERE path=? ORDER BY replaced_at DESC, id DESC`, file)
 	return append(out, old...), err
 }
@@ -87,15 +86,15 @@ func ParseTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("time %q: use YYYY-MM-DD HH:MM[:SS] in UTC", s)
 }
 
-// stateAt calls visit for every file the folder held at unix time at (0: now) below dir (design 7): the
-// current rows created by then and the versions whose life spans it. Deleted paths have no row.
-func stateAt(db *sql.DB, dir string, at int64, visit func(*fileRow) error) error {
+// stateAt calls visit for every file the folder held at unix time at (0: now) at p or below it (design 7; "" is the
+// whole folder): the current rows created by then and the versions whose life spans it. Deleted paths have no row.
+func stateAt(db *sql.DB, p string, at int64, visit func(*fileRow) error) error {
 	if at == 0 {
 		at = math.MaxInt64
 	}
 	cond, args := "true", []any{}
-	if dir != "" {
-		cond, args = "path >= ? AND path < ?", []any{dir + "/", dir + "0"} // "0" is the character after "/"
+	if p != "" {
+		cond, args = "(path = ? OR path >= ? AND path < ?)", []any{p, p + "/", p + "0"} // "0" is the character after "/"
 	}
 	rows, err := db.Query(`SELECT `+fileCols+` FROM files WHERE hash IS NOT NULL AND created_at <= ? AND `+cond+
 		` UNION ALL SELECT `+fileCols+` FROM versions WHERE created_at <= ? AND replaced_at > ? AND `+cond,
@@ -116,10 +115,25 @@ func stateAt(db *sql.DB, dir string, at int64, visit func(*fileRow) error) error
 	return rows.Err()
 }
 
-// restoreDirAt brings back what a directory held at a point in time, as device "web": paths that now hold other
-// content, or were deleted, get the old content; paths created since stay (nothing is deleted). It returns the
-// numbers of restored and refused paths.
-func (s *Server) restoreDirAt(folder int64, dir string, at time.Time) (restored, failed int, err error) {
+// restoreDiff calls visit for every file at p or below it whose content at time at differs from the current one:
+// old is what it held then, nowGone says that it has no content now (deleted or never there).
+func restoreDiff(db *sql.DB, p string, at time.Time, visit func(old, cur *fileRow, nowGone bool) error) error {
+	return stateAt(db, p, at.Unix(), func(v *fileRow) error {
+		var cur fileRow
+		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
+		if err == nil && bytes.Equal(cur.hash, v.hash) {
+			return nil // already as it was
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		return visit(v, &cur, err != nil || cur.hash == nil)
+	})
+}
+
+// restoreDirAt brings back what a path (a directory, or one file) held at a point in time, as device "web": paths
+// that now hold other content, or were deleted, get the old content; paths created since stay (nothing is deleted).
+// It returns the numbers of restored and refused paths.
+func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, failed int, err error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
 		return 0, 0, err
@@ -137,14 +151,7 @@ func (s *Server) restoreDirAt(folder int64, dir string, at time.Time) (restored,
 		ops = ops[:0]
 		return err
 	}
-	err = stateAt(db, dir, at.Unix(), func(v *fileRow) error {
-		var cur fileRow
-		err := cur.scan(db.QueryRow(`SELECT `+fileCols+` FROM files WHERE path=?`, v.path))
-		if err == nil && bytes.Equal(cur.hash, v.hash) {
-			return nil // already as it was
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
+	err = restoreDiff(db, p, at, func(v, cur *fileRow, _ bool) error {
 		e := v.entry()
 		ops = append(ops, proto.Op{Path: v.path, BaseSeq: cur.seq, Hash: e.Hash, Blocks: e.Blocks, Size: v.size, MtimeNs: v.mtimeNs, Exec: v.exec})
 		if len(ops) == proto.MaxCommitOps {
@@ -156,4 +163,29 @@ func (s *Server) restoreDirAt(folder int64, dir string, at time.Time) (restored,
 		err = flush()
 	}
 	return restored, failed, err
+}
+
+// previewLimit is the number of paths the restore preview lists.
+const previewLimit = 20
+
+type previewItem struct {
+	Path string
+	Gone bool // deleted now; otherwise its content differs
+}
+
+// restorePreview runs the query of restoreDirAt without committing: the number of files it would restore and the
+// first previewLimit of them.
+func (s *Server) restorePreview(folder int64, p string, at time.Time) (n int, items []previewItem, err error) {
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return 0, nil, err
+	}
+	err = restoreDiff(db, p, at, func(v, _ *fileRow, gone bool) error {
+		if n++; n <= previewLimit {
+			items = append(items, previewItem{v.path, gone})
+		}
+		return nil
+	})
+	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+	return n, items, err
 }
