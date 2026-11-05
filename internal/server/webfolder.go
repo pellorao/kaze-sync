@@ -404,6 +404,9 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 	if n > 0 {
 		return bad(http.StatusConflict, "/folders/"+strconv.FormatInt(f.ID, 10), "err.folderMapped")
 	}
+	if _, err := tx.Exec(`DELETE FROM locks WHERE folder_id=?`, f.ID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM folders WHERE id=?`, f.ID); err != nil {
 		return err
 	}

@@ -96,6 +96,12 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	if err != nil {
 		return nil, err
 	}
+	var locks []lockRow
+	if devID != 0 { // the Web UI and the rule deletions (devID 0) are the administrator: not bound by a lock
+		if locks, err = folderLocks(s.db, folder); err != nil {
+			return nil, err
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
@@ -106,6 +112,10 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	for i := range ops {
 		if noStage[i] {
 			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonNoStage}
+			continue
+		}
+		if lockedBy(locks, devID, pp.Key(ops[i].Path)) != nil {
+			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonLocked}
 			continue
 		}
 		if res[i], err = s.commitOp(tx, device, &ops[i], now); err != nil {

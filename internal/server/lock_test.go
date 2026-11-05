@@ -1,0 +1,199 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/url"
+	"testing"
+
+	"kaze-sync/internal/proto"
+	pp "kaze-sync/internal/proto/path"
+)
+
+// apiCommit commits as the device with the token and returns the result of every op.
+func (e *env) apiCommit(tok string, folder int64, ops ...proto.Op) []proto.Result {
+	e.t.Helper()
+	st, out := e.api(tok, "commit", proto.CommitReq{Folder: folder, Ops: ops})
+	if st != 200 {
+		e.t.Fatalf("commit: %d %s", st, out)
+	}
+	var r proto.CommitResp
+	json.Unmarshal(out, &r)
+	return r.Results
+}
+
+// lockEnv is a folder F mapped to devices A and B, with a logged-in administrator.
+type lockEnv struct {
+	*env
+	web    *http.Client
+	f      int64
+	a, b   int64
+	ta, tb string
+}
+
+func newLockEnv(t *testing.T) *lockEnv {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	l := &lockEnv{env: e, web: e.webClient(), f: e.folder("F")}
+	e.login(l.web, "pw")
+	l.a, l.ta = e.enrollDevice("A", "linux")
+	l.b, l.tb = e.enrollDevice("B", "windows")
+	e.mapFolder(l.a, l.f, "/a")
+	e.mapFolder(l.b, l.f, `D:\b`)
+	return l
+}
+
+func (l *lockEnv) lock(path string, dev int64) (int, string) {
+	form := url.Values{"path": {path}}
+	if dev != 0 {
+		form.Set("device", itoa(dev))
+	}
+	return l.post(l.web, "/folders/"+itoa(l.f)+"/lock", form)
+}
+
+func (l *lockEnv) readonly(tok string) []string {
+	st, out := l.api(tok, "poll", proto.PollReq{ConfigVersion: -1, AgentVersion: proto.AgentVersion})
+	if st != 200 {
+		l.t.Fatalf("poll: %d", st)
+	}
+	var r proto.PollResp
+	json.Unmarshal(out, &r)
+	return r.Config.Folders[0].Readonly
+}
+
+func TestLockRejectsOtherDevicesWrites(t *testing.T) {
+	l := newLockEnv(t)
+	if st, _ := l.lock("repo/.git", l.a); st != 303 {
+		t.Fatalf("lock: %d", st)
+	}
+	// B: add, modify, delete under the lock and the locked path itself are refused; names compare by key.
+	for _, p := range []string{"repo/.git/HEAD", "REPO/.GIT/index", "repo/.git"} {
+		if r := l.apiCommit(l.tb, l.f, l.op(p, 0, "x")); r[0].Status != proto.StatusRejected || r[0].Reason != proto.ReasonLocked {
+			t.Fatalf("B %s: %+v", p, r[0])
+		}
+	}
+	if l.fcount(l.f, `SELECT count(*) FROM files`) != 0 {
+		t.Fatal("a refused op changed the state")
+	}
+	// A writes; B's modification and deletion of that file are refused too, with no conflict, whatever the base.
+	if r := l.apiCommit(l.ta, l.f, l.op("repo/.git/HEAD", 0, "ref")); r[0].Status != proto.StatusOK {
+		t.Fatalf("A: %+v", r[0])
+	}
+	if r := l.apiCommit(l.tb, l.f, l.op("repo/.git/HEAD", 99, "mine"), proto.Op{Path: "repo/.git/HEAD", BaseSeq: 1}); r[0].Reason != proto.ReasonLocked || r[1].Reason != proto.ReasonLocked {
+		t.Fatalf("B on A's file: %+v", r)
+	}
+	// Outside the lock, and a sibling whose name only starts the same, B writes freely.
+	if r := l.apiCommit(l.tb, l.f, l.op("repo/main.go", 0, "m"), l.op("repo/.github", 0, "g")); r[0].Status != proto.StatusOK || r[1].Status != proto.StatusOK {
+		t.Fatalf("B outside: %+v", r)
+	}
+	// The administrator (devID 0, as the Web UI restore writes) is not bound.
+	l.commit(l.f, l.op("repo/.git/HEAD", 1, "restored"))
+}
+
+func TestLockWholeFolder(t *testing.T) {
+	l := newLockEnv(t)
+	l.lock("", l.a)
+	if r := l.apiCommit(l.tb, l.f, l.op("any/file", 0, "x")); r[0].Reason != proto.ReasonLocked {
+		t.Fatalf("whole-folder lock: %+v", r[0])
+	}
+	if r := l.apiCommit(l.ta, l.f, l.op("any/file", 0, "x")); r[0].Status != proto.StatusOK {
+		t.Fatalf("owner: %+v", r[0])
+	}
+}
+
+func TestLockRules(t *testing.T) {
+	l := newLockEnv(t)
+	if st, _ := l.lock("a/b", l.a); st != 303 {
+		t.Fatalf("lock: %d", st)
+	}
+	v := metaInt(l.s.db, "config_version")
+	// Overlaps: an ancestor, a descendant, the whole folder, whoever holds it. The same path is a transfer, below.
+	for _, p := range []string{"a", "a/b/c", ""} {
+		for _, dev := range []int64{l.a, l.b} {
+			if st, _ := l.lock(p, dev); st != 400 {
+				t.Fatalf("lock %q for %d: %d", p, dev, st)
+			}
+		}
+	}
+	if st, _ := l.lock("a/bc", l.b); st != 303 { // a sibling that shares a prefix of the name is no overlap
+		t.Fatalf("sibling: %d", st)
+	}
+	if st, _ := l.lock("A/B", l.a); st != 303 || metaInt(l.s.db, "config_version") != v+1 {
+		t.Fatalf("same claim again moved the config version: %d", metaInt(l.s.db, "config_version"))
+	}
+	// A device that does not map the folder cannot hold a range.
+	c, _ := l.enrollDevice("C", "linux")
+	if st, _ := l.lock("z", c); st != 400 {
+		t.Fatalf("unmapped: %d", st)
+	}
+	if st, _ := l.lock("bad//path", l.a); st != 400 {
+		t.Fatalf("bad path: %d", st)
+	}
+	// Move to the other device in one step; the config tells each device what it may not write.
+	if got := l.readonly(l.tb); len(got) != 1 || got[0] != "a/b" {
+		t.Fatalf("B readonly %v", got)
+	}
+	if got := l.readonly(l.ta); len(got) != 1 || got[0] != "a/bc" {
+		t.Fatalf("A readonly %v", got)
+	}
+	if st, _ := l.lock("a/b", l.b); st != 303 {
+		t.Fatalf("transfer: %d", st)
+	}
+	if got := l.readonly(l.ta); len(got) != 2 {
+		t.Fatalf("after the transfer A readonly %v", got)
+	}
+	if l.count(`SELECT count(*) FROM locks WHERE key=? AND device_id=?`, pp.Key("a/b"), l.b) != 1 {
+		t.Fatal("not transferred")
+	}
+	// Remove.
+	before := metaInt(l.s.db, "config_version")
+	if st, _ := l.lock("a/b", 0); st != 303 || l.count(`SELECT count(*) FROM locks`) != 1 || metaInt(l.s.db, "config_version") != before+1 {
+		t.Fatal("not removed")
+	}
+	if r := l.apiCommit(l.ta, l.f, l.op("a/b/x", 0, "x")); r[0].Status != proto.StatusOK {
+		t.Fatalf("after removing: %+v", r[0])
+	}
+}
+
+func TestLockGoesWithTheDeviceOrItsMapping(t *testing.T) {
+	l := newLockEnv(t)
+	l.lock("x", l.a)
+	l.lock("y", l.b)
+	v := metaInt(l.s.db, "config_version")
+	// Deleting A's mapping frees x.
+	st, _ := l.post(l.web, "/devices/"+itoa(l.a)+"/mapping", url.Values{"folder": {itoa(l.f)}, "action": {"delete"}})
+	if st != 303 || l.count(`SELECT count(*) FROM locks WHERE device_id=?`, l.a) != 0 || metaInt(l.s.db, "config_version") <= v {
+		t.Fatalf("mapping delete: %d", st)
+	}
+	// Revoking B frees y and tells the others.
+	v = metaInt(l.s.db, "config_version")
+	if st, _ := l.post(l.web, "/devices/"+itoa(l.b)+"/revoke", url.Values{}); st != 303 || l.count(`SELECT count(*) FROM locks`) != 0 || metaInt(l.s.db, "config_version") <= v {
+		t.Fatalf("revoke: %d", st)
+	}
+}
+
+// Restoring through the Web UI works inside a locked range, and the result reaches every device.
+func TestWebRestoreIgnoresLocks(t *testing.T) {
+	l := newLockEnv(t)
+	l.lock("d", l.a)
+	l.apiCommit(l.ta, l.f, l.op("d/f", 0, "one"))
+	l.apiCommit(l.ta, l.f, l.op("d/f", 1, "two"))
+	var vid int64
+	l.s.folderDBMust(t, l.f).QueryRow(`SELECT id FROM versions WHERE path='d/f'`).Scan(&vid)
+	if st, _ := l.post(l.web, "/folders/"+itoa(l.f)+"/restore", url.Values{"version": {itoa(vid)}}); st != 303 {
+		t.Fatalf("restore: %d", st)
+	}
+	if got := readCurrent(t, l.env, l.f, "d/f"); got != "one" {
+		t.Fatalf("d/f = %q", got)
+	}
+	if l.fcount(l.f, `SELECT count(*) FROM files WHERE path='d/f' AND device='web'`) != 1 {
+		t.Fatal("the restore is not written as the Web UI")
+	}
+}
+
+func TestMigrateToLocksSchema(t *testing.T) {
+	e := newEnv(t)
+	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='locks'`) != 1 || SchemaVersion != 3 {
+		t.Fatal("no locks table")
+	}
+}

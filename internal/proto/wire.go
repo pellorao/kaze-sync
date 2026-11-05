@@ -88,6 +88,9 @@ type FolderConfig struct {
 	Path  string   `json:"path"`
 	Adopt bool     `json:"adopt"`
 	Rules []string `json:"rules"`
+	// Readonly lists the paths of the folder that another device holds exclusively: this device only receives them
+	// (design 2.8). A path is relative to the folder; "" is the whole folder.
+	Readonly []string `json:"readonly,omitempty"`
 }
 
 type Config struct {
@@ -109,6 +112,9 @@ type FileError struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message"`
 	Since   int64  `json:"since"` // unix seconds
+	// N, on the one error a device reports for an exclusive range it had to refuse changes in, counts the changes
+	// moved to .syncsaved and not yet handled (design 2.8).
+	N int `json:"n,omitempty"`
 }
 
 type FolderState struct {
@@ -188,6 +194,7 @@ const (
 	ReasonTypeConflict  = "type_conflict"
 	ReasonInvalidLink   = "invalid_link" // a link target that is empty or longer than MaxLinkTarget
 	ReasonNoStage       = "no_stage"     // commit: the staged block list is missing, expired, another device's or incomplete
+	ReasonLocked        = "locked"       // the path is held exclusively by another device (design 2.8)
 	// Reasons of a refused /stage segment.
 	ReasonNoSpace       = "no_space"        // the blocks the file still needs would not fit on the disk
 	ReasonTooLarge      = "too_large"       // more than MaxFileBlocks blocks

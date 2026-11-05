@@ -244,6 +244,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /folders/{id}/restore":        s.restore,
 		"POST /folders/{id}/restore-dir":    s.restoreDir,
 		"POST /folders/{id}/delete":         s.deleteFolder,
+		"POST /folders/{id}/lock":           s.lockHandler,
 		"POST /folders/{id}/rules":          s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
@@ -1080,6 +1081,9 @@ func (s *Server) saveMapping(w http.ResponseWriter, r *http.Request) error {
 	}
 	err = s.configChange(func(tx *sql.Tx) (bool, error) {
 		if r.FormValue("action") == "delete" {
+			if _, err := tx.Exec(`DELETE FROM locks WHERE device_id=? AND folder_id=?`, d.ID, folder); err != nil { // a lock of a device that no longer maps the folder would freeze it
+				return false, err
+			}
 			res, err := tx.Exec(`DELETE FROM mappings WHERE device_id=? AND folder_id=?`, d.ID, folder)
 			if err != nil {
 				return false, err
@@ -1140,6 +1144,16 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM locks WHERE device_id=?`, d.ID) // a revoked device would leave its range frozen
+	if err != nil {
+		return err
+	}
+	freed, _ := res.RowsAffected()
+	if freed > 0 { // the other devices' read-only lists change
+		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
+			return err
+		}
+	}
 	for _, q := range []string{`DELETE FROM mappings WHERE device_id=?`, `DELETE FROM devices WHERE id=?`} {
 		if _, err := tx.Exec(q, d.ID); err != nil {
 			return err
@@ -1152,6 +1166,9 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	delete(s.reports, d.ID)
 	s.bumpLocked()
 	s.mu.Unlock()
+	if freed > 0 {
+		s.broadcast()
+	}
 	slog.Info("device revoked", "device", d.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
