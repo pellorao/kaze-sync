@@ -710,6 +710,7 @@ svg.i { vertical-align: middle; }
     if (T && ms !== null) {
       if (!tod) { dayMs = dayOf(ms); setWin(winFor(dayMs)); }
       place();
+      stepState();
       const v = clamp(ms, T.from, T.now), vt = fmt(ms) + ", " + relText(ms);
       for (const ax of [A.day, A.tod]) { ax.el.setAttribute("aria-valuenow", Math.round(v / 1000)); ax.el.setAttribute("aria-valuetext", vt); }
     }
@@ -807,11 +808,13 @@ svg.i { vertical-align: middle; }
     el.addEventListener("pointercancel", () => { if (drag) { const d = drag; drag = null; setSel(d.start); if (d.kind === "tod") { dayMs = d.day; setWin(d.win); place(); } } }); // it was a scroll
   }
   function later(ms, tod) { if (tod) setTod(ms); else setSel(ms); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
-  function stepChange(d, tod) { // to the start of the previous or next state; the last one is now. On the time axis: only inside its day
-    const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n), ms = j >= n - 1 ? T.now : T.ticks[j], [lo, hi] = tod ? todRange() : [0, 0];
-    if (tod && (ms < lo || ms > hi)) return;
-    later(ms, tod);
+  // stepTo: the start of the previous or next state (the last one is now) if it is inside the time axis' day, else null
+  function stepTo(d) {
+    const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n), ms = j >= n - 1 ? T.now : T.ticks[j], [lo, hi] = todRange();
+    return ms < lo || ms > hi || ms === sel ? null : ms;
   }
+  function stepChange(d) { const ms = stepTo(d); if (ms !== null) later(ms, true); }
+  function stepState() { steps.forEach((b) => { b.disabled = !T || sel === null || stepTo(+b.dataset.step) === null; }); } // grey when it would leave the day
   A.day.el.addEventListener("keydown", (e) => {
     if (!T) return;
     const n = stops.length - 1, at = bsearch(stops, dayMs), below = Math.max(0, at - 1), above = Math.min(n, at + 1);
@@ -827,13 +830,13 @@ svg.i { vertical-align: middle; }
     const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: lo, End: hi }[e.key];
     if (ch === undefined && to === undefined) return;
     e.preventDefault();
-    if (ch) stepChange(ch, true); else later(to, true);
+    if (ch) stepChange(ch); else later(to, true);
   });
-  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step, false); }));
+  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step); }));
   let typeT = 0;
   input.addEventListener("input", () => {
     clearTimeout(typeT);
-    typeT = setTimeout(() => { setSel(parseLocal(input.value), true); commit(); }, TYPE_WAIT);
+    typeT = setTimeout(() => { const ms = parseLocal(input.value); if (ms === null || !T) setSel(ms, true); else setTod(ms); commit(); /* a time outside the day goes to its edge */ }, TYPE_WAIT);
   });
   let lastW = 0;
   new ResizeObserver(() => { if (axes.clientWidth !== lastW) { lastW = axes.clientWidth; renderDay(); renderTod(); place(); } }).observe(axes);
