@@ -186,6 +186,8 @@ textarea.code { font-size: 13px; tab-size: 4; }
 .preview li { display: flex; gap: 12px; padding: 3px 12px; font-size: 12px; }
 .preview li .p { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview li .s { color: var(--muted); white-space: nowrap; }
+.preview li .s.changed { color: color-mix(in srgb, var(--muted) 70%, var(--warn)); }
+.preview li .s.deleted { color: color-mix(in srgb, var(--muted) 65%, var(--danger)); }
 .preview .more-n { padding: 4px 12px 8px; font-size: 12px; color: var(--muted); }
 .note { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
 .note svg { margin-top: 2px; }
@@ -275,13 +277,10 @@ svg.i { vertical-align: middle; }
 .btn.step { width: 32px; height: 34px; padding: 0; justify-content: center; color: var(--muted); }
 .btn.step:hover { color: var(--fg); }
 .btn.step.prev svg { transform: scaleX(-1); }
-.axes { position: relative; display: grid; grid-template-columns: 2.6rem 2.9rem 1fr 2.9rem; row-gap: 6px; align-items: center; }
+.axes { position: relative; display: grid; grid-template-columns: 2.6rem 1fr 2.9rem; row-gap: 6px; align-items: center; }
 .axrow { display: contents; }
 .axl { font-size: 12px; color: var(--muted); }
-.axe { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.axe.l { text-align: right; padding-right: 6px; }
-.axe.r { padding-left: 6px; }
-.axe.now { color: var(--fg); font-weight: 600; }
+.axe { font-size: 11px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; align-self: start; padding: 4px 0 0 3px; } /* the last tick label, just outside the axis */
 .axis { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
 .axis.day { height: 36px; }
 .axis.tod { height: 52px; }
@@ -305,7 +304,6 @@ svg.i { vertical-align: middle; }
 .axes-msg[hidden], .preview .pv-note[hidden] { display: none; }
 .axes.off .axis { cursor: default; }
 .axes.off .axis-clip, .axes.off .axis-cur, .axes.off .axis > svg { display: none; }
-.axes.off .axe { visibility: hidden; }
 /* the preview keeps one height whatever it shows: the page never jumps while the line moves */
 .preview { position: relative; height: 15rem; display: flex; flex-direction: column; }
 .preview > .progress { position: absolute; top: 0; left: 0; right: 0; z-index: 1; }
@@ -325,7 +323,7 @@ svg.i { vertical-align: middle; }
   .when-in { flex-basis: 100%; }
   .when-in input { flex: 1; width: auto; min-width: 0; }
   .preview { height: 14rem; }
-  .axes { grid-template-columns: 2.2rem 2.4rem 1fr 2.4rem; }
+  .axes { grid-template-columns: 2.2rem 1fr 2.4rem; }
   .axl { font-size: 11px; }
   .backdrop { padding: 4vh 12px 12px; }
   .dlg-b { padding: 14px 16px; }
@@ -393,18 +391,16 @@ svg.i { vertical-align: middle; }
 <div class="when-h"><label for="rs-time" data-t="time">时间</label><span class="rel" data-rel></span>
 <span class="when-in"><button type="button" class="btn step prev" data-step="-1" data-t-label="prev" aria-label="上一个改动"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-open"/></svg></button><input id="rs-time" type="text" class="mono num" placeholder="2026-11-03 22:48:27" autocomplete="off"><button type="button" class="btn step" data-step="1" data-t-label="next" aria-label="下一个改动"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-open"/></svg></button></span></div>
 <div class="axes" data-axes>
-<div class="axrow"><span class="axl" data-t="rowDay">日期</span><span class="axe l" data-end="dayL"></span>
-<div class="axis day" data-axis="day" role="slider" tabindex="0" data-t-label="axisDay" aria-label="选择哪一天">
+<div class="axrow"><span class="axl" data-t="rowDay">日期</span><div class="axis day" data-axis="day" role="slider" tabindex="0" data-t-label="axisDay" aria-label="选择哪一天">
 <svg aria-hidden="true"></svg>
 <div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div>
 <div class="axis-cur" aria-hidden="true"></div>
-</div><span class="axe r now" data-t="now">现在</span></div>
-<div class="axrow"><span class="axl" data-t="rowTod">时间</span><span class="axe l">00:00</span>
-<div class="axis tod" data-axis="tod" role="slider" tabindex="0" data-t-label="axisTod" aria-label="选择当天的时刻">
+</div><span class="axe" data-t="now">现在</span></div>
+<div class="axrow"><span class="axl" data-t="rowTod">时间</span><div class="axis tod" data-axis="tod" role="slider" tabindex="0" data-t-label="axisTod" aria-label="选择当天的时刻">
 <svg aria-hidden="true"></svg>
 <div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div>
 <div class="axis-cur" aria-hidden="true"></div>
-</div><span class="axe r">24:00</span></div>
+</div><span class="axe">24:00</span></div>
 <div class="axes-msg" hidden></div>
 </div>
 </div>
@@ -455,7 +451,7 @@ svg.i { vertical-align: middle; }
       axisNone: "这里没有历史记录", axisFail: "时间轴没有加载, 可直接输入时间",
       hint: "先在上面选哪一天, 再在下面选当天的时刻",
       count: "该时刻存在而现在不同的文件: {n} 个", same: "该时刻与现在没有差别", none: "这里没有任何历史记录",
-      bad: "时间格式应为 {ex}", changed: "已改变", deleted: "已删除", more: "还有 {n} 个 (预览最多列出 50 个)",
+      bad: "时间格式应为 {ex}", changed: "已改变", deleted: "已删除", filtered: "过滤后 {m} 个", shown: "目前仅显示 {k} 个",
       old: "所选时间早于版本保留期, 那时的内容可能已被清理",
       first: "所选时间早于最早记录, 按首次导入完成时的状态计算: 首次导入完成于 {t}",
       go: "恢复 {n} 个文件", go0: "没有可恢复的文件", goWait: "恢复",
@@ -471,7 +467,7 @@ svg.i { vertical-align: middle; }
       axisNone: "No history here", axisFail: "The timeline did not load; type a time instead",
       hint: "Pick the day above, then the time of day below",
       count: "Files that existed then and differ now: {n}", same: "No difference between then and now", none: "No history here",
-      bad: "Use the format {ex}", changed: "changed", deleted: "deleted", more: "{n} more (the preview lists at most 50)",
+      bad: "Use the format {ex}", changed: "changed", deleted: "deleted", filtered: "{m} after the filter", shown: "showing only {k}",
       old: "The selected time is before the retention period; content from then may have been removed",
       first: "The selected time is before the earliest record; using the state when the first import finished: {t}",
       go: "Restore {n} files", go0: "Nothing to restore", goWait: "Restore",
@@ -638,13 +634,13 @@ svg.i { vertical-align: middle; }
     const d0 = stops[0], s = lin(d0, T.now, w), k = w / (T.now - d0);
     ax.x = s.x; ax.t = s.t;
     const label = finest(DAY_LEVELS, k, textW("00") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
-    const lt = ticksOf(label, d0, T.now).filter((ms) => ms > d0), ls = new Set(lt);
+    const lt = ticksOf(label, d0, T.now), ls = new Set(lt);
     let tall = "", short = "";
     lt.forEach((ms) => { tall += `M${px(s.x(ms))} 13V${DAY_BASE}`; });
     tall += `M${px(0)} 13V${DAY_BASE}`;
     if (minor.ms < label.ms) ticksOf(minor, d0, T.now).forEach((ms) => { if (!ls.has(ms)) short += `M${px(s.x(ms))} ${DAY_BASE - 5}V${DAY_BASE}`; });
     const labels = lt.map((ms) => ({ x: s.x(ms) + 3, s: dayNum(ms), pri: 1 }));
-    $("[data-end=dayL]", axes).textContent = dayNum(d0);
+    if (!ls.has(d0)) labels.push({ x: 3, s: dayNum(d0), pri: 1 }); // the first day is labelled whatever the level
     ax.svg.setAttribute("viewBox", `0 0 ${w} 34`);
     ax.svg.innerHTML = `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${DAY_BASE + 0.5}H${w}"/>`
       + daysSvg(s.x, w, DAY_BASE + 3) + labelsSvg(labels, w);
@@ -657,7 +653,7 @@ svg.i { vertical-align: middle; }
     ax.x = s.x; ax.t = s.t;
     const label = finest(TOD_LEVELS.filter((lv) => lv.min >= 60), k, textW("00:00") + LABEL_GAP), minor = finest(TOD_LEVELS, k, MINOR_PX);
     const mid = ticksOf({ d: 1 }, win.a, win.b).filter((ms) => ms < win.b), ms0 = new Set(mid);
-    const lt = ticksOf(label, win.a, win.b).filter((ms) => !ms0.has(ms) && ms < win.b), ls = new Set(lt);
+    const lt = ticksOf(label, win.a, win.b).filter((ms) => ms < win.b), ls = new Set(lt);
     let tall = "", med = "", short = "", na = "";
     mid.forEach((ms) => { tall += `M${px(Math.max(0, s.x(ms)))} 0V${TOD_BASE}`; });
     lt.forEach((ms) => { med += `M${px(s.x(ms))} 16V${TOD_BASE}`; });
@@ -710,7 +706,6 @@ svg.i { vertical-align: middle; }
     if (T && ms !== null) {
       if (!tod) { dayMs = dayOf(ms); setWin(winFor(dayMs)); }
       place();
-      stepState();
       const v = clamp(ms, T.from, T.now), vt = fmt(ms) + ", " + relText(ms);
       for (const ax of [A.day, A.tod]) { ax.el.setAttribute("aria-valuenow", Math.round(v / 1000)); ax.el.setAttribute("aria-valuetext", vt); }
     }
@@ -763,10 +758,10 @@ svg.i { vertical-align: middle; }
     if (r.note) $("span", note).textContent = t(r.note[0], r.note[1]);
     ul.replaceChildren(...items.map(([p, s]) => {
       const li = document.createElement("li"), a = document.createElement("span"), b = document.createElement("span");
-      a.className = "p"; a.textContent = p; b.className = "s"; b.textContent = t(s); li.append(a, b); return li;
+      a.className = "p"; a.textContent = p; b.className = "s " + s; b.textContent = t(s); li.append(a, b); return li;
     }));
     more.hidden = !has;
-    if (has) more.textContent = t("count", { n: all.length }) + (lost ? ", " + t("more", { n: lost }) : "");
+    if (has) more.textContent = [t("count", { n: r.n }), re ? t("filtered", { m: all.length }) : "", lost ? t("shown", { k: items.length }) : ""].filter(Boolean).join(", ");
     $("span", go).textContent = !result || r.hint || r.bad ? t("goWait") : r.n ? t("go", { n: r.n }) : t("go0");
   }
   filterEl.addEventListener("input", drawPreview);
@@ -808,13 +803,11 @@ svg.i { vertical-align: middle; }
     el.addEventListener("pointercancel", () => { if (drag) { const d = drag; drag = null; setSel(d.start); if (d.kind === "tod") { dayMs = d.day; setWin(d.win); place(); } } }); // it was a scroll
   }
   function later(ms, tod) { if (tod) setTod(ms); else setSel(ms); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
-  // stepTo: the start of the previous or next state (the last one is now) if it is inside the time axis' day, else null
-  function stepTo(d) {
+  function stepChange(d, tod) { // to the start of the previous or next state; the last one is now. Keys on the time axis stay inside its day
     const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n), ms = j >= n - 1 ? T.now : T.ticks[j], [lo, hi] = todRange();
-    return ms < lo || ms > hi || ms === sel ? null : ms;
+    if (tod && (ms < lo || ms > hi)) return;
+    later(ms, tod);
   }
-  function stepChange(d) { const ms = stepTo(d); if (ms !== null) later(ms, true); }
-  function stepState() { steps.forEach((b) => { b.disabled = !T || sel === null || stepTo(+b.dataset.step) === null; }); } // grey when it would leave the day
   A.day.el.addEventListener("keydown", (e) => {
     if (!T) return;
     const n = stops.length - 1, at = bsearch(stops, dayMs), below = Math.max(0, at - 1), above = Math.min(n, at + 1);
@@ -830,9 +823,9 @@ svg.i { vertical-align: middle; }
     const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: lo, End: hi }[e.key];
     if (ch === undefined && to === undefined) return;
     e.preventDefault();
-    if (ch) stepChange(ch); else later(to, true);
+    if (ch) stepChange(ch, true); else later(to, true);
   });
-  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step); }));
+  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step, false); }));
   let typeT = 0;
   input.addEventListener("input", () => {
     clearTimeout(typeT);
