@@ -275,7 +275,13 @@ svg.i { vertical-align: middle; }
 .btn.step { width: 32px; height: 34px; padding: 0; justify-content: center; color: var(--muted); }
 .btn.step:hover { color: var(--fg); }
 .btn.step.prev svg { transform: scaleX(-1); }
-.axes { position: relative; }
+.axes { position: relative; display: grid; grid-template-columns: 2.6rem 2.9rem 1fr 2.9rem; row-gap: 6px; align-items: center; }
+.axrow { display: contents; }
+.axl { font-size: 12px; color: var(--muted); }
+.axe { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.axe.l { text-align: right; padding-right: 6px; }
+.axe.r { padding-left: 6px; }
+.axe.now { color: var(--fg); font-weight: 600; }
 .axis { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
 .axis.day { height: 36px; }
 .axis.tod { height: 52px; }
@@ -292,17 +298,14 @@ svg.i { vertical-align: middle; }
 .axis .lb.now { fill: var(--fg); font-weight: 600; }
 .axis-clip { position: absolute; inset: 0; overflow: hidden; border-radius: 5px; pointer-events: none; }
 .axis-shade { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; background: color-mix(in srgb, var(--accent) 13%, transparent); will-change: transform; }
-.axis-win { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; transform-origin: 0 0; background: color-mix(in srgb, var(--accent) 22%, transparent); will-change: transform; }
 .axis-cur { position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: var(--accent); pointer-events: none; will-change: transform; }
 .axis-cur::after { content: ""; position: absolute; left: -5px; bottom: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 .axis.day .axis-cur::after { left: -3px; width: 8px; height: 8px; }
-.axes > .link { display: block; width: 100%; height: 12px; }
-.axes > .link path { fill: color-mix(in srgb, var(--accent) 8%, transparent); stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1; }
-.axes-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 12px; text-align: center; font-size: 12px; color: var(--muted); }
+.axes-msg { position: absolute; inset: 0; background: var(--raised); display: flex; align-items: center; justify-content: center; padding: 0 12px; text-align: center; font-size: 12px; color: var(--muted); }
 .axes-msg[hidden], .preview .pv-note[hidden] { display: none; }
 .axes.off .axis { cursor: default; }
 .axes.off .axis-clip, .axes.off .axis-cur, .axes.off .axis > svg { display: none; }
-.axes.off > .link { visibility: hidden; }
+.axes.off .axe { visibility: hidden; }
 /* the preview keeps one height whatever it shows: the page never jumps while the line moves */
 .preview { position: relative; height: 15rem; display: flex; flex-direction: column; }
 .preview > .progress { position: absolute; top: 0; left: 0; right: 0; z-index: 1; }
@@ -310,6 +313,8 @@ svg.i { vertical-align: middle; }
 .preview ul { flex: 1; min-height: 0; max-height: none; }
 .preview .pv-note { padding: 6px 12px; font-size: 12px; color: var(--warn); display: flex; gap: 8px; align-items: flex-start; border-bottom: 1px solid var(--line); }
 .preview .pv-note svg { margin-top: 2px; flex: none; }
+.pv-filter { flex: 1; min-width: 0; height: 28px; font: 13px var(--mono); padding: 2px 8px; }
+.pv-filter[hidden] { display: none; }
 .preview-h.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
 .note .lines { display: grid; gap: 4px; }
 .note p { margin: 0; }
@@ -320,6 +325,8 @@ svg.i { vertical-align: middle; }
   .when-in { flex-basis: 100%; }
   .when-in input { flex: 1; width: auto; min-width: 0; }
   .preview { height: 14rem; }
+  .axes { grid-template-columns: 2.2rem 2.4rem 1fr 2.4rem; }
+  .axl { font-size: 11px; }
   .backdrop { padding: 4vh 12px 12px; }
   .dlg-b { padding: 14px 16px; }
 }
@@ -386,23 +393,24 @@ svg.i { vertical-align: middle; }
 <div class="when-h"><label for="rs-time" data-t="time">时间</label><span class="rel" data-rel></span>
 <span class="when-in"><button type="button" class="btn step prev" data-step="-1" data-t-label="prev" aria-label="上一个改动"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-open"/></svg></button><input id="rs-time" type="text" class="mono num" placeholder="2026-11-03 22:48:27" autocomplete="off"><button type="button" class="btn step" data-step="1" data-t-label="next" aria-label="下一个改动"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-open"/></svg></button></span></div>
 <div class="axes" data-axes>
+<div class="axrow"><span class="axl" data-t="rowDay">日期</span><span class="axe l" data-end="dayL"></span>
 <div class="axis day" data-axis="day" role="slider" tabindex="0" data-t-label="axisDay" aria-label="选择哪一天">
 <svg aria-hidden="true"></svg>
-<div class="axis-clip" aria-hidden="true"><div class="axis-win"></div><div class="axis-shade"></div></div>
+<div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div>
 <div class="axis-cur" aria-hidden="true"></div>
-</div>
-<svg class="link" aria-hidden="true"><path/></svg>
+</div><span class="axe r now" data-t="now">现在</span></div>
+<div class="axrow"><span class="axl" data-t="rowTod">时间</span><span class="axe l">00:00</span>
 <div class="axis tod" data-axis="tod" role="slider" tabindex="0" data-t-label="axisTod" aria-label="选择当天的时刻">
 <svg aria-hidden="true"></svg>
 <div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div>
 <div class="axis-cur" aria-hidden="true"></div>
-</div>
+</div><span class="axe r">24:00</span></div>
 <div class="axes-msg" hidden></div>
 </div>
 </div>
 <div class="preview" data-preview>
 <div class="progress" hidden></div>
-<div class="preview-h" aria-live="polite"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-history"/></svg><span data-pv-head></span></div>
+<div class="preview-h" aria-live="polite"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-history"/></svg><span data-pv-head></span><input type="text" class="pv-filter mono" data-pv-filter autocomplete="off" spellcheck="false" hidden></div>
 <div class="pv-note" hidden><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-info"/></svg><span></span></div>
 <ul></ul>
 <div class="more-n" hidden></div>
@@ -435,18 +443,19 @@ svg.i { vertical-align: middle; }
   const STEP_WAIT = 300;        // keys and step buttons: ask for the preview once they rest this long
   const TYPE_WAIT = 400;        // typing: the same
   const WEEK = 7;               // PageUp / PageDown on the day axis move this many days
-  const DAY_BASE = 23, TOD_BASE = 33, LINK_H = 12; // baselines inside the axes, the connector's height
+  const DAY_BASE = 23, TOD_BASE = 33; // baselines inside the axes
+  const LIST_MAX = 50;          // the preview lists at most this many files
 
   const STR = {
     "zh-CN": {
-      title: "恢复到某一时刻", close: "关闭", scope: "范围", time: "时间", cancel: "取消",
+      title: "恢复到某一时刻", close: "关闭", scope: "范围", time: "时间", rowDay: "日期", rowTod: "时间", filter: "按文件名过滤, 如 *.md 或 src/**", cancel: "取消",
       now: "现在", future: "晚于现在", ago_m: "{m} 分钟前", ago_h: "{h} 小时前", ago_hm: "{h} 小时 {m} 分钟前",
       ago_d: "{d} 天前", ago_dh: "{d} 天 {h} 小时前",
       prev: "上一个改动", next: "下一个改动", axisDay: "选择哪一天", axisTod: "选择当天的时刻",
       axisNone: "这里没有历史记录", axisFail: "时间轴没有加载, 可直接输入时间",
       hint: "先在上面选哪一天, 再在下面选当天的时刻",
       count: "该时刻存在而现在不同的文件: {n} 个", same: "该时刻与现在没有差别", none: "这里没有任何历史记录",
-      bad: "时间格式应为 {ex}", changed: "已改变", deleted: "已删除", more: "还有 {n} 个 (预览最多列出 20 个)",
+      bad: "时间格式应为 {ex}", changed: "已改变", deleted: "已删除", more: "还有 {n} 个 (预览最多列出 50 个)",
       old: "所选时间早于版本保留期, 那时的内容可能已被清理",
       first: "所选时间早于最早记录, 按首次导入完成时的状态计算: 首次导入完成于 {t}",
       go: "恢复 {n} 个文件", go0: "没有可恢复的文件", goWait: "恢复",
@@ -455,14 +464,14 @@ svg.i { vertical-align: middle; }
       note3: " 版本保留 {d} 天, 最早可恢复到 {from}.", note3b: " 版本保留 {d} 天.",
     },
     en: {
-      title: "Restore to a point in time", close: "Close", scope: "Scope", time: "Time", cancel: "Cancel",
+      title: "Restore to a point in time", close: "Close", scope: "Scope", time: "Time", rowDay: "Date", rowTod: "Time", filter: "Filter by glob, e.g. *.md or src/**", cancel: "Cancel",
       now: "Now", future: "after now", ago_m: "{m} min ago", ago_h: "{h} h ago", ago_hm: "{h} h {m} min ago",
       ago_d: "{d} d ago", ago_dh: "{d} d {h} h ago",
       prev: "Previous change", next: "Next change", axisDay: "Day", axisTod: "Time of day",
       axisNone: "No history here", axisFail: "The timeline did not load; type a time instead",
       hint: "Pick the day above, then the time of day below",
       count: "Files that existed then and differ now: {n}", same: "No difference between then and now", none: "No history here",
-      bad: "Use the format {ex}", changed: "changed", deleted: "deleted", more: "{n} more (the preview lists at most 20)",
+      bad: "Use the format {ex}", changed: "changed", deleted: "deleted", more: "{n} more (the preview lists at most 50)",
       old: "The selected time is before the retention period; content from then may have been removed",
       first: "The selected time is before the earliest record; using the state when the first import finished: {t}",
       go: "Restore {n} files", go0: "Nothing to restore", goWait: "Restore",
@@ -535,24 +544,23 @@ svg.i { vertical-align: middle; }
       st.set(NAMES[h % NAMES.length], h % 7 === 0 ? "deleted" : "changed");
     }
     const all = Array.from(st).sort((a, b) => (a[0] < b[0] ? -1 : 1));
-    const res = { n: all.length, items: all.slice(0, 20), more: Math.max(0, all.length - 20) };
+    const res = { n: all.length, all };
     if (ms < DATA.now - DATA.keep * D) res.note = ["old"];
     else if (ms < DATA.from && DATA.scene.startsWith("imp")) res.note = ["first", { t: fmt(DATA.from, true) }];
     return res;
   }
 
   // ---- the dialog
-  const dlg = $("#dlg-restore"), axes = $("[data-axes]", dlg), amsg = $(".axes-msg", axes), link = $(".link", axes);
+  const dlg = $("#dlg-restore"), axes = $("[data-axes]", dlg), amsg = $(".axes-msg", axes);
   const mk = (el) => ({ el, svg: $("svg", el), cur: $(".axis-cur", el), shade: $(".axis-shade", el), w: 0, x: null, t: null });
   const A = { day: mk($('[data-axis="day"]', dlg)), tod: mk($('[data-axis="tod"]', dlg)) };
-  const band = $(".axis-win", A.day.el);
   const input = $("#rs-time"), rel = $("[data-rel]", dlg);
   const pv = $("[data-preview]", dlg), go = $("[data-go]", dlg), steps = Array.from(dlg.querySelectorAll("[data-step]"));
   let DATA = null;     // mock server data
   let T = null;        // the ticks the axes show (null: none or failed)
-  let stops = [];      // where the day axis' line may stop: the earliest point, each 00:00 after it, now
+  let stops = [];      // where the day axis' line may stop: the 00:00 of each day from the earliest point's day to today
   let win = null;      // the time axis' window {a, b}: the calendar day of the day axis' line
-  let dayMs = null;    // where the day axis' line is: a stop
+  let dayMs = null;    // where the day axis' line is: a stop; only the day axis, the box and the step buttons change it
   let latency = 300;   // mock option: preview delay
   let sel = 0;         // the selected time (ms)
   let shown = null, asked = null, result = null, timer = 0, waitT = 0;
@@ -567,8 +575,8 @@ svg.i { vertical-align: middle; }
   }
   // winFor: the window of the time axis for a time: its calendar day, 00:00 to the next 00:00.
   const winFor = (ms) => ({ a: dayStart(ms), b: dayStart(ms, 1) });
-  // dayOf: the day axis' line when the selected time is v: on v if that is a stop, else now for today, else the day's 00:00
-  const dayOf = (v) => (stops.includes(v) ? v : v >= dayStart(T.now) ? T.now : Math.max(dayStart(v), T.from));
+  // dayOf: the day axis' line for a time: the 00:00 of its day (never before the first stop)
+  const dayOf = (v) => Math.max(dayStart(clamp(v, T.from, T.now)), stops[0]);
 
   // ---- tick levels, aligned to the calendar of the zone
   const DAY_LEVELS = [1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D }));
@@ -607,7 +615,7 @@ svg.i { vertical-align: middle; }
   }
   function daysSvg(x, w, y) { // the day axis: one mark per day with a change (taller with more changes), none finer than a day
     const cnt = new Map(), n = T.ticks.length - 1;
-    for (let i = 1; i < n; i++) { const d = Math.max(dayStart(T.ticks[i]), T.from); cnt.set(d, (cnt.get(d) || 0) + 1); }
+    for (let i = 1; i < n; i++) { const d = dayStart(T.ticks[i]); cnt.set(d, (cnt.get(d) || 0) + 1); }
     const col = new Map();
     for (const [d, c] of cnt) { const k = Math.min(Math.round(x(d)), w - 1); col.set(k, (col.get(k) || 0) + c); }
     let d = "";
@@ -627,14 +635,16 @@ svg.i { vertical-align: middle; }
   function renderDay() {
     const ax = A.day, w = ax.w = ax.el.clientWidth;
     if (!T || !w) { ax.svg.innerHTML = ""; return; }
-    const s = lin(T.from, T.now, w), k = w / (T.now - T.from);
+    const d0 = stops[0], s = lin(d0, T.now, w), k = w / (T.now - d0);
     ax.x = s.x; ax.t = s.t;
     const label = finest(DAY_LEVELS, k, textW("00") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
-    const lt = ticksOf(label, T.from, T.now), ls = new Set(lt);
+    const lt = ticksOf(label, d0, T.now).filter((ms) => ms > d0), ls = new Set(lt);
     let tall = "", short = "";
     lt.forEach((ms) => { tall += `M${px(s.x(ms))} 13V${DAY_BASE}`; });
-    if (minor.ms < label.ms) ticksOf(minor, T.from, T.now).forEach((ms) => { if (!ls.has(ms)) short += `M${px(s.x(ms))} ${DAY_BASE - 5}V${DAY_BASE}`; });
-    const labels = [{ x: w - 7, s: t("now"), cls: "now", end: true, pri: 0 }].concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: dayNum(ms), pri: 1 })));
+    tall += `M${px(0)} 13V${DAY_BASE}`;
+    if (minor.ms < label.ms) ticksOf(minor, d0, T.now).forEach((ms) => { if (!ls.has(ms)) short += `M${px(s.x(ms))} ${DAY_BASE - 5}V${DAY_BASE}`; });
+    const labels = lt.map((ms) => ({ x: s.x(ms) + 3, s: dayNum(ms), pri: 1 }));
+    $("[data-end=dayL]", axes).textContent = dayNum(d0);
     ax.svg.setAttribute("viewBox", `0 0 ${w} 34`);
     ax.svg.innerHTML = `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${DAY_BASE + 0.5}H${w}"/>`
       + daysSvg(s.x, w, DAY_BASE + 3) + labelsSvg(labels, w);
@@ -657,28 +667,18 @@ svg.i { vertical-align: middle; }
       + (x0 > 0 ? `<rect class="na" x="0" y="0" width="${x0}" height="50"/>` : "")
       + (x1 < w ? `<rect class="na" x="${x1}" y="0" width="${w - x1}" height="50"/>` : ""); // before the earliest point, after now: hatched
     const hf = (ms) => { const p = parts(ms); return p.hour + ":" + p.minute; };
-    const labels = mid.map((ms) => ({ x: Math.max(0, s.x(ms)) + 3, s: dayNum(ms), cls: "d", pri: 1 }))
-      .concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: hf(ms), pri: 2 })));
-    if (x1 < w && x1 > 0) labels.push({ x: x1 - 3, s: t("now"), cls: "now", end: true, pri: 0 });
+    const labels = lt.map((ms) => ({ x: s.x(ms) + 3, s: hf(ms), pri: 2 }));
     ax.svg.setAttribute("viewBox", `0 0 ${w} 50`);
     ax.svg.innerHTML = na + `<path class="tk" d="${tall}"/><path class="tk" d="${med}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${TOD_BASE + 0.5}H${w}"/>`
       + marksSvg(s.x, win.a, win.b, w, TOD_BASE + 3) + labelsSvg(labels, w);
-    placeWin();
-  }
-  // the band on the day axis and the connector down to the time axis: the part of the day axis the time axis shows
-  function placeWin() {
-    if (!T || !A.day.x || !A.tod.x) return;
-    const hi = Math.min(win.b, T.now), x0 = A.day.x(Math.max(win.a, T.from)), x1 = A.day.x(hi), w = A.tod.w;
-    band.style.transform = `translateX(${x0}px) scaleX(${Math.max(2, x1 - x0)})`;
-    link.setAttribute("viewBox", `0 0 ${w} ${LINK_H}`);
-    link.setAttribute("preserveAspectRatio", "none");
-    $("path", link).setAttribute("d", `M${x0 + 1} 0L${A.tod.x(Math.max(win.a, T.from)) + 1} ${LINK_H}H${A.tod.x(hi) + 1}L${x1 + 1} 0Z`);
   }
   function setWin(nw) {
     if (win && nw.a === win.a && nw.b === win.b) return;
     win = nw;
     renderTod();
   }
+  // todRange: what the time axis can pick: its day, inside the restorable range; never the next 00:00
+  const todRange = () => [Math.max(win.a, T.from), Math.min(win.b - MIN, T.now)];
   function place() { // the two lines and the shade to their right: only transforms, no layout
     if (!T || sel === null || !A.day.x || !A.tod.x) return;
     const xd = A.day.x(dayMs), xt = A.tod.x(clamp(sel, win.a, win.b));
@@ -701,20 +701,21 @@ svg.i { vertical-align: middle; }
     return t("ago_m", { m: mi });
   }
   // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, both lines.
-  // The day axis' line and the time axis follow to the day of ms when ms is outside the window, or always when follow is set. Sends nothing.
-  function setSel(ms, typed, follow) {
+  // It is for the day axis, typing and the step buttons: the day axis' line and the time axis go to the day of ms.
+  // The time axis never calls it with a day: it calls setTod, which leaves the day axis' line and the window alone.
+  function setSel(ms, typed, tod) {
     sel = ms;
     if (!typed && ms !== null) input.value = fmt(ms, T && (ms === T.from || ms === T.now));
     rel.textContent = ms === null ? "" : relText(ms);
     if (T && ms !== null) {
-      const v = clamp(ms, T.from, T.now);
-      if (follow || v < win.a || v >= win.b) { dayMs = dayOf(v); setWin(winFor(dayMs)); }
+      if (!tod) { dayMs = dayOf(ms); setWin(winFor(dayMs)); }
       place();
-      const vt = fmt(ms) + ", " + relText(ms);
+      const v = clamp(ms, T.from, T.now), vt = fmt(ms) + ", " + relText(ms);
       for (const ax of [A.day, A.tod]) { ax.el.setAttribute("aria-valuenow", Math.round(v / 1000)); ax.el.setAttribute("aria-valuetext", vt); }
     }
     stale();
   }
+  const setTod = (ms) => setSel(clamp(ms, ...todRange()), false, true);
   function stale() {
     const s = keyOf(sel) !== shown;
     pv.classList.toggle("stale", s);
@@ -739,33 +740,47 @@ svg.i { vertical-align: middle; }
     drawPreview();
     stale();
   }
+  // glob: a pattern without "/" matches the file name, one with "/" the whole path; * stays inside a name, ** crosses "/", ? is one character
+  function globRe(g) {
+    let re = "";
+    for (let i = 0; i < g.length; i++) {
+      const c = g[i];
+      if (c === "*") { if (g[i + 1] === "*") { re += ".*"; i++; } else re += "[^/]*"; } else if (c === "?") re += "[^/]"; else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+    return new RegExp("^" + re + "$", "i");
+  }
+  const filterEl = $("[data-pv-filter]", pv);
   function drawPreview() {
     const r = result || {}, head = $("[data-pv-head]", pv), note = $(".pv-note", pv), ul = $("ul", pv), more = $(".more-n", pv);
-    head.textContent = r.bad ? t("bad", { ex: "2026-11-03 22:48:27" }) : r.hint ? t("hint") : r.none ? t("none") : r.n ? t("count", { n: r.n }) : result ? t("same") : "";
+    const g = filterEl.value.trim(), re = g ? globRe(g) : null, all = (r.all || []).filter(([p]) => !re || re.test(g.includes("/") ? p : p.slice(p.lastIndexOf("/") + 1)));
+    const items = all.slice(0, LIST_MAX), lost = all.length - items.length, has = !!r.n;
+    filterEl.hidden = !has; filterEl.placeholder = t("filter");
+    head.hidden = has;
+    head.textContent = r.bad ? t("bad", { ex: "2026-11-03 22:48:27" }) : r.hint ? t("hint") : r.none ? t("none") : result && !has ? t("same") : "";
     head.parentNode.classList.toggle("warn", !!r.bad);
     note.hidden = !r.note;
     if (r.note) $("span", note).textContent = t(r.note[0], r.note[1]);
-    ul.replaceChildren(...(r.items || []).map(([p, s]) => {
+    ul.replaceChildren(...items.map(([p, s]) => {
       const li = document.createElement("li"), a = document.createElement("span"), b = document.createElement("span");
       a.className = "p"; a.textContent = p; b.className = "s"; b.textContent = t(s); li.append(a, b); return li;
     }));
-    more.hidden = !r.more;
-    if (r.more) more.textContent = t("more", { n: r.more });
+    more.hidden = !has;
+    if (has) more.textContent = t("count", { n: all.length }) + (lost ? ", " + t("more", { n: lost }) : "");
     $("span", go).textContent = !result || r.hint || r.bad ? t("goWait") : r.n ? t("go", { n: r.n }) : t("go0");
   }
+  filterEl.addEventListener("input", drawPreview);
 
   // ---- what a pointer position means on each axis
-  function dayAt(x) { // the stop nearest to x: a 00:00, or one of the two ends
+  function dayAt(x) { // the stop nearest to x: the 00:00 of a day
     const ms = A.day.t(clamp(x, 0, A.day.w)), i = Math.max(0, bsearch(stops, ms)), j = Math.min(stops.length - 1, i + 1);
     return ms - stops[i] <= stops[j] - ms ? stops[i] : stops[j];
   }
-  function todAt(x) { // the time under x, to the minute, inside the window and the restorable range
-    const ms = Math.round(A.tod.t(clamp(x, 0, A.tod.w)) / MIN) * MIN;
-    return ms <= T.from ? T.from : ms >= T.now ? T.now : ms;
+  function todAt(x) { // the time under x, to the minute, inside the window and the restorable range; never out of the day
+    return clamp(Math.round(A.tod.t(clamp(x, 0, A.tod.w)) / MIN) * MIN, ...todRange());
   }
   // ---- input: pointer on either axis, keys on either axis, the step buttons, typing
   let drag = null, raf = 0, lastX = 0;
-  function move(x) { if (drag.kind === "day") setSel(dayAt(x), false, true); else setSel(todAt(x)); }
+  function move(x) { if (drag.kind === "day") setSel(Math.max(dayAt(x), T.from)); else setTod(todAt(x)); }
   for (const kind of ["day", "tod"]) {
     const el = A[kind].el;
     el.addEventListener("pointerdown", (e) => {
@@ -789,37 +804,36 @@ svg.i { vertical-align: middle; }
       drag = null;
       commit();
     });
-    el.addEventListener("pointercancel", () => { if (drag) { dayMs = drag.day; setWin(drag.win); setSel(drag.start); drag = null; } }); // it was a scroll
+    el.addEventListener("pointercancel", () => { if (drag) { const d = drag; drag = null; setSel(d.start); if (d.kind === "tod") { dayMs = d.day; setWin(d.win); place(); } } }); // it was a scroll
   }
-  function later(ms, follow) { setSel(ms, false, follow); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
-  function stepChange(d) { // to the start of the previous or next state; the last one is now
-    const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n);
-    later(j >= n - 1 ? T.now : T.ticks[j]);
+  function later(ms, tod) { if (tod) setTod(ms); else setSel(ms); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
+  function stepChange(d, tod) { // to the start of the previous or next state; the last one is now. On the time axis: only inside its day
+    const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n), ms = j >= n - 1 ? T.now : T.ticks[j], [lo, hi] = tod ? todRange() : [0, 0];
+    if (tod && (ms < lo || ms > hi)) return;
+    later(ms, tod);
   }
   A.day.el.addEventListener("keydown", (e) => {
     if (!T) return;
-    const v = clamp(sel ?? T.now, T.from, T.now), n = stops.length - 1;
-    const below = Math.max(0, stops[bsearch(stops, v)] === v ? bsearch(stops, v) - 1 : bsearch(stops, v)); // the stop before v
-    const above = Math.min(n, bsearch(stops, v) + 1);
-    const j = { ArrowLeft: below, ArrowDown: below, ArrowRight: above, ArrowUp: above, PageDown: below - WEEK + 1, PageUp: above + WEEK - 1, Home: 0, End: n }[e.key];
+    const n = stops.length - 1, at = bsearch(stops, dayMs), below = Math.max(0, at - 1), above = Math.min(n, at + 1);
+    const j = { ArrowLeft: below, ArrowDown: below, ArrowRight: above, ArrowUp: above, PageDown: at - WEEK, PageUp: at + WEEK, Home: 0, End: n }[e.key];
     if (j === undefined) return;
     e.preventDefault();
-    later(stops[clamp(j, 0, n)], true);
+    later(Math.max(stops[clamp(j, 0, n)], T.from));
   });
   A.tod.el.addEventListener("keydown", (e) => {
     if (!T) return;
-    const v = clamp(sel ?? T.now, T.from, T.now), p = parts(v), hour = fromWall(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour));
+    const [lo, hi] = todRange(), v = clamp(sel ?? T.now, lo, hi), p = parts(v), hour = fromWall(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour));
     const ch = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
-    const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: win.a, End: win.b - MIN }[e.key];
+    const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: lo, End: hi }[e.key];
     if (ch === undefined && to === undefined) return;
     e.preventDefault();
-    if (ch) stepChange(ch); else later(clamp(to, T.from, T.now));
+    if (ch) stepChange(ch, true); else later(to, true);
   });
-  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step); }));
+  steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step, false); }));
   let typeT = 0;
   input.addEventListener("input", () => {
     clearTimeout(typeT);
-    typeT = setTimeout(() => { setSel(parseLocal(input.value), true, true); commit(); }, TYPE_WAIT);
+    typeT = setTimeout(() => { setSel(parseLocal(input.value), true); commit(); }, TYPE_WAIT);
   });
   let lastW = 0;
   new ResizeObserver(() => { if (axes.clientWidth !== lastW) { lastW = axes.clientWidth; renderDay(); renderTod(); place(); } }).observe(axes);
@@ -851,8 +865,8 @@ svg.i { vertical-align: middle; }
       if (T) { ax.el.setAttribute("aria-valuemin", Math.round(T.from / 1000)); ax.el.setAttribute("aria-valuemax", Math.round(T.now / 1000)); }
     }
     if (T) {
-      stops = [T.from, ...ticksOf({ d: 1 }, T.from, T.now).filter((ms) => ms > T.from && ms < T.now), T.now];
-      dayMs = T.now;
+      stops = ticksOf({ d: 1 }, dayStart(T.from), T.now);
+      dayMs = stops[stops.length - 1];
       win = winFor(dayMs);
     }
     texts();
@@ -863,7 +877,7 @@ svg.i { vertical-align: middle; }
     const k = s.dataset.mock;
     if (k === "scene") load(s.value);
     if (k === "lat") latency = +s.value;
-    if (k === "lang") { lang = s.value; texts(); setSel(sel); }
+    if (k === "lang") { lang = s.value; texts(); }
   }));
   if (matchMedia("(max-width: 640px)").matches) $(".mock-ctl").open = false;
   load("k30");
