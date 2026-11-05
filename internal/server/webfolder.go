@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"kaze-sync/internal/proto"
+	pp "kaze-sync/internal/proto/path"
 )
 
 type folderRow struct {
@@ -47,6 +48,8 @@ type browseEntry struct {
 	Unsynced   bool   // reported by a device but not on the server (a symbolic link, a refused name)
 	Tags       []entryTag
 	Note       *notice // an unsynced entry's report
+	LockDev    string  // the device that holds this path exclusively
+	LockDevID  int64
 }
 
 // conflictName splits "dir/report.conflict-laptop-20261101-153012.docx" into its original and extension parts.
@@ -160,7 +163,7 @@ func decorate(t translator, entries []browseEntry, dir string, notes []notice) [
 			parent = n.Path[:i]
 		}
 		if j, ok := byPath[n.Path]; ok {
-			if !entries[j].IsDir {
+			if !entries[j].IsDir || n.N > 0 {
 				class := "warn"
 				if n.Error {
 					class = "err"
@@ -225,6 +228,18 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	}
 	t := trOf(r)
 	entries = decorate(t, entries, dir, notes)
+	locks, err := folderLocks(s.db, f.ID)
+	if err != nil {
+		return err
+	}
+	for i := range entries {
+		for _, l := range locks {
+			if l.key == pp.Key(entries[i].Path) {
+				entries[i].LockDev, entries[i].LockDevID = l.Device, l.DeviceID
+				entries[i].Tags = append([]entryTag{{"lock", t.T("fo.tag.locked", "device", l.Device), ""}}, entries[i].Tags...)
+			}
+		}
+	}
 	type crumb struct{ Name, Path string }
 	var crumbs []crumb
 	for i, p := range strings.Split(dir, "/") {
@@ -257,7 +272,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "Devs": devs, "Mapped": len(devs),
 		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": seq,
 		"Rules": rules, "SavedRules": f.Rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
-		"Scope": dir}
+		"Scope": dir, "LockHere": lockCovering(locks, dir), "LockPaths": lockPaths(locks)}
 	if ds != nil && ds.dialog == "dlg-restore" {
 		data["Scope"] = r.PostForm.Get("path")
 	}
@@ -435,4 +450,26 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 	slog.Info("folder deleted", "folder", f.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
+}
+
+// lockCovering is the lock that covers dir (the directory itself or one above it), or nil.
+func lockCovering(locks []lockRow, dir string) *lockRow {
+	k := pp.Key(dir)
+	for i := range locks {
+		if locks[i].covers(k) {
+			return &locks[i]
+		}
+	}
+	return nil
+}
+
+// lockPaths is the locks as the JSON the restore dialog reads to warn about an exclusive in its range.
+func lockPaths(locks []lockRow) string {
+	type l struct{ P, K, D string }
+	out := []l{}
+	for _, x := range locks {
+		out = append(out, l{x.Path, x.key, x.Device})
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }

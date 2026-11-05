@@ -261,5 +261,22 @@
  "js.menu.editMap": "编辑映射…",
  "js.menu.delMap": "删除映射…",
  "js.menu.revoke": "吊销设备…",
- "js.menu.actions": "操作"
+ "js.menu.actions": "操作",
+ "fo.tag.locked": "独占 · {device}",
+ "fo.locked.line": "此目录由 {device} 独占 (自 {time} 起), 其他设备上只读",
+ "dlg.lock.title": "设为独占",
+ "dlg.lock.device": "独占的设备",
+ "dlg.lock.help": "只有这台设备的改动会上传. 其他设备照常接收, 本地设为只读; 它们的改动被服务端拒绝, 移到 <code>.syncsaved</code>.",
+ "dlg.lock.none": "没有映射这个文件夹的设备",
+ "fold.locked": "{n} 个对 {path} 的改动被拒绝 ({owner} 独占), 已移到 .syncsaved",
+ "advice.locked": "这些改动没有上传, 保存在该设备的 <code>.syncsaved</code> 中; 不需要就删除它们; 需要时在 {owner} 上做同样的修改, 或先解除独占再拷回",
+ "reason.locked": "此路径由 {owner} 独占",
+ "dev.locks": "独占 {n} 处",
+ "js.menu.lock": "设为独占…",
+ "js.menu.transfer": "改由其他设备独占…",
+ "js.menu.unlock": "解除独占…",
+ "js.unlock.confirm": "解除 {device} 对 {path} 的独占? 之后所有设备都能改写这里, 其他设备上的本地只读随之取消.",
+ "js.unlock.ok": "解除独占",
+ "js.restoreLocked": "范围内有 {device} 独占的目录; 恢复照常进行并同步到所有设备",
+ "js.locks.release": "同时解除它的 {n} 处独占"
 }

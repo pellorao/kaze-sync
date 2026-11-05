@@ -34,9 +34,18 @@ var webFS embed.FS
 func funcs(t translator) template.FuncMap {
 	return template.FuncMap{
 		"t": t.T, "tm": t.H, "size": formatSize, "icon": icon, "stClass": stClass, "add1": func(i int) int { return i + 1 },
-		"time":    func(unix int64) template.HTML { return timeTag(t, unix) },
-		"stText":  func(state string) string { return stText(t, state) },
-		"advice":  func(kind string) string { return adviceOf(t, kind) },
+		"time":   func(unix int64) template.HTML { return timeTag(t, unix) },
+		"stText": func(state string) string { return stText(t, state) },
+		"advice": func(kind string) string { return adviceOf(t, kind) },
+		"noteAdvice": func(v any) string {
+			switch n := v.(type) {
+			case notice:
+				return noticeAdvice(t, n)
+			case noticeRow:
+				return noticeAdvice(t, n.notice)
+			}
+			return ""
+		},
 		"fold":    func(kind string, n int) string { return t.T("fold."+kind, "n", n) },
 		"cfg":     func(state string) string { return cfgText(t, state) },
 		"lineErr": func(line int, m string) string { return t.T("js.ruleLine", "n", line, "msg", ruleMsg(t, m)) },
@@ -981,12 +990,30 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		PendingUp        int
 		PendingDown      int
 		Errors, Warnings int
+		Locks            int // exclusive ranges the device holds in this folder
 	}
 	maps, err := queryAll(s.db, func(rows *sql.Rows, m *mapping) error {
 		return rows.Scan(&m.FolderID, &m.Folder, &m.Path, &m.Adopt)
 	}, `SELECT f.id, f.name, m.path, m.adopt FROM mappings m JOIN folders f ON f.id=m.folder_id WHERE m.device_id=? ORDER BY f.name`, d.ID)
 	if err != nil {
 		return err
+	}
+	nLocks := 0
+	if err == nil {
+		type lc struct{ folder, n int64 }
+		cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
+			`SELECT folder_id, count(*) FROM locks WHERE device_id=? GROUP BY folder_id`, d.ID)
+		if lerr != nil {
+			return lerr
+		}
+		for _, c := range cnt {
+			nLocks += int(c.n)
+			for i := range maps {
+				if maps[i].FolderID == c.folder {
+					maps[i].Locks = int(c.n)
+				}
+			}
+		}
 	}
 	free, err := queryAll(s.db, func(rows *sql.Rows, f *folderRow) error {
 		return rows.Scan(&f.ID, &f.Name)
@@ -1024,7 +1051,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		}
 	}
 	s.mu.Unlock()
-	data := map[string]any{"Device": d, "Head": head, "Mappings": maps, "Free": free}
+	data := map[string]any{"Device": d, "Head": head, "Mappings": maps, "Free": free, "LockCount": nLocks}
 	if ds != nil && ds.dialog == "dlg-map-edit" {
 		for _, m := range maps {
 			if strconv.FormatInt(m.FolderID, 10) == r.PostForm.Get("folder") {

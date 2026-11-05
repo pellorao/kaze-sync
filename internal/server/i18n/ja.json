@@ -261,5 +261,22 @@
  "js.menu.editMap": "マッピングを編集…",
  "js.menu.delMap": "マッピングを削除…",
  "js.menu.revoke": "デバイスを失効…",
- "js.menu.actions": "操作"
+ "js.menu.actions": "操作",
+ "fo.tag.locked": "専有 · {device}",
+ "fo.locked.line": "{time} から {device} が専有しています。他のデバイスでは読み取り専用です",
+ "dlg.lock.title": "専有に設定",
+ "dlg.lock.device": "専有するデバイス",
+ "dlg.lock.help": "このデバイスの変更だけがアップロードされます。他のデバイスは受信のみで、ファイルは読み取り専用になります。他のデバイスでの変更はサーバーに拒否され、<code>.syncsaved</code> に移されます。",
+ "dlg.lock.none": "このフォルダーをマッピングしているデバイスがありません",
+ "fold.locked": "{path} への変更 {n} 件が拒否されました ({owner} が専有)。.syncsaved に移しました",
+ "advice.locked": "これらの変更はアップロードされず、そのデバイスの <code>.syncsaved</code> にあります。不要なら削除してください。必要なら {owner} で同じ変更をするか、専有を解除してからコピーし直してください",
+ "reason.locked": "{owner} が専有しています",
+ "dev.locks": "専有 {n} か所",
+ "js.menu.lock": "専有に設定…",
+ "js.menu.transfer": "専有を別のデバイスに移す…",
+ "js.menu.unlock": "専有を解除…",
+ "js.unlock.confirm": "{path} に対する {device} の専有を解除しますか? 以後すべてのデバイスが変更でき、他のデバイスの読み取り専用も解除されます。",
+ "js.unlock.ok": "専有を解除",
+ "js.restoreLocked": "範囲内に {device} が専有するディレクトリがあります。復元はそこにも適用され、すべてのデバイスに同期されます",
+ "js.locks.release": "{n} か所の専有も解除されます"
 }

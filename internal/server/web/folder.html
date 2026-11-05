@@ -5,17 +5,18 @@
 <span class="sp"></span>
 <a class="toggle{{if .Deleted}} on{{end}}" role="switch" aria-checked="{{if .Deleted}}true{{else}}false{{end}}" href="/folders/{{.Folder.ID}}?{{if .Dir}}dir={{.Dir}}{{end}}{{if not .Deleted}}{{if .Dir}}&amp;{{end}}deleted=1{{end}}"><span class="sw"></span>{{t "fo.showDeleted"}}</a>
 {{if not .Dir}}<button type="button" class="btn" data-dialog="dlg-rules">{{icon "rules"}}{{t "fo.rules"}}{{if .RuleCount}} <span class="n">{{.RuleCount}}</span>{{end}}</button>{{end}}
-<button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}" aria-label="{{t "fo.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
+<button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}"{{with .LockHere}}{{if eq .Path $.Dir}} data-lock="{{.Device}}" data-lock-id="{{.DeviceID}}"{{else}} data-locked-in="1"{{end}}{{end}} aria-label="{{t "fo.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
 <p class="sub"><span>{{if .Mapped}}{{t "fo.devices" "n" .Mapped "names" (names .Devs)}}{{else}}{{t "fo.noMapped"}}{{end}}</span>
 <span class="dot-sep num">{{t "fo.nFiles" "n" .Files}}</span><span class="dot-sep num">{{size .Bytes}}</span>
 <span class="dot-sep">{{template "folder-state" .}}</span>
+{{with .LockHere}}<span class="dot-sep">{{icon "lock"}}{{tm "fo.locked.line" "device" .Device "time" (time .CreatedAt)}}</span>{{end}}
 {{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</button>{{end}}</p>
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
 <div class="list-h"><span>{{t "fo.items" "n" (len .Entries)}}</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}{{t "fo.reload"}}</button></div>
 {{if .Entries}}<table class="files">
 <thead><tr><th>{{t "ov.name"}}</th><th class="size r">{{t "fo.size"}}</th><th class="time">{{t "fo.modified"}}</th><th class="act"></th></tr></thead>
 <tbody>
-{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else if .Conflict}}conflict{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if .Orig}} data-orig="{{.Orig}}"{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{advice .Note.Kind}}"{{end}}>
+{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else if .Conflict}}conflict{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if .LockDev}} data-lock="{{.LockDev}}" data-lock-id="{{.LockDevID}}"{{end}}{{if .Orig}} data-orig="{{.Orig}}"{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
 <td class="name"><div class="fname">{{if .IsDir}}{{icon "folder" "dir"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
 {{else if .Unsynced}}{{icon "link" "file"}}<span class="t nm">{{.Name}}</span>
 {{else}}{{icon "file" "file"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
@@ -50,10 +51,25 @@
 </div>
 {{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}</div>
 <div class="preview fixed" data-preview hidden></div>
-<div class="note">{{icon "info"}}<div class="lines"><p>{{t "rs.note1"}}</p><p data-note2>{{tm "rs.noteNoJs" "href" "/settings" "d" .KeepDays}}</p></div></div>
+<div class="note">{{icon "info"}}<div class="lines"><p data-locknote data-locks="{{.LockPaths}}" hidden></p><p>{{t "rs.note1"}}</p><p data-note2>{{tm "rs.noteNoJs" "href" "/settings" "d" .KeepDays}}</p></div></div>
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>{{t "common.restore"}}</span></button></div>
 </form></dialog>
+
+<dialog id="dlg-lock" class="dlg" data-folder-name="{{.Folder.Name}}"{{if eq .Open "dlg-lock"}} data-autoopen{{end}} aria-labelledby="lk-t"><form method="post" action="/folders/{{.Folder.ID}}/lock">
+<input type="hidden" name="path" value="{{index .Vals "path"}}"><input type="hidden" name="dir" value="{{.Dir}}">
+<div class="dlg-h">{{icon "lock"}}<h3 id="lk-t">{{t "dlg.lock.title"}}</h3></div>
+<div class="dlg-b">
+<div class="field"><span class="lbl">{{t "rs.scope"}}</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{with index .Vals "path"}} / {{.}}{{end}}</span></div>
+{{with index .Errs "path"}}{{if eq $.Open "dlg-lock"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}</div>
+<div class="field"><label for="lk-dev">{{t "dlg.lock.device"}}</label><select id="lk-dev" name="device"{{if not .Devs}} disabled{{end}}>{{range .Devs}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) (index $.Vals "device")}} selected{{end}}>{{.Name}}{{if .Online}} ●{{end}}</option>{{end}}</select>
+{{if not .Devs}}<span class="help">{{t "dlg.lock.none"}}</span>{{end}}</div>
+<p class="note">{{icon "info"}}<span>{{tm "dlg.lock.help"}}</span></p>
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary"{{if not .Devs}} disabled{{end}}>{{t "dlg.lock.title"}}</button></div>
+</form></dialog>
+<form id="f-unlock" method="post" action="/folders/{{.Folder.ID}}/lock" hidden data-confirm="" data-confirm-ok="{{t "js.unlock.ok"}}" data-danger>
+<input type="hidden" name="path" value=""><input type="hidden" name="dir" value="{{.Dir}}"><input type="hidden" name="device" value=""></form>
 
 <dialog id="dlg-rules" class="dlg wide"{{if eq .Open "dlg-rules"}} data-autoopen{{end}} aria-labelledby="ru-t"><form method="post" action="/folders/{{.Folder.ID}}/rules">
 <div class="dlg-h">{{icon "rules"}}<h3 id="ru-t">{{t "ru.title" "name" .Folder.Name}}</h3></div>

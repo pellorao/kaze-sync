@@ -93,6 +93,7 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 .tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 1; white-space: nowrap; color: var(--muted); border: 1px solid var(--line); }
 .tag.err { color: #f0a0a6; border-color: color-mix(in srgb, var(--danger) 55%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.tag.lock { color: var(--fg); background: var(--hover); border-color: var(--line); }
 .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .tag.dev { color: var(--fg); background: var(--hover); border-color: transparent; }
 .tag.dev.off { color: var(--faint); background: none; border-color: var(--line); }

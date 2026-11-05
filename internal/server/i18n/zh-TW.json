@@ -261,5 +261,22 @@
  "js.menu.editMap": "編輯對應…",
  "js.menu.delMap": "刪除對應…",
  "js.menu.revoke": "撤銷裝置…",
- "js.menu.actions": "操作"
+ "js.menu.actions": "操作",
+ "fo.tag.locked": "獨佔 · {device}",
+ "fo.locked.line": "此目錄由 {device} 獨佔 (自 {time} 起), 其他裝置上唯讀",
+ "dlg.lock.title": "設為獨佔",
+ "dlg.lock.device": "獨佔的裝置",
+ "dlg.lock.help": "只有這台裝置的變更會上傳. 其他裝置照常接收, 本機設為唯讀; 它們的變更被伺服器端拒絕, 移到 <code>.syncsaved</code>.",
+ "dlg.lock.none": "沒有對應這個資料夾的裝置",
+ "fold.locked": "{n} 個對 {path} 的變更被拒絕 ({owner} 獨佔), 已移到 .syncsaved",
+ "advice.locked": "這些變更沒有上傳, 保存在該裝置的 <code>.syncsaved</code> 中; 不需要就刪除它們; 需要時在 {owner} 上做同樣的修改, 或先解除獨佔再複製回去",
+ "reason.locked": "此路徑由 {owner} 獨佔",
+ "dev.locks": "獨佔 {n} 處",
+ "js.menu.lock": "設為獨佔…",
+ "js.menu.transfer": "改由其他裝置獨佔…",
+ "js.menu.unlock": "解除獨佔…",
+ "js.unlock.confirm": "解除 {device} 對 {path} 的獨佔? 之後所有裝置都能改寫這裡, 其他裝置上的本機唯讀隨之取消.",
+ "js.unlock.ok": "解除獨佔",
+ "js.restoreLocked": "範圍內有 {device} 獨佔的目錄; 還原照常進行並同步到所有裝置",
+ "js.locks.release": "同時解除它的 {n} 處獨佔"
 }

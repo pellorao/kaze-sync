@@ -141,9 +141,13 @@
     for (const k in params) { if (params[k] === null) u.searchParams.delete(k); else u.searchParams.set(k, params[k]); }
     location.href = u;
   }
+  // lockItems: set, move or clear the exclusive writer of the row's path (a directory, or the one the page shows)
+  const lockItems = (c) => c.row.dataset.lock
+    ? [[rt("js.menu.transfer"), "lock", "lock"], [rt("js.menu.unlock"), "lock", "unlock"]]
+    : [[rt("js.menu.lock"), "lock", "lock"]];
   const restoreLabel = (d) => rt(d.path ? "js.menu.restoreDir" : "js.menu.restoreFolder");
   const MENUS = {
-    dir: (c) => [[rt("js.menu.open"), "open", "open"], [rt("js.menu.restoreAt"), "restore", "restore-at"]],
+    dir: (c) => [[rt("js.menu.open"), "open", "open"], [rt("js.menu.restoreAt"), "restore", "restore-at"], ...lockItems(c)],
     file: () => [[rt("js.menu.versions"), "history", "versions"], [rt("js.menu.restoreAt"), "restore", "restore-at"]],
     gone: () => [[rt("js.menu.restoreLast"), "restore", "restore-last"], [rt("js.menu.versions"), "history", "versions"]],
     conflict: (c) => [[rt("js.menu.versions"), "history", "versions"], c.row.dataset.orig ? [rt("js.menu.versionsOrig"), "history", "versions-orig"] : null, [rt("js.menu.restoreAt"), "restore", "restore-at"]],
@@ -151,7 +155,7 @@
     blank: (c) => [[restoreLabel(c.row.dataset), "restore", "restore-dir"]],
     "folder-head": (c) => {
       const n = +c.row.dataset.maps;
-      return [[restoreLabel(c.row.dataset), "restore", "restore-dir"],
+      return [[restoreLabel(c.row.dataset), "restore", "restore-dir"], ...lockItems(c),
         [rt("js.menu.delFolder"), "trash", "del-folder", { danger: true, disabled: n > 0, hint: n > 0 ? rt("js.menu.delFolderHint", { n }) : "" }]];
     },
     "map-row": () => [[rt("js.menu.editMap"), "edit", "edit-map"], [rt("js.menu.delMap"), "trash", "del-map", { danger: true }]],
@@ -163,6 +167,21 @@
     "versions-orig": (c) => goto({ file: c.row.dataset.orig }),
     "restore-at": (c) => openRestore(c.row.dataset.path, c.row.dataset.kind === "dir"),
     "restore-dir": (c) => openRestore(c.row.dataset.path || "", !!c.row.dataset.path),
+    lock: (c) => {
+      const d = $("#dlg-lock"), f = $("form", d), p = c.row.dataset.path || "", cur = c.row.dataset.lockId || "";
+      f.elements.path.value = p;
+      $('[data-fill="scope"]', d).textContent = d.dataset.folderName + (p ? " / " + p : "");
+      $$(".err-msg", d).forEach((x) => x.remove());
+      const sel = f.elements.device, other = [...sel.options].find((o) => o.value !== cur);
+      if (other) sel.value = other.value;
+      openDialog(d);
+    },
+    unlock: (c) => {
+      const f = $("#f-unlock"), p = c.row.dataset.path || "";
+      f.elements.path.value = p;
+      f.dataset.confirm = rt("js.unlock.confirm", { device: c.row.dataset.lock, path: p || "/" });
+      f.requestSubmit();
+    },
     "restore-last": (c) => { const f = $("#f-restore-last"); f.elements.path.value = c.row.dataset.path; f.requestSubmit(); },
     detail: (c) => {
       const d = $("#dlg-unsynced"), r = c.row.dataset;
@@ -183,7 +202,12 @@
       $('[data-fill="name"]', d).textContent = r.name;
       openDialog(d);
     },
-    "del-map": (c) => { const f = $("#f-del-map"); f.elements.folder.value = c.row.dataset.folder; f.requestSubmit(); },
+    "del-map": (c) => {
+      const f = $("#f-del-map"), n = +c.row.dataset.locks || 0;
+      f.elements.folder.value = c.row.dataset.folder;
+      f.dataset.confirm = f.dataset.base + (n ? " " + rt("js.locks.release", { n }) : "");
+      f.requestSubmit();
+    },
     revoke: () => $("#f-revoke").requestSubmit(),
     "del-folder": () => $("#f-del-folder").requestSubmit(),
   };
@@ -787,7 +811,17 @@
     return { open };
   }
   const restore = $("#dlg-restore") && restoreDialog($("#dlg-restore"));
-  function openRestore(path, isDir) { restore.open(path, isDir); }
+  function openRestore(path, isDir) {
+    restore.open(path, isDir);
+    // an exclusive inside the range (or around it) does not stop a restore: say so
+    const rd = $("#dlg-restore"), note = $("[data-locknote]", rd), key = (s) => s.normalize("NFC").toLowerCase();
+    let locks = [];
+    try { locks = JSON.parse(note.dataset.locks || "[]"); } catch (e) { /* no note */ }
+    const p = key(path || ""), within = (a, b) => !b || a === b || a.startsWith(b + "/");
+    const hit = locks.find((l) => within(key(l.P), p) || within(p, key(l.P)));
+    note.hidden = !hit;
+    if (hit) note.textContent = rt("js.restoreLocked", { device: hit.D });
+  }
 
   // ---- version history: the restore asks in its own row
   document.addEventListener("click", (e) => {

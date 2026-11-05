@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"kaze-sync/internal/proto"
@@ -195,5 +196,41 @@ func TestMigrateToLocksSchema(t *testing.T) {
 	e := newEnv(t)
 	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='locks'`) != 1 || SchemaVersion != 3 {
 		t.Fatal("no locks table")
+	}
+}
+
+func TestLockWebUI(t *testing.T) {
+	l := newLockEnv(t)
+	l.lock("repo", l.a)
+	l.apiCommit(l.ta, l.f, l.op("repo/x.txt", 0, "x"), l.op("other/y.txt", 0, "y"))
+	_, body := l.get(l.web, "/folders/"+itoa(l.f))
+	for _, w := range []string{`data-lock="A"`, `独占 · A`, `id="dlg-lock"`, `id="f-unlock"`} {
+		if !strings.Contains(body, w) {
+			t.Errorf("folder page lacks %s", w)
+		}
+	}
+	_, body = l.get(l.web, "/folders/"+itoa(l.f)+"?dir=repo")
+	if !strings.Contains(body, "此目录由 A 独占") {
+		t.Error("no exclusive line inside the range")
+	}
+	// An overlapping lock comes back as an error in the open dialog.
+	st, body := l.lock("repo/sub", l.b)
+	if st != 400 || !strings.Contains(body, `id="dlg-lock"`) || !strings.Contains(body, "已由 A 独占") || !strings.Contains(body, `value="repo/sub"`) {
+		t.Errorf("overlap: %d", st)
+	}
+	// B reports the summary of refused changes: an error notice naming the owner, with advice.
+	st, _ = l.api(l.tb, "poll", proto.PollReq{ConfigVersion: -1, AgentVersion: proto.AgentVersion, Folders: []proto.FolderState{{ID: l.f, State: "error",
+		Errors: []proto.FileError{{Path: "repo", Kind: proto.KindRejected, Message: "locked", N: 3, Since: 1}}}}})
+	if st != 200 {
+		t.Fatalf("poll %d", st)
+	}
+	_, body = l.get(l.web, "/folders/"+itoa(l.f))
+	if !strings.Contains(body, "3 个对 repo 的改动被拒绝 (A 独占)") || !strings.Contains(body, "拒绝 · B") && !strings.Contains(body, "· B") {
+		t.Error("the refusal summary is not shown")
+	}
+	// The device page counts the exclusive and the revoke confirmation names it.
+	_, body = l.get(l.web, "/devices/"+itoa(l.a))
+	if !strings.Contains(body, "独占 1 处") || !strings.Contains(body, "同时解除它的 1 处独占") {
+		t.Error("device page lacks the exclusive count")
 	}
 }
