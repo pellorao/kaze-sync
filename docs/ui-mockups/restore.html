@@ -836,7 +836,7 @@ svg.i { vertical-align: middle; }
   let typeT = 0;
   input.addEventListener("input", () => {
     clearTimeout(typeT);
-    typeT = setTimeout(() => { const ms = parseLocal(input.value); if (ms === null || !T) setSel(ms, true); else setTod(ms); commit(); /* a time outside the day goes to its edge */ }, TYPE_WAIT);
+    typeT = setTimeout(() => { setSel(parseLocal(input.value), true); commit(); /* the box holds a full date and time: both lines go there */ }, TYPE_WAIT);
   });
   let lastW = 0;
   new ResizeObserver(() => { if (axes.clientWidth !== lastW) { lastW = axes.clientWidth; renderDay(); renderTod(); place(); } }).observe(axes);
