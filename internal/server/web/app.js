@@ -374,8 +374,9 @@
 
   // ---- restore to a point in time: two time axes with draggable lines, and a preview (design 4.6)
   // One selected time is shown on two axes. The day axis (top) runs from the oldest state a restore can reach (left) to
-  // now (right) and its line stops only at each 00:00 and at the two ends. The time axis (bottom) shows one window of 24
-  // hours, see winFor, and its line moves by the minute. The server sends the ticks: the ends of the minutes with a
+  // now (right) and its line stops only at each 00:00 and at the two ends. The time axis (bottom) always shows one
+  // calendar day, 00:00 to 24:00, and its line moves by the minute inside that day; the part after now and the part
+  // before the earliest point are hatched and cannot be picked. Dragging the time axis never moves the day axis' line. The server sends the ticks: the ends of the minutes with a
   // change in the scope. Dragging only moves the lines and changes some text; the preview is asked for when the state
   // under the line changes and the line rests. Only the newest request counts, an older one is aborted.
   // Every text this code writes is in the dictionary (rt, above), with {placeholders}.
@@ -411,7 +412,8 @@
     const fmtT = (ms) => fmt(ms, zone).slice(0, ms % MIN ? 19 : 16);
     let T = null;     // the ticks of the scope, all in ms: {now, from, ticks} (null: none loaded, none to show, or failed)
     let stops = [];   // where the day axis' line may stop: the earliest point, each 00:00 after it, now
-    let win = null;   // the time axis' window {a, b, live}; live: the last 24 hours, ending at now
+    let win = null;   // the time axis' window {a, b}: the calendar day of the day axis' line
+    let dayMs = null; // where the day axis' line is: a stop; only the day axis, typing and moving to another day change it
     let sel = null;   // the selected time (ms); null: the box holds no time
     let opened = null; // the time the dialog opened at, while the person has not chosen another
     let shown = null, asked = null, askedMs = 0, result = null, ctl = null, waitT = 0, typeT = 0;
@@ -425,13 +427,11 @@
       return lo;
     }
     const dayStart = (ms, plus = 0) => { const p = parts(ms, zone); return fromWall(Date.UTC(+p.year, +p.month - 1, +p.day + (plus || 0)), zone); };
-    // winFor: the window of the time axis for a time. The one rule (design 4.6): the calendar day of the time; when that
-    // day is today, the last 24 hours instead, so that the right end is now and never a 24:00 that has not come. To show
-    // the day from 00:00 to now instead, return { a: dayStart(ms), b: T.now, live: true } for that case.
-    function winFor(ms) {
-      const a = dayStart(ms), b = dayStart(ms, 1);
-      return b > T.now ? { a: T.now - D, b: T.now, live: true } : { a, b, live: false };
-    }
+    // winFor: the window of the time axis for a time: its calendar day, 00:00 to the next 00:00.
+    const winFor = (ms) => ({ a: dayStart(ms), b: dayStart(ms, 1) });
+    // dayOf: where the day axis' line stands when the selected time is v: on v if that is a stop, else on now for today,
+    // else on the 00:00 of v's day (the earliest point if that day starts before it)
+    const dayOf = (v) => (stops.includes(v) ? v : v >= dayStart(T.now) ? T.now : Math.max(dayStart(v), T.from));
 
     // ---- tick levels, aligned to the calendar of the zone: days of the month 1, 1+d, ..., months m, minutes within a day
     const DAY_LEVELS = [1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D })).concat([1, 3, 6, 12].map((m) => ({ m, ms: m * 30.44 * D })));
@@ -510,7 +510,7 @@
       ax.svg.innerHTML = `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${DAY_BASE + 0.5}H${w}"/>`
         + marksSvg(s.x, T.from, T.now, w, DAY_BASE + 3) + labelsSvg(labels, w);
     }
-    // the time axis: the window; hours, a tall tick with the date at each 00:00, "now" at the right end of a live window
+    // the time axis: the day; hours, a tall tick with the date at 00:00, "now" on today
     function renderTod() {
       const ax = A.tod, w = ax.w = ax.el.clientWidth;
       if (!T || !w) { ax.svg.innerHTML = ""; ax.x = ax.t = null; return; }
@@ -523,12 +523,14 @@
       mid.forEach((ms) => { tall += `M${px(Math.max(0, s.x(ms)))} 0V${TOD_BASE}`; });
       lt.forEach((ms) => { med += `M${px(s.x(ms))} 16V${TOD_BASE}`; });
       ticksOf(minor, win.a, win.b).forEach((ms) => { if (!ms0.has(ms) && !ls.has(ms)) short += `M${px(s.x(ms))} ${TOD_BASE - 5}V${TOD_BASE}`; });
-      if (T.from > win.a) na = `<pattern id="rs-na" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V6"/></pattern>`
-        + `<rect class="na" x="0" y="0" width="${Math.round(s.x(T.from))}" height="50"/>`; // before the earliest point: hatched
+      const x0 = clamp(Math.round(s.x(T.from)), 0, w), x1 = clamp(Math.round(s.x(T.now)), 0, w);
+      if (x0 > 0 || x1 < w) na = `<pattern id="rs-na" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V6"/></pattern>`
+        + (x0 > 0 ? `<rect class="na" x="0" y="0" width="${x0}" height="50"/>` : "")
+        + (x1 < w ? `<rect class="na" x="${x1}" y="0" width="${w - x1}" height="50"/>` : ""); // before the earliest point, after now: hatched
       const f = dateFmt("wd"), hf = (ms) => { const p = parts(ms, zone); return p.hour + ":" + p.minute; };
       const labels = mid.map((ms) => ({ x: Math.max(0, s.x(ms)) + 3, s: f.format(ms), cls: "d", pri: 1 }))
         .concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: hf(ms), pri: 2 })));
-      if (win.live) labels.push({ x: w - 7, s: rt("js.now"), cls: "now", end: true, pri: 0 });
+      if (x1 < w && x1 > 0) labels.push({ x: x1 - 3, s: rt("js.now"), cls: "now", end: true, pri: 0 });
       ax.svg.setAttribute("viewBox", `0 0 ${w} 50`);
       ax.svg.innerHTML = na + `<path class="tk" d="${tall}"/><path class="tk" d="${med}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${TOD_BASE + 0.5}H${w}"/>`
         + marksSvg(s.x, win.a, win.b, w, TOD_BASE + 3) + labelsSvg(labels, w);
@@ -537,11 +539,11 @@
     // the band on the day axis and the connector down to the time axis: the part of the day axis the time axis shows
     function placeWin() {
       if (!T || !win || !A.day.x || !A.tod.x) return;
-      const x0 = A.day.x(Math.max(win.a, T.from)), x1 = A.day.x(win.b), w = A.tod.w;
+      const hi = Math.min(win.b, T.now), x0 = A.day.x(Math.max(win.a, T.from)), x1 = A.day.x(hi), w = A.tod.w;
       band.style.transform = `translateX(${x0}px) scaleX(${Math.max(2, x1 - x0)})`;
       link.setAttribute("viewBox", `0 0 ${w} ${LINK_H}`);
       link.setAttribute("preserveAspectRatio", "none");
-      $("path", link).setAttribute("d", `M${x0 + 1} 0L${A.tod.x(Math.max(win.a, T.from)) + 1} ${LINK_H}H${w + 1}L${x1 + 1} 0Z`);
+      $("path", link).setAttribute("d", `M${x0 + 1} 0L${A.tod.x(Math.max(win.a, T.from)) + 1} ${LINK_H}H${A.tod.x(hi) + 1}L${x1 + 1} 0Z`);
     }
     function setWin(nw) {
       if (win && nw.a === win.a && nw.b === win.b) return;
@@ -554,7 +556,7 @@
       for (const ax of [A.day, A.tod]) ax.cur.hidden = ax.shade.hidden = hide;
       band.hidden = !T;
       if (!T || hide || !A.day.x || !A.tod.x) return;
-      const v = clamp(sel, T.from, T.now), xd = A.day.x(v), xt = A.tod.x(clamp(v, win.a, win.b));
+      const xd = A.day.x(dayMs), xt = A.tod.x(clamp(sel, win.a, win.b));
       A.day.cur.style.transform = A.day.shade.style.transform = `translateX(${xd}px)`;
       A.tod.cur.style.transform = A.tod.shade.style.transform = `translateX(${xt}px)`;
     }
@@ -573,7 +575,7 @@
       return rt("js.ago_m", { m: mi });
     }
     // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, both lines.
-    // The time axis follows to the day of ms when ms is outside its window, or always when follow is set. It sends nothing:
+    // The day axis' line and the time axis follow to the day of ms when ms is outside the window, or always when follow is set. It sends nothing:
     // commit asks for the preview.
     function setSel(ms, typed, follow) {
       sel = ms;
@@ -581,7 +583,7 @@
       rel.textContent = ms === null ? "" : relText(ms);
       if (T && ms !== null) {
         const v = clamp(ms, T.from, T.now);
-        if (follow || v < win.a || v > win.b) setWin(winFor(v));
+        if (follow || v < win.a || v >= win.b) { dayMs = dayOf(v); setWin(winFor(dayMs)); }
         const vt = fmtT(ms) + ", " + relText(ms);
         for (const ax of [A.day, A.tod]) { ax.el.setAttribute("aria-valuenow", Math.round(v / 1000)); ax.el.setAttribute("aria-valuetext", vt); }
       }
@@ -641,7 +643,7 @@
     }
     function todAt(x) { // the time under x, to the minute, inside the window and the restorable range
       const ms = Math.round(A.tod.t(clamp(x, 0, A.tod.w)) / MIN) * MIN;
-      return ms <= T.from ? T.from : ms >= T.now ? T.now : ms;
+      return ms <= T.from ? T.from : ms >= T.now ? T.now : ms; // never out of the day: the window is a day
     }
     // ---- input: pointer on either axis, keys on either axis, the step buttons, typing
     let drag = null, raf = 0, lastX = 0;
@@ -651,7 +653,7 @@
       ael.addEventListener("pointerdown", (e) => {
         if (!T || !A[kind].x || e.button > 0) return;
         const r = ael.getBoundingClientRect(); // read once: no layout reads while the line moves
-        drag = { kind, left: r.left + 1, start: sel, win, moved: false, touch: e.pointerType === "touch" };
+        drag = { kind, left: r.left + 1, start: sel, win, day: dayMs, moved: false, touch: e.pointerType === "touch" };
         ael.setPointerCapture(e.pointerId);
         ael.focus({ preventScroll: true });
         if (!drag.touch) move(e.clientX - drag.left); // a touch may still turn into a scroll: wait for a move
@@ -669,7 +671,7 @@
         drag = null;
         commit();
       });
-      ael.addEventListener("pointercancel", () => { if (drag) { setWin(drag.win); setSel(drag.start); drag = null; } }); // it was a scroll
+      ael.addEventListener("pointercancel", () => { if (drag) { dayMs = drag.day; setWin(drag.win); setSel(drag.start); drag = null; } }); // it was a scroll
     }
     function later(ms, follow) { setSel(ms, false, follow); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
     function stepChange(d) { // to the start of the previous or next state; the last one is now
@@ -690,7 +692,7 @@
       if (!T) return;
       const v = clamp(sel ?? T.now, T.from, T.now), p = parts(v, zone), hour = fromWall(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour), zone);
       const ch = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
-      const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: win.a, End: win.b }[e.key];
+      const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: win.a, End: win.b - MIN }[e.key];
       if (ch === undefined && to === undefined) return;
       e.preventDefault();
       if (ch) stepChange(ch); else later(clamp(to, T.from, T.now));
@@ -731,7 +733,8 @@
         if (asked !== null && asked !== "bad") asked = idx(askedMs);
         if (atOpen) sel = T.now; // still at the opening time: now is the server's
         stops = [T.from, ...ticksOf({ d: 1 }, T.from, T.now).filter((ms) => ms > T.from && ms < T.now), T.now];
-        win = winFor(clamp(sel ?? T.now, T.from, T.now));
+        dayMs = dayOf(clamp(sel ?? T.now, T.from, T.now));
+        win = winFor(dayMs);
         A.day.el.setAttribute("aria-valuemin", Math.round(T.from / 1000));
         A.day.el.setAttribute("aria-valuemax", Math.round(T.now / 1000));
         A.tod.el.setAttribute("aria-valuemin", Math.round(T.from / 1000));
@@ -754,7 +757,7 @@
       if (isDir !== null) $('[data-fill="scope"]', rd).textContent = rd.dataset.folderName + (path ? " / " + path + (isDir ? "/" : "") : "");
       const keep = isDir === null && input.value; // a form sent back with an error keeps its time
       abort();
-      T = win = null; stops = []; shown = asked = result = null;
+      T = win = dayMs = null; stops = []; shown = asked = result = null;
       axes.hidden = false;
       axes.classList.add("off");
       amsg.hidden = true;
