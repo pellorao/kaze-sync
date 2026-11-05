@@ -57,6 +57,13 @@ func (a *Agent) pollLoop(ctx context.Context) {
 				slog.Error("client too old, sync is stopped until kaze-syncc is upgraded", "err", err, "retry_in", wait)
 			} else if errors.Is(err, ErrUnauthorized) { // revoked: asking often only adds load (design 2.5)
 				wait = a.AuthRetry
+				a.mu.Lock()
+				a.revoked = true
+				for _, r := range a.runners {
+					r.f.suspend.Store(true)
+				}
+				a.mu.Unlock()
+				a.wake()
 				slog.Error("sync is stopped, the server does not accept this device", "err", err, "retry_in", wait)
 			} else {
 				slog.Warn("poll failed", "err", err, "retry_in", wait)
@@ -69,6 +76,12 @@ func (a *Agent) pollLoop(ctx context.Context) {
 			continue
 		}
 		backoff = time.Second
+		a.mu.Lock()
+		a.revoked = false
+		for _, r := range a.runners {
+			r.f.suspend.Store(false)
+		}
+		a.mu.Unlock()
 		if !a.handlePoll(req, resp) {
 			continue
 		}
