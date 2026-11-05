@@ -160,6 +160,7 @@ dialog.dlg::backdrop { background: rgb(15 17 21 / 0.62); }
 .dlg { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
 .dlg.wide { width: 760px; }
 dialog.dlg.wide { width: 760px; }
+dialog.dlg.restore { width: 900px; }
 .dlg-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .dlg-h h3 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
 .dlg-h .x { color: var(--muted); }
@@ -186,7 +187,10 @@ textarea.code { font-size: 13px; tab-size: 4; }
 .btn.step { width: 32px; height: 34px; padding: 0; justify-content: center; color: var(--muted); }
 .btn.step:hover { color: var(--fg); }
 .btn.step.prev svg { transform: scaleX(-1); }
-.axes { position: relative; }
+.axes { position: relative; display: grid; grid-template-columns: 2.6rem 1fr 2.9rem; row-gap: 6px; align-items: center; }
+.axrow { display: contents; }
+.axl { font-size: 12px; color: var(--muted); }
+.axe { font-size: 11px; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; align-self: start; padding: 4px 0 0 3px; } /* the end labels, just outside the axes */
 .axis { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
 .axis.day { height: 36px; }
 .axis.tod { height: 52px; }
@@ -203,17 +207,13 @@ textarea.code { font-size: 13px; tab-size: 4; }
 .axis .lb.now { fill: var(--fg); font-weight: 600; }
 .axis-clip { position: absolute; inset: 0; overflow: hidden; border-radius: 5px; pointer-events: none; }
 .axis-shade { position: absolute; top: 0; bottom: 0; left: 0; width: 100%; background: color-mix(in srgb, var(--accent) 13%, transparent); will-change: transform; }
-.axis-win { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; transform-origin: 0 0; background: color-mix(in srgb, var(--accent) 22%, transparent); will-change: transform; }
 .axis-cur { position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: var(--accent); pointer-events: none; will-change: transform; }
 .axis-cur::after { content: ""; position: absolute; left: -5px; bottom: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 .axis.day .axis-cur::after { left: -3px; width: 8px; height: 8px; }
-.axes > .link { display: block; width: 100%; height: 12px; }
-.axes > .link path { fill: color-mix(in srgb, var(--accent) 8%, transparent); stroke: color-mix(in srgb, var(--accent) 45%, transparent); stroke-width: 1; }
-.axes-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 12px; text-align: center; font-size: 12px; color: var(--muted); }
+.axes-msg { position: absolute; inset: 0; background: var(--raised); display: flex; align-items: center; justify-content: center; padding: 0 12px; text-align: center; font-size: 12px; color: var(--muted); }
 .axes-msg[hidden] { display: none; }
 .axes.off .axis { cursor: default; }
 .axes.off .axis-clip, .axes.off .axis-cur, .axes.off .axis > svg { display: none; }
-.axes.off > .link { visibility: hidden; }
 .scope { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
 .scope svg { color: var(--accent); }
 .preview { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -226,6 +226,11 @@ textarea.code { font-size: 13px; tab-size: 4; }
 .preview li { display: flex; gap: 12px; padding: 3px 12px; font-size: 12px; }
 .preview li .p { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview li .s { color: var(--muted); white-space: nowrap; }
+.preview li .s.changed { color: color-mix(in srgb, var(--muted) 70%, var(--warn)); }
+.preview li .s.deleted { color: color-mix(in srgb, var(--muted) 65%, var(--danger)); }
+input.pv-filter { flex: 1; min-width: 0; height: 28px; font: 13px var(--mono); padding: 2px 8px; }
+input.pv-filter[hidden] { display: none; }
+.hits > input.pv-filter { display: block; width: calc(100% - 24px); margin: 8px 12px 0; }
 .preview .first-n { padding: 6px 12px; font-size: 12px; color: var(--warn); display: flex; gap: 8px; align-items: flex-start; border-bottom: 1px solid var(--line); }
 .preview .first-n svg { margin-top: 2px; flex: none; }
 .preview .more-n { padding: 4px 12px 8px; font-size: 12px; color: var(--muted); }
@@ -352,6 +357,8 @@ td.act { width: 40px; }
 .rule-errs { display: grid; gap: 2px; }
 .rule-errs .err-msg.cur { text-decoration: underline; }
 @media (max-width: 480px) {
+  .axes { grid-template-columns: 2.2rem 1fr 2.4rem; }
+  .axl { font-size: 11px; }
   .when-h { flex-wrap: wrap; }
   .when-in { flex-basis: 100%; }
   .when-in input { flex: 1; width: auto; min-width: 0; }

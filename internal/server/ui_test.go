@@ -87,7 +87,7 @@ func TestFormErrorsRedisplayTheDialog(t *testing.T) {
 	}
 	// A time that cannot be read keeps the restore dialog open.
 	st, body = e.post(c, "/folders/"+itoa(f)+"/restore-dir", url.Values{"path": {""}, "time": {"yesterday"}})
-	if st != 400 || !strings.Contains(body, `<dialog id="dlg-restore" class="dlg" data-folder-name="F" data-keep-days="30" data-autoopen`) || !strings.Contains(body, `value="yesterday"`) {
+	if st != 400 || !strings.Contains(body, `<dialog id="dlg-restore" class="dlg restore" data-folder-name="F" data-keep-days="30" data-autoopen`) || !strings.Contains(body, `value="yesterday"`) {
 		t.Fatalf("restore: %d\n%s", st, body)
 	}
 	// The dialog is a time box with two axes, one for the day and one for the time of day (hidden until the script shows
@@ -345,7 +345,7 @@ func TestRestorePreviewMatchesTheRestore(t *testing.T) {
 				t.Fatalf("%d, %d files, want %d\n%s", st, count(page), tc.n, page)
 			}
 			if tc.path == "proj" { // the second column is short: b was deleted, a changed
-				if !strings.Contains(page, `<span class="s">已删除</span>`) || !strings.Contains(page, `<span class="s">已改变</span>`) || strings.Contains(page, "现在内容不同") || strings.Contains(page, "现在已删除") {
+				if !strings.Contains(page, `<span class="s deleted">已删除</span>`) || !strings.Contains(page, `<span class="s changed">已改变</span>`) || strings.Contains(page, "现在内容不同") || strings.Contains(page, "现在已删除") {
 					t.Errorf("the status column:\n%s", page)
 				}
 			}
@@ -379,7 +379,7 @@ func TestRestorePreviewIsLimited(t *testing.T) {
 	e.login(c, "pw")
 	f := e.folder("Docs")
 	var ops, del []proto.Op
-	for i := 0; i < previewLimit+7; i++ {
+	for i := 0; i < previewMax+7; i++ {
 		ops = append(ops, e.op(fmt.Sprintf("d/f%03d", i), 0, "x"))
 	}
 	for i, r := range e.commit(f, ops...) {
@@ -390,8 +390,13 @@ func TestRestorePreviewIsLimited(t *testing.T) {
 	e.clk.Add(time.Hour)
 	e.commit(f, del...)
 	_, page := e.get(c, "/folders/"+itoa(f)+"/restore-preview?"+url.Values{"path": {"d"}, "time": {at}}.Encode())
-	if n := strings.Count(page, `<li><span class="p">`); n != previewLimit || !strings.Contains(page, `data-count="27"`) || !strings.Contains(page, "还有 7 个") {
+	if n := strings.Count(page, `<li><span class="p">`); n != previewMax || !strings.Contains(page, `data-count="57"`) || !strings.Contains(page, "<b>57</b> 个, 目前仅显示 50 个") || strings.Contains(page, "过滤后") {
 		t.Fatalf("%d items listed:\n%s", n, page)
+	}
+	// A glob filter narrows the list only: the count stays the real total.
+	_, page = e.get(c, "/folders/"+itoa(f)+"/restore-preview?"+url.Values{"path": {"d"}, "time": {at}, "filter": {"F00?"}}.Encode())
+	if n := strings.Count(page, `<li><span class="p">`); n != 10 || !strings.Contains(page, `data-count="57"`) || !strings.Contains(page, "<b>57</b> 个, 过滤后 10 个") || strings.Contains(page, "目前仅显示") {
+		t.Fatalf("%d items listed with a filter:\n%s", n, page)
 	}
 }
 

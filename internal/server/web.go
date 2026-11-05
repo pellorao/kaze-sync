@@ -709,27 +709,38 @@ func hitsToken(text string, hits []ruleHit) string {
 }
 
 // hitsView is what the page shows of the hits: the number, the first few paths and the token to confirm them.
-// Changed says that the files differ from the ones the person previewed.
+// Changed says that the files differ from the ones the person previewed. Total counts every hit and Token covers
+// them all; Filter (a glob, see globFilter) only narrows the list: Match is how many pass it, Paths the first
+// previewMax of those.
 type hitsView struct {
-	Total   int
-	Paths   []string
-	More    int
-	Token   string
-	Changed bool
+	Total, Match int
+	Paths        []string
+	Filter       string
+	Filtered     bool
+	Token        string
+	Changed      bool
 }
 
-const hitsShown = 10
-
-func newHitsView(text string, hits []ruleHit, withFolder bool) *hitsView {
+func newHitsView(text string, hits []ruleHit, withFolder bool, filter string) *hitsView {
 	v := &hitsView{Total: len(hits), Token: hitsToken(text, hits)}
-	for _, h := range hits[:min(len(hits), hitsShown)] {
+	keep := globFilter(filter)
+	if keep != nil {
+		v.Filtered, v.Filter = true, strings.TrimSpace(filter)
+	}
+	for _, h := range hits {
+		if keep != nil && !keep(h.Path) {
+			continue
+		}
+		v.Match++
+		if len(v.Paths) >= previewMax {
+			continue
+		}
 		if withFolder {
 			v.Paths = append(v.Paths, h.Name+": "+h.Path)
 		} else {
 			v.Paths = append(v.Paths, h.Path)
 		}
 	}
-	v.More = len(hits) - len(v.Paths)
 	return v
 }
 
@@ -789,7 +800,7 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 			return err
 		}
 		if confirm := r.FormValue("confirm"); confirm != hitsToken(text, hits) && (confirm != "" || len(hits) > 0) {
-			v := newHitsView(text, hits, withFolder)
+			v := newHitsView(text, hits, withFolder, "")
 			v.Changed = confirm != ""
 			return &dialogState{status: http.StatusConflict, dialog: dialog, page: page, extra: map[string]any{"Hits": v}}
 		}
@@ -836,7 +847,7 @@ func (s *Server) rulesPreview(impact func(text string) ([]ruleHit, bool, error))
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Vary", "Accept-Language, Cookie")
-		return s.page(requestLang(r), "settings").ExecuteTemplate(w, "hits", newHitsView(text, hits, withFolder))
+		return s.page(requestLang(r), "settings").ExecuteTemplate(w, "hits", newHitsView(text, hits, withFolder, r.FormValue("filter")))
 	}
 }
 

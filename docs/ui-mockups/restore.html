@@ -592,7 +592,10 @@ svg.i { vertical-align: middle; }
   }
   const ctx = document.createElement("canvas").getContext("2d");
   const textW = (s, bold) => { ctx.font = (bold ? "600 " : "") + "11px " + getComputedStyle(document.body).getPropertyValue("--sans"); return ctx.measureText(s).width; };
-  const dayNum = (ms) => String(+parts(ms).day); // dates are only the day of the month: 30, 1, 2; no month, no language
+  // dates are numbers only, the same in every language: the day of the month (30, 1, 2) while the axis spans at most
+  // 30 days, MM-DD (12-01) beyond that; the finest level whose spacing holds a label is the one that gets dates
+  let long = false;
+  const dayNum = (ms) => { const p = parts(ms); return long ? p.month + "-" + p.day : String(+p.day); };
   const finest = (levels, k, px) => levels.find((lv) => lv.ms * k >= px) || levels[levels.length - 1];
   const px = (x) => Math.round(x) + 0.5;
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -633,7 +636,8 @@ svg.i { vertical-align: middle; }
     if (!T || !w) { ax.svg.innerHTML = ""; return; }
     const d0 = stops[0], s = lin(d0, T.now, w), k = w / (T.now - d0);
     ax.x = s.x; ax.t = s.t;
-    const label = finest(DAY_LEVELS, k, textW("00") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
+    long = T.now - T.from > 30 * D;
+    const label = finest(DAY_LEVELS, k, textW(long ? "00-00" : "00") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
     const lt = ticksOf(label, d0, T.now), ls = new Set(lt);
     let tall = "", short = "";
     lt.forEach((ms) => { tall += `M${px(s.x(ms))} 13V${DAY_BASE}`; });

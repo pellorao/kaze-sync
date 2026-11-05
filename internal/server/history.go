@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"path"
 	"strings"
 	"time"
 
@@ -306,27 +306,34 @@ func (s *Server) restoreDirAt(folder int64, p string, at time.Time) (restored, f
 	return restored, failed, err
 }
 
-// previewLimit is the number of paths the restore preview lists.
-const previewLimit = 20
-
 type previewItem struct {
 	Path string
 	Gone bool // deleted now; otherwise its content differs
 }
 
-// restorePreview runs the query of restoreDirAt without committing: the number of files it would restore and the
-// first previewLimit of them; note and none are as for restoreDiff.
-func (s *Server) restorePreview(ctx context.Context, folder int64, p string, at time.Time) (n int, items []previewItem, note restoreNote, none bool, err error) {
+// restorePreview runs the query of restoreDirAt without committing: the number of files it would restore (n), how
+// many of them pass the glob filter (match; the filter sees paths relative to p) and the first previewMax of those,
+// in path order; note and none are as for restoreDiff.
+func (s *Server) restorePreview(ctx context.Context, folder int64, p string, at time.Time, filter string) (n, match int, items []previewItem, note restoreNote, none bool, err error) {
 	db, err := s.folderDB(folder)
 	if err != nil {
-		return 0, nil, restoreNote{}, false, err
+		return 0, 0, nil, restoreNote{}, false, err
 	}
+	keep := globFilter(filter)
+	first := firstPaths[previewItem]{path: func(i previewItem) string { return i.Path }}
 	note, none, err = restoreDiff(ctx, db, p, at, s.now().Unix(), func(v, _ *fileRow, gone bool) error {
-		if n++; n <= previewLimit {
-			items = append(items, previewItem{v.path, gone})
+		n++
+		rel := v.path
+		if p != "" && strings.HasPrefix(rel, p+"/") {
+			rel = rel[len(p)+1:]
+		} else if p != "" {
+			rel = path.Base(rel)
+		}
+		if keep == nil || keep(rel) {
+			match++
+			first.add(previewItem{rel, gone})
 		}
 		return nil
 	})
-	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	return n, items, note, none, err
+	return n, match, first.items, note, none, err
 }

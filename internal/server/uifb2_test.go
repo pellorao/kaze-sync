@@ -181,12 +181,12 @@ func TestRestorePreviewStopsWhenTheRequestIsCancelled(t *testing.T) {
 	}
 	e.commit(f, e.op("a", 1, "a2"))
 	at := e.clk.Now().Add(-time.Hour)
-	if n, _, _, _, err := e.s.restorePreview(context.Background(), f, "", at); err != nil || n == 0 {
+	if n, _, _, _, _, err := e.s.restorePreview(context.Background(), f, "", at, ""); err != nil || n == 0 {
 		t.Fatalf("preview: %d %v", n, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, _, _, err := e.s.restorePreview(ctx, f, "", at); !errors.Is(err, context.Canceled) {
+	if _, _, _, _, _, err := e.s.restorePreview(ctx, f, "", at, ""); !errors.Is(err, context.Canceled) {
 		t.Errorf("a cancelled preview: %v", err)
 	}
 }

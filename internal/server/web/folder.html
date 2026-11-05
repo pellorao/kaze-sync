@@ -30,13 +30,13 @@
 </section>
 {{end}}
 
-{{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}{{tm "pv.count" "n" .N}}{{else if .None}}{{t "pv.none"}}{{else}}{{t "pv.same"}}{{end}}</span></div>
+{{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}{{else if .None}}{{t "pv.none"}}{{else}}{{t "pv.same"}}{{end}}</span></div>
 {{if .First}}<div class="first-n">{{icon "info"}}<span>{{if .Import}}{{tm "pv.firstImport" "time" (time .First)}}{{else}}{{tm "pv.firstRecord" "time" (time .First)}}{{end}}</span></div>{{end}}
-{{if .Items}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s">{{if .Gone}}{{t "fo.deleted"}}{{else}}{{t "pv.changed"}}{{end}}</span></li>{{end}}</ul>{{end}}
-{{if gt .More 0}}<div class="more-n">{{t "pv.more" "n" .More}}</div>{{end}}{{end}}
+{{if .N}}<ul>{{range .Items}}<li><span class="p">{{.Path}}</span><span class="s {{if .Gone}}deleted{{else}}changed{{end}}">{{if .Gone}}{{t "fo.deleted"}}{{else}}{{t "pv.changed"}}{{end}}</span></li>{{end}}</ul>
+<div class="more-n">{{tm "pv.count" "n" .N}}{{if .Filtered}}, {{t "pv.filtered" "m" .Match}}{{end}}{{if gt .Match (len .Items)}}, {{t "pv.shown" "k" (len .Items)}}{{end}}</div>{{end}}{{end}}
 
 {{define "dialogs"}}
-<dialog id="dlg-restore" class="dlg" data-folder-name="{{.Folder.Name}}" data-keep-days="{{.KeepDays}}"{{if eq .Open "dlg-restore"}} data-autoopen{{end}} aria-labelledby="rs-t"><form method="post" action="/folders/{{.Folder.ID}}/restore-dir">
+<dialog id="dlg-restore" class="dlg restore" data-folder-name="{{.Folder.Name}}" data-keep-days="{{.KeepDays}}"{{if eq .Open "dlg-restore"}} data-autoopen{{end}} aria-labelledby="rs-t"><form method="post" action="/folders/{{.Folder.ID}}/restore-dir">
 <input type="hidden" name="path" value="{{.Scope}}"><input type="hidden" name="dir" value="{{.Dir}}">
 <div class="dlg-h"><h3 id="rs-t">{{t "rs.title"}}</h3></div>
 <div class="dlg-b">
@@ -44,9 +44,8 @@
 <div class="when"><div class="when-h"><label for="rs-time">{{t "rs.time"}}</label><span class="rel" data-rel></span>
 <span class="when-in"><button type="button" class="btn step prev" data-step="-1" aria-label="{{t "rs.prev"}}" hidden>{{icon "open"}}</button><input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required><button type="button" class="btn step" data-step="1" aria-label="{{t "rs.next"}}" hidden>{{icon "open"}}</button></span></div>
 <div class="axes off" data-axes hidden>
-<div class="axis day" data-axis="day" role="slider" tabindex="-1" aria-label="{{t "rs.axisDay"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-win"></div><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div>
-<svg class="link" aria-hidden="true"><path/></svg>
-<div class="axis tod" data-axis="tod" role="slider" tabindex="-1" aria-label="{{t "rs.axisTod"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div>
+<div class="axrow"><span class="axl">{{t "rs.rowDay"}}</span><div class="axis day" data-axis="day" role="slider" tabindex="-1" aria-label="{{t "rs.axisDay"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div><span class="axe">{{t "js.now"}}</span></div>
+<div class="axrow"><span class="axl">{{t "rs.time"}}</span><div class="axis tod" data-axis="tod" role="slider" tabindex="-1" aria-label="{{t "rs.axisTod"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div><span class="axe">24:00</span></div>
 <div class="axes-msg" hidden></div>
 </div>
 {{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}</div>

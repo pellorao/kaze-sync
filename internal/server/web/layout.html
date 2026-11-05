@@ -57,8 +57,9 @@
 
 {{define "hits"}}{{with .}}<div class="preview hits">{{if .Changed}}<div class="preview-h warn" data-changed>{{icon "warn"}}<span>{{t "hits.changed"}}</span></div>{{end}}
 {{if .Total}}<div class="preview-h danger" data-hits="{{.Total}}">{{icon "warn"}}<span>{{tm "hits.warn" "n" .Total}}</span></div>
+<input type="text" class="pv-filter mono" data-hits-filter value="{{.Filter}}" placeholder="{{t "js.filter"}}" aria-label="{{t "js.filter"}}" autocomplete="off" spellcheck="false" hidden>
 <ul>{{range .Paths}}<li><span class="p">{{.}}</span></li>{{end}}</ul>
-{{if gt .More 0}}<div class="more-n">{{t "hits.more" "n" .More}}</div>{{end}}
+<div class="more-n">{{tm "hits.count" "n" .Total}}{{if .Filtered}}, {{t "pv.filtered" "m" .Match}}{{end}}{{if gt .Match (len .Paths)}}, {{t "pv.shown" "k" (len .Paths)}}{{end}}</div>
 {{else}}<div class="preview-h" data-hits="0">{{icon "info"}}<span>{{t "hits.zero"}}</span></div>{{end}}
 <input type="hidden" name="confirm" value="{{.Token}}"></div>{{end}}{{end}}
 {{define "rulesgo"}}{{if and . .Total}}<button class="btn danger" data-rulesgo>{{t "js.saveDelete" "n" .Total}}</button>{{else}}<button class="btn primary" data-rulesgo>{{t "common.save"}}</button>{{end}}{{end}}

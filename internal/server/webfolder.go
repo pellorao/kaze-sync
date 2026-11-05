@@ -359,23 +359,17 @@ func (s *Server) restorePreviewPage(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return bad(http.StatusBadRequest, "", "err.timeInvalid")
 	}
-	n, items, note, none, err := s.restorePreview(r.Context(), f.ID, p, at)
+	n, match, items, note, none, err := s.restorePreview(r.Context(), f.ID, p, at, r.FormValue("filter"))
 	if errors.Is(err, context.Canceled) {
 		return nil // the browser dropped the request: the line moved on
 	}
 	if err != nil {
 		return err
 	}
-	for i := range items {
-		if p != "" && strings.HasPrefix(items[i].Path, p+"/") {
-			items[i].Path = items[i].Path[len(p)+1:]
-		} else if p != "" {
-			items[i].Path = path.Base(items[i].Path)
-		}
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Vary", "Accept-Language, Cookie")
-	return s.page(requestLang(r), "folder").ExecuteTemplate(w, "preview", map[string]any{"N": n, "Items": items, "More": n - len(items), "First": note.At, "Import": note.Import, "None": none})
+	return s.page(requestLang(r), "folder").ExecuteTemplate(w, "preview", map[string]any{"N": n, "Match": match, "Items": items, "Filtered": globFilter(r.FormValue("filter")) != nil,
+		"First": note.At, "Import": note.Import, "None": none})
 }
 
 // restoreTicksPage answers the restore dialog's time axis: its marks and ends (restoreTicks), as JSON.
