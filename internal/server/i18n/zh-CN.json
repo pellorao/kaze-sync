@@ -269,7 +269,7 @@
  "dlg.lock.help": "只有这台设备的改动会上传. 其他设备照常接收, 本地设为只读; 它们的改动被服务端拒绝, 移到 <code>.syncsaved</code>.",
  "dlg.lock.none": "没有映射这个文件夹的设备",
  "fold.locked": "{n} 个对 {path} 的改动被拒绝 ({owner} 独占), 已移到 .syncsaved",
- "advice.locked": "这些改动没有上传, 保存在该设备的 <code>.syncsaved</code> 中; 不需要就删除它们; 需要时在 {owner} 上做同样的修改, 或先解除独占再拷回",
+ "advice.locked": "这些改动没有上传, 保存在该设备的 .syncsaved 中; 不需要就删除它们; 需要时在 {owner} 上做同样的修改, 或先解除独占再拷回",
  "reason.locked": "此路径由 {owner} 独占",
  "dev.locks": "独占 {n} 处",
  "js.menu.lock": "设为独占…",

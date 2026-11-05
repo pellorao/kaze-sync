@@ -293,7 +293,7 @@
  "dlg.lock.none": "No device maps this folder",
  "fold.locked": "{n} changes to {path} refused (exclusive to {owner}), moved to .syncsaved",
  "fold.locked.1": "{n} change to {path} refused (exclusive to {owner}), moved to .syncsaved",
- "advice.locked": "These changes were not uploaded and are kept in <code>.syncsaved</code> on that device. Delete them if not needed; otherwise make the same change on {owner}, or remove the exclusive and copy them back",
+ "advice.locked": "These changes were not uploaded and are kept in .syncsaved on that device. Delete them if not needed; otherwise make the same change on {owner}, or remove the exclusive and copy them back",
  "reason.locked": "Exclusive to {owner}",
  "dev.locks": "Exclusive on {n} paths",
  "dev.locks.1": "Exclusive on {n} path",

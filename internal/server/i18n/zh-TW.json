@@ -269,7 +269,7 @@
  "dlg.lock.help": "只有這台裝置的變更會上傳. 其他裝置照常接收, 本機設為唯讀; 它們的變更被伺服器端拒絕, 移到 <code>.syncsaved</code>.",
  "dlg.lock.none": "沒有對應這個資料夾的裝置",
  "fold.locked": "{n} 個對 {path} 的變更被拒絕 ({owner} 獨佔), 已移到 .syncsaved",
- "advice.locked": "這些變更沒有上傳, 保存在該裝置的 <code>.syncsaved</code> 中; 不需要就刪除它們; 需要時在 {owner} 上做同樣的修改, 或先解除獨佔再複製回去",
+ "advice.locked": "這些變更沒有上傳, 保存在該裝置的 .syncsaved 中; 不需要就刪除它們; 需要時在 {owner} 上做同樣的修改, 或先解除獨佔再複製回去",
  "reason.locked": "此路徑由 {owner} 獨佔",
  "dev.locks": "獨佔 {n} 處",
  "js.menu.lock": "設為獨佔…",
