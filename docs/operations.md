@@ -127,3 +127,14 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 - Linux: `systemctl --user disable --now kaze-sync`, 删除 `~/.config/systemd/user/kaze-sync.service`, 删除状态目录 `~/.local/state/kaze-sync` (含日志); 同步目录里的文件保留.
 - Windows: 删除注册表项 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 中的 `kaze-sync`, 结束 `kaze-syncc-agent.exe`, 删除 `%LOCALAPPDATA%\kaze-sync`; 同步目录里的文件保留.
 - 然后在 Web UI 的设备页吊销该设备.
+
+## 独占目录: 手动解除只读
+
+子文件夹被另一台设备独占时 (设计 2.8), 本机该目录下的文件设为只读 (Linux 去掉文件和目录的写权限, Windows 设文件的只读属性). 在 Web UI 解除独占后, 客户端在下一次全量扫描 (最迟 1 小时) 自动恢复可写. 客户端被卸载, 或来不及收到解除时, 手动恢复:
+
+```
+chmod -R u+w <目录>                      # Linux
+attrib -r <目录>\* /s /d                 # Windows
+```
+
+被拒绝的本地改动保存在同步根下的 `.syncsaved/<时间>/<原路径>`, 不再需要时直接删除 (Web UI 上对应的错误通知随之消失); `.syncsaved` 不同步, 也不会自动清理.

@@ -132,15 +132,17 @@ func (t simTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 type simFolder struct {
-	id     int64
-	mem    *cfs.Mem
-	dbPath string
-	f      *Folder
-	synced bool // a clean Scan has run since the last crash or restart
+	applied string // the read-only ranges the engine was built with (exclusive writes, sim_excl_test.go)
+	id      int64
+	mem     *cfs.Mem
+	dbPath  string
+	f       *Folder
+	synced  bool // a clean Scan has run since the last crash or restart
 }
 
 type simClient struct {
 	name    string
+	devID   int64
 	api     *API
 	folders []*simFolder
 }
@@ -155,6 +157,10 @@ type sim struct {
 	keep    map[string]bool // content hashes a clean Scan saw on disk
 	where   map[string]string
 	crashes int
+
+	excl  bool      // exclusive writes are part of the run
+	locks []simLock // every exclusive set so far (sim_excl_test.go)
+	force bool      // clients take the newest configuration before each sync
 }
 
 const (
@@ -175,7 +181,7 @@ func newSim(t *testing.T, seed int64) *sim {
 	for ci := 0; ci < simClients; ci++ {
 		dev, api := e.newDevice()
 		api.HC = &http.Client{Transport: simTransport{h: e.srv.Handler(), c: s.crash}}
-		c := &simClient{name: dev.Name, api: api}
+		c := &simClient{name: dev.Name, devID: dev.DeviceID, api: api}
 		for k := 0; k < 2; k++ { // client ci holds folders ci and ci+1 (mod 3)
 			fid := fids[(ci+k)%simFolders]
 			e.mapFolder(dev, fid, "/sim/"+strconv.Itoa(ci)+"/"+strconv.Itoa(k), true)
@@ -199,7 +205,9 @@ func (s *sim) open(c *simClient, sf *simFolder) {
 		s.t.Fatal(err)
 	}
 	s.t.Cleanup(func() { db.Close() })
-	f := NewFolder(proto.FolderConfig{ID: sf.id, Adopt: true}, crashFS{sf.mem, s.crash}, db, c.api, false)
+	ro := s.readonly(c, sf)
+	sf.applied = strings.Join(ro, "\n")
+	f := NewFolder(proto.FolderConfig{ID: sf.id, Adopt: true, Readonly: ro}, crashFS{sf.mem, s.crash}, db, c.api, false)
 	f.Stable, f.DeviceName = 0, c.name
 	f.Now = func() time.Time { return s.now }
 	sf.f, sf.synced = f, false
@@ -219,6 +227,9 @@ func (s *sim) sync(c *simClient, sf *simFolder) (rep Report, crashed bool) {
 	}()
 	ctx := context.Background()
 	var err error
+	if s.excl && sf.applied != strings.Join(s.readonly(c, sf), "\n") && (s.force || s.rng.Intn(100) < 70) {
+		s.open(c, sf) // the configuration with the new exclusives arrived: the engine restarts with it
+	}
 	if rep, err = sf.f.Scan(ctx); err != nil {
 		s.t.Fatalf("scan: %v", err)
 	}
@@ -316,6 +327,9 @@ func (s *sim) op(sf *simFolder) {
 		sort.Strings(out)
 		return out
 	}
+	if s.excl && len(sf.f.Readonly) > 0 && rng.Intn(4) == 0 {
+		sf.f.Unprotect() // the person lifts the read-only flags by hand
+	}
 	switch k := rng.Intn(100); {
 	case k < 45:
 		put(simPaths[rng.Intn(len(simPaths))], s.content())
@@ -372,6 +386,10 @@ func (s *sim) run(n int, randomCrash bool) {
 	for i := 0; i < n; i++ {
 		s.now = s.now.Add(time.Second)
 		c, sf := s.pick()
+		if s.excl && s.rng.Intn(100) < 4 {
+			s.lockStep()
+			continue
+		}
 		if s.rng.Intn(100) < 60 {
 			s.op(sf)
 			continue
@@ -394,6 +412,7 @@ func (s *sim) run(n int, randomCrash bool) {
 func (s *sim) settle() {
 	t := s.t
 	s.crash.at = 0
+	s.force = true
 	ok := false
 	var diff string
 	for round := 0; round < 40 && !ok; round++ {
@@ -442,8 +461,12 @@ func (s *sim) settle() {
 			for _, h := range treeOf(sf.mem) {
 				held[h] = true
 			}
+			for _, h := range savedTree(sf.mem) { // refused changes wait in .syncsaved
+				held[h] = true
+			}
 		}
 	}
+	s.checkWriters()
 	lost := 0
 	for h := range s.keep {
 		if !held[h] {

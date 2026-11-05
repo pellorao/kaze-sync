@@ -180,6 +180,17 @@ Times are shown as `2026-11-03 22:48:27` in the browser's time zone by default; 
 
 Several folders per device work independently of each other: a long upload in one does not delay another.
 
+### 5.1 Exclusive subfolders
+
+Some directories must be written from one machine only. A Git repository is the usual case: if two devices both commit into the same `.git`, their changes collide. Make the directory exclusive to one device and every other device only receives it.
+
+- Open the folder in the Web UI, open the menu of the directory (the row's menu, or the menu at the top for the directory you are in) and choose "Make exclusive...". Pick the device that may write. The same menu offers "Move exclusive to another device..." and "Release exclusive...". Only a device that maps the folder can hold an exclusive, and exclusive ranges cannot overlap. An exclusive is a setting of the folder, not of a device; you, the administrator, can release it at any time.
+- On the other devices the files in that directory become read-only (on Linux the directories too, on Windows only the files carry the read-only attribute), so ordinary programs cannot change them; the sync service still updates them. Windows cannot stop you creating new files inside the directory.
+- If a change is made there anyway (you cleared the read-only flag, or the device had not yet heard of the exclusive), the server refuses it. The device moves the changed or new files to `.syncsaved/<time>/<original path>` in the sync root, puts the server's version back and the Web UI shows an error notice such as "3 changes to repo refused (exclusive to A), moved to .syncsaved". Nothing is uploaded and nothing is lost. Delete the contents of `.syncsaved` when you do not need them; the notice goes away by itself. `.syncsaved` is never synced.
+- Restoring old content in the Web UI still works inside an exclusive directory and is synced to every device, including the exclusive one.
+- Releasing or moving an exclusive, revoking the device, or deleting its mapping of the folder makes the files writable again on the other devices at their next full scan (within an hour). If a client is uninstalled first, make the files writable by hand: `chmod -R u+w <directory>` on Linux, `attrib -r <directory>\* /s /d` on Windows.
+- Devices running an older client version do not make files read-only; the server still refuses their changes and shows the refusal on the Web UI until they are upgraded.
+
 ## 6. Devices
 
 **Add**: section 3. **Online** means the device has an open long-poll request, or had one end in the last 90 seconds. A device that has not connected for 7 days raises a warning (section 9).
