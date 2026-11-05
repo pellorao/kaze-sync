@@ -28,6 +28,7 @@ const (
 // The cursor stays behind the first entry that could not be applied.
 func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	var rep Report
+	f.savedTS = ""
 	f.pullErrs, f.sink, f.pendingDown, f.linkProbe = nil, &f.pullErrs, 0, 0
 	defer func() { f.sink = &f.errs }()
 	if !f.ready {
@@ -272,6 +273,19 @@ func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 		}
 		exists = false
 	}
+	if f.guard.In(e.Path) { // a read-only range: the server's version wins, the local change is kept in .syncsaved (design 4)
+		switch {
+		case exists && (!have || !consistent(row, st)):
+			if err := f.saveAway(e.Path); err != nil {
+				f.note(e.Path, proto.KindIO, err.Error())
+				return hold, nil, nil
+			}
+			exists, st = false, cfs.Entry{}
+		}
+		if !exists {
+			have = false // nothing local to compare with or take blocks from
+		}
+	}
 	switch {
 	case have && !exists, !have && exists:
 		return done, nil, nil // a local change: Scan commits it and resolves the conflict
@@ -332,6 +346,13 @@ func (f *Folder) applyDeleted(e proto.Entry) (applied, error) {
 	case err != nil:
 		f.note(e.Path, proto.KindIO, err.Error())
 		return hold, nil
+	case !consistent(row, st) && f.guard.In(e.Path): // the server wins in a read-only range
+		if err := f.saveAway(e.Path); err != nil {
+			f.note(e.Path, proto.KindIO, err.Error())
+			return hold, nil
+		}
+		f.changed = true
+		return done, f.DB.apply(nil, []string{e.Path})
 	case !consistent(row, st):
 		return done, nil // modified locally: the modification wins (Scan)
 	case !st.IsLink && f.inUse(e.Path):

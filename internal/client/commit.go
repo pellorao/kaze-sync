@@ -187,6 +187,7 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 		need := map[proto.Hash]bool{}
 		var puts []localRow
 		var dels []string
+		var locked []*item
 		for i, r := range res {
 			it := items[i]
 			switch r.Status {
@@ -223,6 +224,10 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 					next = append(next, it)
 				}
 			default:
+				if r.Reason == proto.ReasonLocked { // the configuration was behind: handled like a change in a read-only range
+					locked = append(locked, it)
+					continue
+				}
 				if r.Reason == proto.ReasonNoStage { // expired or lost: send the list again
 					it.stage = ""
 					next = append(next, it)
@@ -241,6 +246,9 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 			}
 		}
 		if err := f.DB.apply(puts, dels); err != nil {
+			return err
+		}
+		if err := f.rescue(ctx, locked); err != nil {
 			return err
 		}
 		if len(need) > 0 {

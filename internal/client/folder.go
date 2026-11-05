@@ -79,6 +79,8 @@ type Folder struct {
 	guard          *cfs.Guard           // FS with the read-only ranges (design 2.8)
 	repair         bool                 // the running scan is a whole one: it also makes the read-only ranges read-only
 	suspend        atomic.Bool          // the server does not accept this device: no protection until it does
+	savedTS        string               // the time directory in .syncsaved of the running scan or pull
+	savedN         map[string]int       // files in .syncsaved per read-only range
 	linkProbe      int                  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
@@ -109,7 +111,7 @@ func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFo
 		}
 	}
 	g := cfs.NewGuard(fsys, fc.Readonly)
-	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: g, guard: g, Readonly: fc.Readonly, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}}
+	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: g, guard: g, Readonly: fc.Readonly, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}, savedN: map[string]int{}}
 }
 
 // Reset forgets the server seqs this folder knows: the next Pull reads everything again (design 5.5).
@@ -159,6 +161,7 @@ func (f *Folder) note(p, kind, msg string) {
 func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	var rep Report
 	old := f.errs
+	f.savedTS = ""
 	f.errs, f.sink, f.retry, f.pendingUp, f.scope, f.young = nil, &f.errs, false, 0, nil, time.Time{}
 	pd, rootOnly := pruneDirs(slices.Clone(dirs))
 	whole := len(pd) == 0 && !rootOnly
@@ -172,6 +175,9 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 			f.syncRanges()
 		}
 		err = f.scan(ctx, dirs, &rep)
+		if f.repair {
+			f.countSaved()
+		}
 		f.repair = false
 		if f.scope != nil { // a partial scan: errors outside what it covered still stand (design 3.6)
 			var kept []proto.FileError
@@ -194,7 +200,7 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 
 // finish completes a report from the folder's current errors and counters.
 func (f *Folder) finish(rep *Report) {
-	all := append(append([]proto.FileError{}, f.errs...), f.pullErrs...)
+	all := append(append(append([]proto.FileError{}, f.errs...), f.pullErrs...), f.lockedErrors()...)
 	if rows, err := f.DB.unlinked(); err == nil { // links this machine could not create: a state, not an event
 		for _, r := range rows {
 			all = append(all, proto.FileError{Path: r.Path, Kind: proto.KindSkipped, Message: r.Message})
@@ -299,7 +305,7 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 	}
 	for _, e := range entries {
 		p := path.Join(dir, e.Name)
-		if builtinExcluded(e.Name, names) || f.Matcher.Excluded(p, e.IsDir) {
+		if builtinExcluded(e.Name, names) || dir == "" && e.Name == savedName || f.Matcher.Excluded(p, e.IsDir) {
 			if isPart(e) && f.Now().UnixNano()-e.MtimeNs > int64(staleDownloadPart) {
 				f.FS.Remove(p) // a download part nobody resumed for a day is leftover
 			}
@@ -604,6 +610,27 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		slog.Warn("cannot store the scan's state rows", "folder", f.ID, "err", err)
 		f.note("", proto.KindFolder, "cannot write the state database: "+err.Error())
 	}
+	if len(f.Readonly) > 0 { // the server's version wins in a read-only range
+		var mine, rest []*item
+		for _, it := range items {
+			if f.guard.In(it.path) {
+				mine = append(mine, it)
+			} else {
+				rest = append(rest, it)
+			}
+		}
+		if len(mine) > 0 {
+			if err := f.rescue(ctx, mine); err != nil {
+				return err
+			}
+			for _, it := range mine {
+				if !it.done {
+					f.pendingUp++
+				}
+			}
+			items = rest
+		}
+	}
 	err = f.commitAll(ctx, items, rep)
 	for _, it := range items {
 		if !it.done {
@@ -679,6 +706,9 @@ func pruneDirs(dirs []string) (out []string, rootOnly bool) {
 }
 
 func builtinPath(p string) bool {
+	if p == savedName || strings.HasPrefix(p, savedName+"/") {
+		return true
+	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == markerName || strings.HasPrefix(seg, ".syncpart-") {
 			return true
