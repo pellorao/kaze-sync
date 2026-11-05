@@ -189,3 +189,43 @@ func TestReadonlyRepairsAfterCrashes(t *testing.T) {
 		}
 	}
 }
+
+func TestReadonlyUserDirOutsideRangesStaysAsItIs(t *testing.T) {
+	g1, g2, _, _ := roPair(t, false, "code")
+	g1.put("free/a.txt", []byte("one"))
+	g1.put("code/c.txt", []byte("c"))
+	g1.sync()
+	g2.sync()
+	g2.fs.SetWritable("free", false) // the person's own choice
+	g1.fs.Remove("free/a.txt")
+	g1.put("free/b.txt", []byte("two"))
+	g1.sync()
+	g2.sync()
+	if _, ok := g2.read("free/a.txt"); ok {
+		t.Error("the deletion did not arrive")
+	}
+	if got, _ := g2.read("free/b.txt"); got != "two" {
+		t.Errorf("b.txt = %q", got)
+	}
+	if st, _ := g2.fs.Stat("free"); !st.ReadOnly {
+		t.Error("the directory was made writable")
+	}
+}
+
+// A protected directory the person moved out of its range is not a dead end for the sync.
+func TestReadonlyDirMovedOutOfItsRange(t *testing.T) {
+	g1, g2, _, _ := roPair(t, false, "code")
+	g1.put("code/d/x.txt", []byte("x"))
+	g1.sync()
+	g2.sync()
+	g2.fs.Rename("code/d", "moved")
+	g2.scan() // the moved files are new outside the range; the old paths are deletions in it
+	g2.sync()
+	g1.sync()
+	g1.fs.Remove("moved/x.txt")
+	g1.sync()
+	g2.sync()
+	if _, ok := g2.read("moved/x.txt"); ok {
+		t.Error("moved/x.txt was not deleted")
+	}
+}

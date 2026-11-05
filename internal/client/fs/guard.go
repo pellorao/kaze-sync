@@ -1,7 +1,9 @@
 package fs
 
 import (
+	"errors"
 	"io"
+	"io/fs"
 	"path"
 	"strings"
 	"sync"
@@ -72,15 +74,19 @@ func parent(p string) string {
 
 // unlock makes the entries writable (those in a range that exist and are read-only) and returns the function that
 // puts them back.
-func (g *Guard) unlock(paths ...string) func() {
+func (g *Guard) unlock(paths ...string) func() { return g.unlockIf(false, paths...) }
+
+// unlockIf is unlock; with anywhere it also takes entries outside the ranges (a retry after "permission denied":
+// a directory the user made read-only, or a protected one moved out of its range) and puts them back as they were.
+func (g *Guard) unlockIf(anywhere bool, paths ...string) func() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.keys) == 0 {
+	if len(g.keys) == 0 && !anywhere {
 		return func() {}
 	}
 	var taken []string
 	for _, p := range paths {
-		if !g.in(p) {
+		if !anywhere && !g.in(p) {
 			continue
 		}
 		if h := g.held[p]; h != nil {
@@ -128,24 +134,44 @@ func (g *Guard) protect(p string) {
 	}
 }
 
+// denied reports a permission failure that the guard may still get around.
+func denied(err error) bool { return errors.Is(err, fs.ErrPermission) }
+
 func (g *Guard) OpenAppend(p string) (io.WriteCloser, int64, error) {
-	defer g.unlock(p, parent(p))()
-	return g.FS.OpenAppend(p)
+	done := g.unlock(p, parent(p))
+	w, n, err := g.FS.OpenAppend(p)
+	done()
+	if denied(err) {
+		defer g.unlockIf(true, p, parent(p))()
+		return g.FS.OpenAppend(p)
+	}
+	return w, n, err
 }
 
 func (g *Guard) Rename(oldp, newp string) error {
-	done := g.unlock(oldp, newp, parent(oldp), parent(newp))
+	paths := []string{oldp, newp, parent(oldp), parent(newp)}
+	done := g.unlock(paths...)
 	err := g.FS.Rename(oldp, newp)
 	if err == nil {
 		g.protect(newp) // a downloaded file arrives writable
 	}
 	done()
+	if denied(err) {
+		defer g.unlockIf(true, paths...)()
+		return g.FS.Rename(oldp, newp)
+	}
 	return err
 }
 
 func (g *Guard) Remove(p string) error {
-	defer g.unlock(p, parent(p))()
-	return g.FS.Remove(p)
+	done := g.unlock(p, parent(p))
+	err := g.FS.Remove(p)
+	done()
+	if denied(err) {
+		defer g.unlockIf(true, p, parent(p))()
+		return g.FS.Remove(p)
+	}
+	return err
 }
 
 func (g *Guard) Symlink(target, p string) error {

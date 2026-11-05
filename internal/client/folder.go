@@ -322,9 +322,6 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 		case e.IsSymlink:
 			f.note(p, proto.KindSkipped, "not a regular file, directory or symbolic link (a Windows junction?): not synced")
 		case e.IsDir:
-			if f.repair && e.ReadOnly && !f.guard.In(p) {
-				f.FS.SetWritable(p, true) // a protected directory moved out of its range by hand would block the sync for good
-			}
 			if skip == nil || !skip(p) {
 				f.walk(p, files, failed, skip)
 			}

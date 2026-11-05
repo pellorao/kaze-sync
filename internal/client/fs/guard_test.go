@@ -75,3 +75,23 @@ func TestGuardNoRangesPassesThrough(t *testing.T) {
 		t.Fatal("pass-through broken")
 	}
 }
+
+// A directory the user made read-only outside every range does not stop the engine, and stays read-only.
+func TestGuardGetsAroundForeignReadonlyDirs(t *testing.T) {
+	m, g := guardSetup(t, false)
+	m.SetWritable("free", false)
+	if err := g.Remove("free/c"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	w, _, err := g.OpenAppend("free/n")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	w.Close()
+	if err := g.Rename("free/n", "free/m"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if !ro(m, "free") {
+		t.Error("the user's read-only directory was left writable")
+	}
+}
