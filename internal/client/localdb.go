@@ -3,6 +3,7 @@ package client
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 
 	_ "modernc.org/sqlite"
@@ -37,6 +38,14 @@ const unlinkedSchema = `
 CREATE TABLE IF NOT EXISTS unlinked(path TEXT PRIMARY KEY, seq INTEGER NOT NULL, hash BLOB NOT NULL, size INTEGER NOT NULL,
   mtime_ns INTEGER NOT NULL, message TEXT NOT NULL) WITHOUT ROWID;`
 
+// localSchemaVersion is the version of the local database this build writes; each change of the tables raises it.
+// 2: the link column. A build that finds a higher version in a database stops with errNewerDB instead of failing
+// on every scan.
+const localSchemaVersion = 2
+
+// errNewerDB: the local database was written by a newer kaze-syncc.
+var errNewerDB = errors.New("the state database was made by a newer kaze-syncc; upgrade this client, or restore the database backup together with the older binary")
+
 func openLocal(path string) (*localDB, error) {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
@@ -50,11 +59,20 @@ func openLocal(path string) (*localDB, error) {
 		db.Close()
 		return nil, err
 	}
+	l := &localDB{db}
+	if v := l.metaInt("schema_version"); v > localSchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("%w (database version %d, this build %d)", errNewerDB, v, localSchemaVersion)
+	}
 	if err := addLinkColumn(db); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &localDB{db}, nil
+	if err := l.setMeta("schema_version", localSchemaVersion); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return l, nil
 }
 
 func (l *localDB) Close() error { return l.db.Close() }
@@ -215,7 +233,7 @@ type unlinkedRow struct {
 }
 
 func (l *localDB) putUnlinked(r unlinkedRow) error {
-	_, err := l.db.Exec(`INSERT OR REPLACE INTO unlinked VALUES(?,?,?,?,?,?)`, r.Path, r.Seq, r.Hash, r.Size, r.MtimeNs, r.Message)
+	_, err := l.db.Exec(`INSERT OR REPLACE INTO unlinked(path, seq, hash, size, mtime_ns, message) VALUES(?,?,?,?,?,?)`, r.Path, r.Seq, r.Hash, r.Size, r.MtimeNs, r.Message)
 	return err
 }
 

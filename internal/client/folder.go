@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"path"
 	"slices"
@@ -448,6 +449,8 @@ type item struct {
 	op   proto.Op
 	row  localRow // what to store once the server accepts it
 	done bool
+	// own is set once a conflict with the device's own earlier commit has been committed on top of; a second one is a real conflict.
+	own bool
 	// stage is the id of this item's block list on the server when it has more than MaxCommitBlocks blocks (design 2.4).
 	stage string
 }
@@ -577,7 +580,10 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		items = append(items, &item{path: p, del: true, op: proto.Op{Path: p, BaseSeq: local[p].Seq}})
 	}
 	if err := f.DB.apply(puts, drop); err != nil {
-		return err
+		// Only stat fields and forgotten rows: the next scan finds them again. Failing here would stop the commit
+		// and the Pull of every cycle without a word on the Web UI; say it there and go on.
+		slog.Warn("cannot store the scan's state rows", "folder", f.ID, "err", err)
+		f.note("", proto.KindFolder, "cannot write the state database: "+err.Error())
 	}
 	err = f.commitAll(ctx, items, rep)
 	for _, it := range items {

@@ -20,10 +20,16 @@ import (
 // openRetryAfter is how long a folder whose state cannot be opened is left alone before the next try.
 const openRetryAfter = time.Minute
 
+// openRetryNewer is the wait after errNewerDB: only an upgrade of the binary (a restart) or a restored database
+// helps, so asking every minute only fills the log.
+const openRetryNewer = time.Hour
+
 // openFail is a folder without a runner because its state database cannot be opened.
 type openFail struct {
-	at   time.Time // when to try again
-	seen int64     // the server's latest seq for it from a poll, -1 unknown: the poll carries it so that the server does not answer at once
+	at    time.Time // when to try again
+	msg   string    // why, shown on the Web UI as the folder's error
+	since int64     // unix seconds of the first failure
+	seen  int64     // the server's latest seq for it from a poll, -1 unknown: the poll carries it so that the server does not answer at once
 }
 
 // statusEvery is the shortest time between two restarts of the long poll to report a changed status (design 3.6).
@@ -141,6 +147,9 @@ func (a *Agent) states() []proto.FolderState {
 			st.State = "syncing"
 		}
 		out = append(out, st)
+	}
+	for id, o := range a.openRetry { // no runner: the folder state cannot be opened, which the Web UI must show
+		out = append(out, proto.FolderState{ID: id, State: "error", Errors: []proto.FileError{{Kind: proto.KindFolder, Message: o.msg, Since: o.since}}})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -384,12 +393,16 @@ func (a *Agent) applyConfig() {
 		dbPath := filepath.Join(a.Dir, "folder-"+itoa(id)+".db")
 		db, err := openLocal(dbPath)
 		if err != nil {
-			slog.Error("cannot open folder state", "folder", id, "err", err, "retry_in", openRetryAfter)
+			wait := openRetryAfter
+			if errors.Is(err, errNewerDB) {
+				wait = openRetryNewer
+			}
+			slog.Error("cannot open folder state", "folder", id, "err", err, "retry_in", wait)
 			a.mu.Lock()
 			if fail == nil {
-				fail = &openFail{seen: -1}
+				fail = &openFail{seen: -1, since: time.Now().Unix()}
 			}
-			fail.at = time.Now().Add(openRetryAfter)
+			fail.at, fail.msg = time.Now().Add(wait), "cannot open the state database: "+err.Error()
 			a.openRetry[id] = fail
 			a.mu.Unlock()
 			continue

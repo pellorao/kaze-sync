@@ -209,6 +209,9 @@ type Entry struct {
 	// copy of such a file whatever rules it has at that moment, so a client that has not applied the new rules yet
 	// (an offline one, or a pull under way) cannot delete it. Only deletions carry it.
 	Excluded bool `json:"excluded,omitempty"`
+	// Device is the name of the device that wrote the entry. Only the Current of a conflict result carries it (design
+	// 6.1): a client that finds the entry to be its own commit, whose local row was not stored, commits on top of it.
+	Device string `json:"device,omitempty"`
 }
 
 type Result struct {

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"path"
 	"sort"
 	"sync"
@@ -265,12 +266,25 @@ const (
 	handled // resolve already updated the local state
 )
 
+// ownCommit reports whether the conflict is with an entry this device itself committed after the base of the op. The
+// base must be known (a base of 0 is a reset: design 5.5 wants a conflict copy) and older than the entry, and the
+// retry happens once per item. The same content needs no retry, resolve adopts it.
+func (f *Folder) ownCommit(it *item, cur *proto.Entry) bool {
+	return !it.own && cur != nil && cur.Hash != nil && !cur.Excluded && f.DeviceName != "" && cur.Device == f.DeviceName &&
+		it.op.BaseSeq > 0 && cur.Seq > it.op.BaseSeq && (it.del || it.op.Hash == nil || *cur.Hash != *it.op.Hash || cur.Link != it.op.Link)
+}
+
 // resolve handles a conflict result (design 6.1). Same content is adopted, a
 // modification beats a deletion, a deletion of a deleted file is done, a
 // deletion yields to a newer version, and two different versions leave the
 // local one as a conflict copy and take the server's.
 func (f *Folder) resolve(ctx context.Context, it *item, cur *proto.Entry) (outcome, error) {
 	var src *blockSrc
+	if f.ownCommit(it, cur) { // the server's entry is this device's own commit whose local row was lost (design 6.1)
+		slog.Info("conflict with this device's own commit: committing on top of it", "folder", f.ID, "path", it.path, "old_base", it.op.BaseSeq, "new_base", cur.Seq)
+		it.own, it.op.BaseSeq = true, cur.Seq
+		return resubmit, nil
+	}
 	switch {
 	case it.del && (cur == nil || cur.Hash == nil):
 		return resolved, nil

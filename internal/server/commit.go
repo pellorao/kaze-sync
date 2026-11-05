@@ -142,6 +142,7 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 		r := proto.Result{Status: proto.StatusConflict}
 		if have {
 			r.Current = cur.entry()
+			r.Current.Device = cur.device
 		}
 		return r
 	}
