@@ -372,10 +372,12 @@
   });
   document.addEventListener("click", (e) => { if (e.target.closest("[data-reload]")) location.href = liveURL; });
 
-  // ---- restore to a point in time: a time axis with a draggable line, and a preview (design 4.6)
-  // The axis runs from the oldest state a restore can reach (left) to now (right). The server sends its ticks: the ends
-  // of the minutes with a change in the scope. Dragging only moves the line and changes some text; the preview is asked
-  // for when the state under the line changes and the line rests. Only the newest request counts, an older one is aborted.
+  // ---- restore to a point in time: two time axes with draggable lines, and a preview (design 4.6)
+  // One selected time is shown on two axes. The day axis (top) runs from the oldest state a restore can reach (left) to
+  // now (right) and its line stops only at each 00:00 and at the two ends. The time axis (bottom) shows one window of 24
+  // hours, see winFor, and its line moves by the minute. The server sends the ticks: the ends of the minutes with a
+  // change in the scope. Dragging only moves the lines and changes some text; the preview is asked for when the state
+  // under the line changes and the line rests. Only the newest request counts, an older one is aborted.
   // Every text this code writes is in the dictionary (rt, above), with {placeholders}.
 
   // fromWall: the instant at which the clock of the zone reads w (as UTC); a reading that happens twice takes the earlier
@@ -389,49 +391,51 @@
     const MIN = 6e4, H = 36e5, D = 864e5;
     // tunables
     const MINOR_PX = 4;           // the closest two short ticks may be
-    const LABEL_GAP = 8;          // free space after a date label
+    const LABEL_GAP = 8;          // free space after a label
     const STEP_WAIT = 300;        // keys and step buttons: ask for the preview once they rest this long
     const TYPE_WAIT = 400;        // typing: the same
-    const PAGE = 10;              // PageUp / PageDown move this many changes
-    const BASE = 36, AXIS_H = 52; // the axis' baseline and height in the svg
-    // The zoom of the last 48 hours (design 4.6, the user's open question Q1, option A): a span longer than recent / frac is
-    // drawn in two parts, the last `recent` ms in the right `frac` of the width. Set ZOOM to null for a linear axis; the
-    // `.recent` rect and the two-part branch of makeScale are all that belong to it.
-    const ZOOM = { recent: 48 * H, frac: 0.4 };
+    const WEEK = 7;               // PageUp / PageDown on the day axis move this many days
+    const DAY_BASE = 23, TOD_BASE = 33, LINK_H = 12; // baselines inside the axes, the connector's height
 
     const LANG = document.documentElement.lang || "en";
     const zone = zoneName();
     const form = rd.querySelector("form");
     const input = form.elements.time, go = $("[data-restore-go]", rd), goText = $("span", go);
-    const axis = $("[data-axis]", rd), svg = $("svg", axis), cur = $(".axis-cur", axis), shade = $(".axis-shade", axis), amsg = $(".axis-msg", axis);
+    const axes = $("[data-axes]", rd), amsg = $(".axes-msg", axes), link = $(".link", axes), band = $(".axis-win", axes);
+    const mkAxis = (el) => ({ el, svg: $("svg", el), cur: $(".axis-cur", el), shade: $(".axis-shade", el), w: 0, x: null, t: null });
+    const A = { day: mkAxis($('[data-axis="day"]', rd)), tod: mkAxis($('[data-axis="tod"]', rd)) };
     const rel = $("[data-rel]", rd), pv = $("[data-preview]", rd), steps = $$("[data-step]", rd), note2 = $("[data-note2]", rd);
     const bar = el("div", { class: "progress", hidden: "" });
     const keepDays = +rd.dataset.keepDays;
     // fmtT: the time as the box shows it; whole minutes (the ticks, the dragged line) without seconds, the two ends with them
     const fmtT = (ms) => fmt(ms, zone).slice(0, ms % MIN ? 19 : 16);
-    let T = null;     // the ticks of the scope: {now, from, ticks} (null: none loaded, none to show, or failed)
-    let S = null;     // the scale of the drawn axis
-    let W = 0;        // its width
+    let T = null;     // the ticks of the scope, all in ms: {now, from, ticks} (null: none loaded, none to show, or failed)
+    let stops = [];   // where the day axis' line may stop: the earliest point, each 00:00 after it, now
+    let win = null;   // the time axis' window {a, b, live}; live: the last 24 hours, ending at now
     let sel = null;   // the selected time (ms); null: the box holds no time
+    let opened = null; // the time the dialog opened at, while the person has not chosen another
     let shown = null, asked = null, askedMs = 0, result = null, ctl = null, waitT = 0, typeT = 0;
-    const nowMs = () => (T ? T.now * 1000 : Date.now());
-
-    // ---- scale: linear, or two linear parts (see ZOOM)
-    function makeScale(from, now, w) {
-      const split = ZOOM && now - from > ZOOM.recent / ZOOM.frac ? Math.round(w * (1 - ZOOM.frac)) : 0;
-      const segs = split ? [{ a: from, b: now - ZOOM.recent, x0: 0, x1: split }, { a: now - ZOOM.recent, b: now, x0: split, x1: w }]
-        : [{ a: from, b: now, x0: 0, x1: w }];
-      const last = segs[segs.length - 1];
-      return {
-        segs,
-        x: (ms) => { const s = segs.find((g) => ms <= g.b) || last; return s.x0 + (ms - s.a) / (s.b - s.a) * (s.x1 - s.x0); },
-        t: (x) => { const s = segs.find((g) => x <= g.x1) || last; return s.a + (x - s.x0) / (s.x1 - s.x0) * (s.b - s.a); },
-      };
+    const nowMs = () => (T ? T.now : Date.now());
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const lin = (a, b, w) => ({ x: (ms) => (ms - a) / (b - a) * w, t: (x) => a + x / w * (b - a) });
+    function bsearch(k, ms) { // the last index whose value is at or before ms; -1 before the first
+      if (!k.length || ms < k[0]) return -1;
+      let lo = 0, hi = k.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (k[mid] <= ms) lo = mid; else hi = mid - 1; }
+      return lo;
     }
-    // tick levels, aligned to the calendar of the zone: every h hours, days of the month 1, 1+d, ..., months m
-    const LEVELS = [1, 2, 3, 6, 12].map((h) => ({ h, ms: h * H }))
-      .concat([1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D })), [1, 3, 6, 12].map((m) => ({ m, ms: m * 30.44 * D })));
-    const DAY = LEVELS[5];
+    const dayStart = (ms, plus = 0) => { const p = parts(ms, zone); return fromWall(Date.UTC(+p.year, +p.month - 1, +p.day + (plus || 0)), zone); };
+    // winFor: the window of the time axis for a time. The one rule (design 4.6): the calendar day of the time; when that
+    // day is today, the last 24 hours instead, so that the right end is now and never a 24:00 that has not come. To show
+    // the day from 00:00 to now instead, return { a: dayStart(ms), b: T.now, live: true } for that case.
+    function winFor(ms) {
+      const a = dayStart(ms), b = dayStart(ms, 1);
+      return b > T.now ? { a: T.now - D, b: T.now, live: true } : { a, b, live: false };
+    }
+
+    // ---- tick levels, aligned to the calendar of the zone: days of the month 1, 1+d, ..., months m, minutes within a day
+    const DAY_LEVELS = [1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D })).concat([1, 3, 6, 12].map((m) => ({ m, ms: m * 30.44 * D })));
+    const TOD_LEVELS = [15, 30, 60, 120, 180, 240, 360, 720].map((m) => ({ min: m, ms: m * MIN }));
     function ticksOf(lv, a, b) {
       const out = [], p = parts(a, zone);
       if (lv.m) {
@@ -449,7 +453,7 @@
           if (ms >= a && (dom - 1) % lv.d === 0 && (lv.d === 1 || dom <= 31 - lv.d / 2)) out.push(ms);
           continue;
         }
-        for (let h = 0; h < 24; h += lv.h) { const x = ms + h * H; if (x > b) break; if (x >= a) out.push(x); } // DST days: approximate
+        for (let m = 0; m < 1440; m += lv.min) { const x = ms + m * MIN; if (x > b) break; if (x >= a) out.push(x); } // DST days: approximate
       }
     }
     const ctx = document.createElement("canvas").getContext("2d");
@@ -459,68 +463,105 @@
       ctx.font = (bold ? "600 " : "") + font;
       return ctx.measureText(s).width;
     };
-    const labelFmts = {};
-    const labelFmt = (lv) => labelFmts[!!lv.m] || (labelFmts[!!lv.m] = new Intl.DateTimeFormat(LANG,
-      lv.m ? { timeZone: zone, year: "numeric", month: "short" } : { timeZone: zone, month: "short", day: "numeric" }));
+    const fmts = {};
+    const dateFmt = (kind) => fmts[kind] || (fmts[kind] = new Intl.DateTimeFormat(LANG, { timeZone: zone,
+      ...(kind === "m" ? { year: "numeric", month: "short" } : kind === "wd" ? { month: "short", day: "numeric", weekday: "short" } : { month: "short", day: "numeric" }) }));
     const sampleW = {};
-    const labelW = (lv) => sampleW[!!lv.m] ?? (sampleW[!!lv.m] = textW(labelFmt(lv).format(Date.UTC(2026, 11, 28, 12))));
-    function levelsFor(seg) {
-      const k = (seg.x1 - seg.x0) / (seg.b - seg.a), sp = (lv) => lv.ms * k, top = LEVELS[LEVELS.length - 1];
-      const minor = LEVELS.find((lv) => sp(lv) >= MINOR_PX) || top;
-      const label = LEVELS.find((lv) => lv.ms >= D && sp(lv) >= labelW(lv) + LABEL_GAP) || top;
-      const tall = minor.ms < D ? DAY : label;
-      return { short: minor.ms < tall.ms ? minor : null, tall, label };
-    }
+    const widthOf = (kind) => sampleW[kind] ?? (sampleW[kind] = kind === "h" ? textW("00:00") : textW(dateFmt(kind).format(Date.UTC(2026, 11, 28, 12))));
+    const finest = (levels, k, pxMin) => levels.find((lv) => lv.ms * k >= pxMin) || levels[levels.length - 1];
     const px = (x) => Math.round(x) + 0.5;
     const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-    function render() {
-      W = axis.clientWidth;
-      if (!T || !W) { svg.innerHTML = ""; S = null; return; }
-      S = makeScale(T.from * 1000, T.now * 1000, W);
-      svg.setAttribute("viewBox", `0 0 ${W} ${AXIS_H}`);
-      let out = "", tall = "", short = "", marks = "";
-      const labels = [];
-      if (S.segs.length > 1) out += `<rect class="recent" x="${S.segs[1].x0}" y="0" width="${W - S.segs[1].x0}" height="${BASE}"/>`;
-      for (const g of S.segs) {
-        const L = levelsFor(g), tt = ticksOf(L.tall, g.a, g.b), ts = new Set(tt);
-        tt.forEach((ms) => { tall += `M${px(S.x(ms))} 0V${BASE}`; });
-        if (L.short) ticksOf(L.short, g.a, g.b).forEach((ms) => { if (!ts.has(ms)) short += `M${px(S.x(ms))} ${BASE - 6}V${BASE}`; });
-        const f = labelFmt(L.label);
-        ticksOf(L.label, g.a, g.b).forEach((ms) => labels.push([S.x(ms), f.format(ms)]));
+    // labels: placed in order of priority (then right to left); one that would overlap a placed one is left out
+    function labelsSvg(list, w) {
+      const placed = [];
+      let out = "";
+      list.sort((p, q) => p.pri - q.pri || q.x - p.x);
+      for (const l of list) {
+        const lw = textW(l.s, l.cls === "now"), x0 = l.end ? l.x - lw : l.x, x1 = x0 + lw;
+        if (x0 < 2 || x1 > w - 2 || placed.some(([a, b]) => x0 < b + LABEL_GAP && x1 + LABEL_GAP > a)) continue;
+        placed.push([x0, x1]);
+        out += `<text class="lb ${l.cls || ""}" x="${Math.round(x0)}" y="12">${esc(l.s)}</text>`;
       }
-      const col = new Uint8Array(W); // one mark per pixel column that holds a change
-      for (let i = 1; i < T.ticks.length - 1; i++) {
-        const c = Math.min(W - 1, Math.round(S.x(T.ticks[i] * 1000)));
-        if (!col[c]) { col[c] = 1; marks += `M${c + 0.5} ${BASE + 3}v10`; }
-      }
-      out += `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${BASE + 0.5}H${W}"/><path class="mk" d="${marks}"/>`;
-      out += `<text class="lb now" x="${W - 5}" y="12" text-anchor="end">${esc(rt("js.now"))}</text>`;
-      let limit = W - 5 - textW(rt("js.now"), true) - LABEL_GAP; // labels from right to left; one that would overlap is left out
-      labels.sort((a, b) => b[0] - a[0]);
-      for (const [x, s] of labels) {
-        if (x + 3 + textW(s) > limit) continue;
-        out += `<text class="lb" x="${Math.round(x) + 3}" y="12">${esc(s)}</text>`;
-        limit = x - 4;
-      }
-      svg.innerHTML = out;
-      place();
+      return out;
     }
-    function place() {
-      cur.hidden = shade.hidden = sel === null;
-      if (!S || sel === null) return;
-      const x = S.x(Math.min(T.now * 1000, Math.max(T.from * 1000, sel)));
-      cur.style.transform = shade.style.transform = `translateX(${x}px)`;
+    function marksSvg(x, a, b, w, y) { // one short line per pixel column that holds a change between a and b
+      let d = "";
+      const col = new Uint8Array(w + 1), n = T.ticks.length - 1;
+      for (let i = Math.max(1, bsearch(T.ticks, a)); i < n && T.ticks[i] <= b; i++) {
+        const c = Math.round(x(T.ticks[i]));
+        if (c >= 0 && c <= w && !col[c]) { col[c] = 1; d += `M${Math.min(c, w - 1) + 0.5} ${y}v8`; }
+      }
+      return `<path class="mk" d="${d}"/>`;
+    }
+    // the day axis: earliest point to now; ticks for days or months, dates on the tall ones
+    function renderDay() {
+      const ax = A.day, w = ax.w = ax.el.clientWidth;
+      if (!T || !w) { ax.svg.innerHTML = ""; ax.x = ax.t = null; return; }
+      const s = lin(T.from, T.now, w), k = w / (T.now - T.from);
+      ax.x = s.x; ax.t = s.t;
+      const label = finest(DAY_LEVELS, k, widthOf("d") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
+      const lt = ticksOf(label, T.from, T.now), ls = new Set(lt);
+      let tall = "", short = "";
+      lt.forEach((ms) => { tall += `M${px(s.x(ms))} 13V${DAY_BASE}`; });
+      if (minor.ms < label.ms) ticksOf(minor, T.from, T.now).forEach((ms) => { if (!ls.has(ms)) short += `M${px(s.x(ms))} ${DAY_BASE - 5}V${DAY_BASE}`; });
+      const f = dateFmt(label.m ? "m" : "d");
+      const labels = [{ x: w - 7, s: rt("js.now"), cls: "now", end: true, pri: 0 }].concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: f.format(ms), pri: 1 })));
+      ax.svg.setAttribute("viewBox", `0 0 ${w} 34`);
+      ax.svg.innerHTML = `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${DAY_BASE + 0.5}H${w}"/>`
+        + marksSvg(s.x, T.from, T.now, w, DAY_BASE + 3) + labelsSvg(labels, w);
+    }
+    // the time axis: the window; hours, a tall tick with the date at each 00:00, "now" at the right end of a live window
+    function renderTod() {
+      const ax = A.tod, w = ax.w = ax.el.clientWidth;
+      if (!T || !w) { ax.svg.innerHTML = ""; ax.x = ax.t = null; return; }
+      const s = lin(win.a, win.b, w), k = w / (win.b - win.a);
+      ax.x = s.x; ax.t = s.t;
+      const label = finest(TOD_LEVELS.filter((lv) => lv.min >= 60), k, widthOf("h") + LABEL_GAP), minor = finest(TOD_LEVELS, k, MINOR_PX);
+      const mid = ticksOf({ d: 1 }, win.a, win.b).filter((ms) => ms < win.b), ms0 = new Set(mid);
+      const lt = ticksOf(label, win.a, win.b).filter((ms) => !ms0.has(ms) && ms < win.b), ls = new Set(lt);
+      let tall = "", med = "", short = "", na = "";
+      mid.forEach((ms) => { tall += `M${px(Math.max(0, s.x(ms)))} 0V${TOD_BASE}`; });
+      lt.forEach((ms) => { med += `M${px(s.x(ms))} 16V${TOD_BASE}`; });
+      ticksOf(minor, win.a, win.b).forEach((ms) => { if (!ms0.has(ms) && !ls.has(ms)) short += `M${px(s.x(ms))} ${TOD_BASE - 5}V${TOD_BASE}`; });
+      if (T.from > win.a) na = `<pattern id="rs-na" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V6"/></pattern>`
+        + `<rect class="na" x="0" y="0" width="${Math.round(s.x(T.from))}" height="50"/>`; // before the earliest point: hatched
+      const f = dateFmt("wd"), hf = (ms) => { const p = parts(ms, zone); return p.hour + ":" + p.minute; };
+      const labels = mid.map((ms) => ({ x: Math.max(0, s.x(ms)) + 3, s: f.format(ms), cls: "d", pri: 1 }))
+        .concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: hf(ms), pri: 2 })));
+      if (win.live) labels.push({ x: w - 7, s: rt("js.now"), cls: "now", end: true, pri: 0 });
+      ax.svg.setAttribute("viewBox", `0 0 ${w} 50`);
+      ax.svg.innerHTML = na + `<path class="tk" d="${tall}"/><path class="tk" d="${med}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${TOD_BASE + 0.5}H${w}"/>`
+        + marksSvg(s.x, win.a, win.b, w, TOD_BASE + 3) + labelsSvg(labels, w);
+      placeWin();
+    }
+    // the band on the day axis and the connector down to the time axis: the part of the day axis the time axis shows
+    function placeWin() {
+      if (!T || !win || !A.day.x || !A.tod.x) return;
+      const x0 = A.day.x(Math.max(win.a, T.from)), x1 = A.day.x(win.b), w = A.tod.w;
+      band.style.transform = `translateX(${x0}px) scaleX(${Math.max(2, x1 - x0)})`;
+      link.setAttribute("viewBox", `0 0 ${w} ${LINK_H}`);
+      link.setAttribute("preserveAspectRatio", "none");
+      $("path", link).setAttribute("d", `M${x0 + 1} 0L${A.tod.x(Math.max(win.a, T.from)) + 1} ${LINK_H}H${w + 1}L${x1 + 1} 0Z`);
+    }
+    function setWin(nw) {
+      if (win && nw.a === win.a && nw.b === win.b) return;
+      win = nw;
+      renderTod();
+    }
+    function render() { renderDay(); renderTod(); place(); }
+    function place() { // the two lines and the shade to their right: only transforms, no layout
+      const hide = sel === null;
+      for (const ax of [A.day, A.tod]) ax.cur.hidden = ax.shade.hidden = hide;
+      band.hidden = !T;
+      if (!T || hide || !A.day.x || !A.tod.x) return;
+      const v = clamp(sel, T.from, T.now), xd = A.day.x(v), xt = A.tod.x(clamp(v, win.a, win.b));
+      A.day.cur.style.transform = A.day.shade.style.transform = `translateX(${xd}px)`;
+      A.tod.cur.style.transform = A.tod.shade.style.transform = `translateX(${xt}px)`;
     }
 
     // ---- selection: the time, its state key, and whether the preview on the screen still belongs to it
-    // idx: the last tick at or before ms (in ms); -1 before the first. From the last change to now nothing differs: one state.
-    function idx(ms) {
-      const k = T.ticks, s = ms / 1000;
-      if (s < k[0]) return -1;
-      let lo = 0, hi = k.length - 1;
-      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (k[mid] <= s) lo = mid; else hi = mid - 1; }
-      return Math.min(lo, k.length - 2);
-    }
+    // idx: the last tick at or before ms; -1 before the first. From the last change to now nothing differs: one state.
+    function idx(ms) { const i = bsearch(T.ticks, ms); return i < 0 ? -1 : Math.min(i, T.ticks.length - 2); }
     const keyOf = (ms) => (ms === null ? "bad" : T ? idx(ms) : ms);
     function relText(ms) {
       const m = Math.round((nowMs() - ms) / MIN);
@@ -531,21 +572,24 @@
       if (h) return mi ? rt("js.ago_hm", { h, m: mi }) : rt("js.ago_h", { h });
       return rt("js.ago_m", { m: mi });
     }
-    // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, the line.
-    // It sends nothing: commit asks for the preview.
-    function setSel(ms, typed) {
+    // setSel shows the time ms everywhere: the box (unless the person is typing in it), the distance from now, both lines.
+    // The time axis follows to the day of ms when ms is outside its window, or always when follow is set. It sends nothing:
+    // commit asks for the preview.
+    function setSel(ms, typed, follow) {
       sel = ms;
       if (!typed && ms !== null) input.value = fmtT(ms);
       rel.textContent = ms === null ? "" : relText(ms);
-      place();
       if (T && ms !== null) {
-        axis.setAttribute("aria-valuenow", Math.round(ms / 1000));
-        axis.setAttribute("aria-valuetext", fmtT(ms) + ", " + relText(ms));
+        const v = clamp(ms, T.from, T.now);
+        if (follow || v < win.a || v > win.b) setWin(winFor(v));
+        const vt = fmtT(ms) + ", " + relText(ms);
+        for (const ax of [A.day, A.tod]) { ax.el.setAttribute("aria-valuenow", Math.round(v / 1000)); ax.el.setAttribute("aria-valuetext", vt); }
       }
+      place();
       stale();
     }
     function stale() {
-      const s = !(result && result.fail) && keyOf(sel) !== shown;
+      const s = !(result && (result.fail || result.hint)) && keyOf(sel) !== shown;
       pv.classList.toggle("stale", s);
       go.disabled = s || !result || !result.n;
     }
@@ -560,6 +604,7 @@
       asked = key;
       askedMs = sel;
       if (key === "bad") { show(key, { bad: true }); return; }
+      if (T && key === T.ticks.length - 2) { show(key, { hint: true }); return; } // from the last change to now: nothing to ask
       bar.hidden = false;
       const ms = sel, c = ctl = new AbortController();
       const q = new URLSearchParams({ path: form.elements.path.value, time: utc(ms) });
@@ -577,64 +622,86 @@
       bar.hidden = true;
       const r = res;
       let nodes = r.nodes;
-      if (!nodes) { // a result of this script: the box holds no time, or the preview did not load
+      if (!nodes) { // a result of this script: the hint, the box holds no time, or the preview did not load
         nodes = [el("div", { class: "preview-h" + (r.bad ? " warn" : ""), "aria-live": "polite" }, icon(r.bad ? "warn" : "history"),
-          el("span", {}, r.bad ? rt("js.bad", { ex: "2026-11-03 22:48:27" }) : rt("js.fail")))];
+          el("span", {}, r.hint ? rt("js.hint") : r.bad ? rt("js.bad", { ex: "2026-11-03 22:48:27" }) : rt("js.fail")))];
       } else if (!nodes.some((n) => n.classList && n.classList.contains("first-n")) && r.ms < nowMs() - keepDays * D) {
         nodes.splice(1, 0, el("div", { class: "first-n" }, icon("info"), el("span", {}, rt("js.old")))); // after the head line
       }
       pv.replaceChildren(bar, ...nodes);
       renderTimes(pv);
-      goText.textContent = r.n ? rt("js.go", { n: r.n }) : r.bad || r.fail ? rt("common.restore") : rt("js.go0");
+      goText.textContent = r.n ? rt("js.go", { n: r.n }) : r.bad || r.fail || r.hint ? rt("common.restore") : rt("js.go0");
       stale();
     }
 
-    // ---- input: pointer on the axis, keys on the axis, the step buttons, typing
-    let drag = null, raf = 0, lastX = 0;
-    const atX = (x) => Math.min(T.now * 1000, Math.max(T.from * 1000, Math.round(S.t(Math.max(0, Math.min(W, x))) / MIN) * MIN));
-    axis.addEventListener("pointerdown", (e) => {
-      if (!T || !S || e.button > 0) return;
-      const r = axis.getBoundingClientRect(); // read once: no layout reads while the line moves
-      drag = { left: r.left + 1, start: sel, moved: false, touch: e.pointerType === "touch" };
-      axis.setPointerCapture(e.pointerId);
-      axis.focus({ preventScroll: true });
-      if (!drag.touch) setSel(atX(e.clientX - drag.left)); // a touch may still turn into a scroll: wait for a move
-      e.preventDefault();
-    });
-    axis.addEventListener("pointermove", (e) => {
-      if (!drag) return;
-      drag.moved = true;
-      lastX = e.clientX - drag.left;
-      if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (drag) setSel(atX(lastX)); });
-    });
-    axis.addEventListener("pointerup", (e) => {
-      if (!drag) return;
-      if (!drag.moved) setSel(atX(e.clientX - drag.left)); // a tap puts the line there
-      drag = null;
-      commit();
-    });
-    axis.addEventListener("pointercancel", () => { if (drag) { setSel(drag.start); drag = null; } }); // it was a scroll
-    function stepTo(j) {
-      const n = T.ticks.length - 1;
-      setSel(j >= n - 1 ? T.now * 1000 : T.ticks[Math.max(0, j)] * 1000);
-      clearTimeout(waitT);
-      waitT = setTimeout(commit, STEP_WAIT);
+    // ---- what a pointer position means on each axis
+    function dayAt(x) { // the stop nearest to x: a 00:00, or one of the two ends
+      const ms = A.day.t(clamp(x, 0, A.day.w)), i = Math.max(0, bsearch(stops, ms)), j = Math.min(stops.length - 1, i + 1);
+      return ms - stops[i] <= stops[j] - ms ? stops[i] : stops[j];
     }
-    const here = () => idx(sel === null ? T.now * 1000 : sel);
-    axis.addEventListener("keydown", (e) => {
+    function todAt(x) { // the time under x, to the minute, inside the window and the restorable range
+      const ms = Math.round(A.tod.t(clamp(x, 0, A.tod.w)) / MIN) * MIN;
+      return ms <= T.from ? T.from : ms >= T.now ? T.now : ms;
+    }
+    // ---- input: pointer on either axis, keys on either axis, the step buttons, typing
+    let drag = null, raf = 0, lastX = 0;
+    function move(x) { if (drag.kind === "day") setSel(dayAt(x), false, true); else setSel(todAt(x)); }
+    for (const kind of ["day", "tod"]) {
+      const ael = A[kind].el;
+      ael.addEventListener("pointerdown", (e) => {
+        if (!T || !A[kind].x || e.button > 0) return;
+        const r = ael.getBoundingClientRect(); // read once: no layout reads while the line moves
+        drag = { kind, left: r.left + 1, start: sel, win, moved: false, touch: e.pointerType === "touch" };
+        ael.setPointerCapture(e.pointerId);
+        ael.focus({ preventScroll: true });
+        if (!drag.touch) move(e.clientX - drag.left); // a touch may still turn into a scroll: wait for a move
+        e.preventDefault();
+      });
+      ael.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        drag.moved = true;
+        lastX = e.clientX - drag.left;
+        if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (drag) move(lastX); });
+      });
+      ael.addEventListener("pointerup", (e) => {
+        if (!drag) return;
+        if (!drag.moved) move(e.clientX - drag.left); // a tap puts the line there
+        drag = null;
+        commit();
+      });
+      ael.addEventListener("pointercancel", () => { if (drag) { setWin(drag.win); setSel(drag.start); drag = null; } }); // it was a scroll
+    }
+    function later(ms, follow) { setSel(ms, false, follow); clearTimeout(waitT); waitT = setTimeout(commit, STEP_WAIT); }
+    function stepChange(d) { // to the start of the previous or next state; the last one is now
+      const n = T.ticks.length - 1, j = clamp(idx(sel ?? T.now) + d, 0, n);
+      later(j >= n - 1 ? T.now : T.ticks[j]);
+    }
+    A.day.el.addEventListener("keydown", (e) => {
       if (!T) return;
-      const i = here(), n = T.ticks.length - 1;
-      const j = { ArrowLeft: i - 1, ArrowDown: i - 1, ArrowRight: i + 1, ArrowUp: i + 1, PageDown: i - PAGE, PageUp: i + PAGE, Home: 0, End: n }[e.key];
+      const v = clamp(sel ?? T.now, T.from, T.now), n = stops.length - 1, at = bsearch(stops, v);
+      const below = Math.max(0, stops[at] === v ? at - 1 : at); // the stop before v
+      const above = Math.min(n, at + 1);
+      const j = { ArrowLeft: below, ArrowDown: below, ArrowRight: above, ArrowUp: above, PageDown: below - WEEK + 1, PageUp: above + WEEK - 1, Home: 0, End: n }[e.key];
       if (j === undefined) return;
       e.preventDefault();
-      stepTo(j);
+      later(stops[clamp(j, 0, n)], true);
     });
-    steps.forEach((b) => b.addEventListener("click", () => { if (T) stepTo(here() + +b.dataset.step); }));
+    A.tod.el.addEventListener("keydown", (e) => {
+      if (!T) return;
+      const v = clamp(sel ?? T.now, T.from, T.now), p = parts(v, zone), hour = fromWall(Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour), zone);
+      const ch = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+      const to = { PageDown: hour < v ? hour : hour - H, PageUp: hour + H, Home: win.a, End: win.b }[e.key];
+      if (ch === undefined && to === undefined) return;
+      e.preventDefault();
+      if (ch) stepChange(ch); else later(clamp(to, T.from, T.now));
+    });
+    steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step); }));
     input.addEventListener("input", () => {
       clearTimeout(typeT);
-      typeT = setTimeout(() => { setSel(parseLocal(input.value, zone), true); commit(); }, TYPE_WAIT);
+      typeT = setTimeout(() => { setSel(parseLocal(input.value, zone), true, true); commit(); }, TYPE_WAIT);
     });
-    new ResizeObserver(() => { if (axis.clientWidth !== W) render(); }).observe(axis);
+    let lastW = 0;
+    new ResizeObserver(() => { if (axes.clientWidth !== lastW) { lastW = axes.clientWidth; render(); } }).observe(axes);
     form.addEventListener("submit", (e) => { // the server reads UTC: send the time the person typed as UTC
       const ms = parseLocal(input.value, zone);
       if (ms === null) { e.preventDefault(); setSel(null, true); commit(); return; }
@@ -645,11 +712,11 @@
     // ---- the note under the preview: time zone, retention, and the earliest point
     function fillNote() {
       const [a, b] = rt("js.note2", { tz: zone, how: rt(body.dataset.tz ? "js.fixed" : "js.follow") }).split("{link}");
-      const link = el("a", { href: "/settings" }, rt("nav.settings"));
-      note2.replaceChildren(a, link, b, T ? rt("js.note3", { d: keepDays, from: fmtT(T.from * 1000) }) : rt("js.note3b", { d: keepDays }));
+      const l = el("a", { href: "/settings" }, rt("nav.settings"));
+      note2.replaceChildren(a, l, b, T ? rt("js.note3", { d: keepDays, from: fmtT(T.from) }) : rt("js.note3b", { d: keepDays }));
     }
 
-    // ---- opening: the preview of the time in the box at once, the axis when its ticks arrive
+    // ---- opening: the dialog is at now, the axes when their ticks arrive
     async function loadTicks(path) {
       let t = null, failed = false;
       try {
@@ -657,44 +724,48 @@
         if (!r.ok) failed = true; else t = await r.json();
       } catch (e) { failed = true; }
       if (form.elements.path.value !== path || !rd.open) return;
-      if (t && !t.none && t.ticks.length >= 2) T = t;
+      const atOpen = sel !== null && sel === opened;
+      if (t && !t.none && t.ticks.length >= 2) T = { from: t.from * 1000, now: t.now * 1000, ticks: t.ticks.map((s) => s * 1000) };
       if (T) { // what was asked for or shown by the minute now has a state: the same state is not asked for again
         if (shown !== null && result && result.ms !== undefined) shown = idx(result.ms);
         if (asked !== null && asked !== "bad") asked = idx(askedMs);
-      }
-      axis.classList.toggle("off", !T);
-      axis.tabIndex = T ? 0 : -1;
-      steps.forEach((b) => { b.disabled = !T; });
-      if (T) {
-        axis.setAttribute("aria-valuemin", T.from);
-        axis.setAttribute("aria-valuemax", T.now);
+        if (atOpen) sel = T.now; // still at the opening time: now is the server's
+        stops = [T.from, ...ticksOf({ d: 1 }, T.from, T.now).filter((ms) => ms > T.from && ms < T.now), T.now];
+        win = winFor(clamp(sel ?? T.now, T.from, T.now));
+        A.day.el.setAttribute("aria-valuemin", Math.round(T.from / 1000));
+        A.day.el.setAttribute("aria-valuemax", Math.round(T.now / 1000));
+        A.tod.el.setAttribute("aria-valuemin", Math.round(T.from / 1000));
+        A.tod.el.setAttribute("aria-valuemax", Math.round(T.now / 1000));
       } else {
         amsg.textContent = rt(failed ? "js.axisFail" : "js.axisNone");
         amsg.hidden = false;
       }
+      axes.classList.toggle("off", !T);
+      for (const ax of Object.values(A)) ax.el.tabIndex = T ? 0 : -1;
+      steps.forEach((b) => { b.disabled = !T; });
       fillNote();
       render();
-      setSel(sel, true); // the distance from now and the state under the line follow the server's clock
+      setSel(sel, !atOpen, true); // the distance from now and the state under the line follow the server's clock
       commit();
     }
-    // open: path is the scope; isDir says how to write it (null: the page wrote it already)
+    // open: path is the scope; isDir says how to write it (null: the page wrote it already, with the time that was typed)
     function open(path, isDir) {
       form.elements.path.value = path;
       if (isDir !== null) $('[data-fill="scope"]', rd).textContent = rd.dataset.folderName + (path ? " / " + path + (isDir ? "/" : "") : "");
-      if (!input.value) input.value = fmtT(Math.floor(Date.now() / MIN) * MIN - H);
+      const keep = isDir === null && input.value; // a form sent back with an error keeps its time
       abort();
-      T = S = null; shown = asked = result = null;
-      axis.hidden = false;
-      axis.classList.add("off");
+      T = win = null; stops = []; shown = asked = result = null;
+      axes.hidden = false;
+      axes.classList.add("off");
       amsg.hidden = true;
       steps.forEach((b) => { b.hidden = false; b.disabled = true; });
       pv.hidden = false;
       pv.replaceChildren(bar);
       fillNote();
-      render();
       if (!rd.open) rd.showModal();
-      setSel(parseLocal(input.value, zone), true);
-      commit();
+      render();
+      if (keep) { opened = null; setSel(parseLocal(input.value, zone), true); commit(); }
+      else { opened = Date.now(); setSel(opened); show(null, { hint: true }); } // the dialog opens at now: nothing to ask yet
       loadTicks(path);
     }
     return { open };

@@ -90,8 +90,9 @@ func TestFormErrorsRedisplayTheDialog(t *testing.T) {
 	if st != 400 || !strings.Contains(body, `<dialog id="dlg-restore" class="dlg" data-folder-name="F" data-keep-days="30" data-autoopen`) || !strings.Contains(body, `value="yesterday"`) {
 		t.Fatalf("restore: %d\n%s", st, body)
 	}
-	// The dialog is a time box with a time axis (hidden until the script shows it), not a range input.
-	for _, w := range []string{`data-axis`, `role="slider"`, `data-rel`, `data-step="-1"`, `data-step="1"`, `class="preview fixed" data-preview hidden`, `data-note2`} {
+	// The dialog is a time box with two axes, one for the day and one for the time of day (hidden until the script shows
+	// them), not a range input.
+	for _, w := range []string{`data-axes hidden`, `data-axis="day"`, `data-axis="tod"`, `role="slider"`, `data-rel`, `data-step="-1"`, `data-step="1"`, `class="preview fixed" data-preview hidden`, `data-note2`} {
 		if !strings.Contains(body, w) {
 			t.Errorf("the restore dialog lacks %s", w)
 		}

@@ -43,7 +43,12 @@
 <div class="field"><span class="lbl">{{t "rs.scope"}}</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{if .Scope}} / {{.Scope}}{{end}}</span></div></div>
 <div class="when"><div class="when-h"><label for="rs-time">{{t "rs.time"}}</label><span class="rel" data-rel></span>
 <span class="when-in"><button type="button" class="btn step prev" data-step="-1" aria-label="{{t "rs.prev"}}" hidden>{{icon "open"}}</button><input id="rs-time" type="text" class="mono num" name="time" value="{{index .Vals "time"}}" placeholder="2026-11-03 22:48:27" autocomplete="off" required><button type="button" class="btn step" data-step="1" aria-label="{{t "rs.next"}}" hidden>{{icon "open"}}</button></span></div>
-<div class="axis off" data-axis role="slider" tabindex="-1" aria-label="{{t "rs.axis"}}" hidden><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div><div class="axis-msg" hidden></div></div>
+<div class="axes off" data-axes hidden>
+<div class="axis day" data-axis="day" role="slider" tabindex="-1" aria-label="{{t "rs.axisDay"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-win"></div><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div>
+<svg class="link" aria-hidden="true"><path/></svg>
+<div class="axis tod" data-axis="tod" role="slider" tabindex="-1" aria-label="{{t "rs.axisTod"}}"><svg aria-hidden="true"></svg><div class="axis-clip" aria-hidden="true"><div class="axis-shade"></div></div><div class="axis-cur" aria-hidden="true"></div></div>
+<div class="axes-msg" hidden></div>
+</div>
 {{with index .Errs "time"}}<span class="err-msg">{{.}}</span>{{end}}</div>
 <div class="preview fixed" data-preview hidden></div>
 <div class="note">{{icon "info"}}<div class="lines"><p>{{t "rs.note1"}}</p><p data-note2>{{tm "rs.noteNoJs" "href" "/settings" "d" .KeepDays}}</p></div></div>
