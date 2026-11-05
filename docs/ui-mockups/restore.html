@@ -159,6 +159,7 @@ td.act { width: 40px; padding: 0 6px; text-align: right; }
 .backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(15 17 21 / 0.62); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; overflow-y: auto; }
 .dlg { width: 560px; max-width: 100%; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
 .dlg.wide { width: 760px; }
+.dlg.restore { width: 900px; }
 .dlg-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .dlg-h h3 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
 .dlg-h .x { color: var(--muted); }
@@ -377,7 +378,7 @@ svg.i { vertical-align: middle; }
 <td class="size"></td><td class="time">删除于 <time title="Asia/Shanghai">2026-10-30 14:02:55</time></td>
 <td class="act"><button class="more" aria-label="summary-v1.txt 的操作" aria-haspopup="menu"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-more"/></svg></button></td></tr></tbody></table></section>
 </main>
-<div class="backdrop"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="rs-t" id="dlg-restore">
+<div class="backdrop"><div class="dlg restore" role="dialog" aria-modal="true" aria-labelledby="rs-t" id="dlg-restore">
 <div class="dlg-h"><h3 id="rs-t" data-t="title">恢复到某一时刻</h3><button class="icon-btn x" data-t-label="close" aria-label="关闭"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-x"/></svg></button></div>
 <div class="dlg-b">
 <div class="field"><span class="lbl" data-t="scope">范围</span><div class="scope"><svg class="i " aria-hidden="true" viewBox="0 0 24 24"><use href="#i-folder"/></svg>Docs / reports/2026/drafts/</div></div>
@@ -570,17 +571,10 @@ svg.i { vertical-align: middle; }
   const dayOf = (v) => (stops.includes(v) ? v : v >= dayStart(T.now) ? T.now : Math.max(dayStart(v), T.from));
 
   // ---- tick levels, aligned to the calendar of the zone
-  const DAY_LEVELS = [1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D })).concat([1, 3, 6, 12].map((m) => ({ m, ms: m * 30.44 * D })));
+  const DAY_LEVELS = [1, 2, 5, 10, 15].map((d) => ({ d, ms: d * D }));
   const TOD_LEVELS = [15, 30, 60, 120, 180, 240, 360, 720].map((m) => ({ min: m, ms: m * MIN }));
   function ticksOf(lv, a, b) {
     const out = [], p = parts(a);
-    if (lv.m) {
-      for (let i = 0; ; i++) {
-        const w = Date.UTC(+p.year, +p.month - 1 + i, 1), ms = fromWall(w);
-        if (ms > b) return out;
-        if (ms >= a && new Date(w).getUTCMonth() % lv.m === 0) out.push(ms);
-      }
-    }
     for (let i = 0; ; i++) {
       const w = Date.UTC(+p.year, +p.month - 1, +p.day + i), ms = fromWall(w);
       if (ms > b) return out;
@@ -594,11 +588,7 @@ svg.i { vertical-align: middle; }
   }
   const ctx = document.createElement("canvas").getContext("2d");
   const textW = (s, bold) => { ctx.font = (bold ? "600 " : "") + "11px " + getComputedStyle(document.body).getPropertyValue("--sans"); return ctx.measureText(s).width; };
-  const fmts = {};
-  const dateFmt = (kind) => fmts[lang + kind] || (fmts[lang + kind] = new Intl.DateTimeFormat(lang, { timeZone: zone,
-    ...(kind === "m" ? { year: "numeric", month: "short" } : kind === "wd" ? { month: "short", day: "numeric", weekday: "short" } : { month: "short", day: "numeric" }) }));
-  const sample = Date.UTC(2026, 11, 28, 12), sampleW = {};
-  const widthOf = (kind) => sampleW[lang + kind] ?? (sampleW[lang + kind] = kind === "h" ? textW("00:00") : textW(dateFmt(kind).format(sample)));
+  const dayNum = (ms) => String(+parts(ms).day); // dates are only the day of the month: 30, 1, 2; no month, no language
   const finest = (levels, k, px) => levels.find((lv) => lv.ms * k >= px) || levels[levels.length - 1];
   const px = (x) => Math.round(x) + 0.5;
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -615,6 +605,15 @@ svg.i { vertical-align: middle; }
     }
     return out;
   }
+  function daysSvg(x, w, y) { // the day axis: one mark per day with a change (taller with more changes), none finer than a day
+    const cnt = new Map(), n = T.ticks.length - 1;
+    for (let i = 1; i < n; i++) { const d = Math.max(dayStart(T.ticks[i]), T.from); cnt.set(d, (cnt.get(d) || 0) + 1); }
+    const col = new Map();
+    for (const [d, c] of cnt) { const k = Math.min(Math.round(x(d)), w - 1); col.set(k, (col.get(k) || 0) + c); }
+    let d = "";
+    for (const [k, c] of col) d += `M${k + 0.5} ${y}v${c > 20 ? 8 : c > 3 ? 6 : 4}`;
+    return `<path class="mk" d="${d}"/>`;
+  }
   function marksSvg(x, a, b, w, y) { // one short line per pixel column that holds a change between a and b
     let d = "";
     const col = new Uint8Array(w + 1), n = T.ticks.length - 1;
@@ -630,16 +629,15 @@ svg.i { vertical-align: middle; }
     if (!T || !w) { ax.svg.innerHTML = ""; return; }
     const s = lin(T.from, T.now, w), k = w / (T.now - T.from);
     ax.x = s.x; ax.t = s.t;
-    const label = finest(DAY_LEVELS, k, widthOf("d") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
+    const label = finest(DAY_LEVELS, k, textW("00") + LABEL_GAP), minor = finest(DAY_LEVELS, k, MINOR_PX);
     const lt = ticksOf(label, T.from, T.now), ls = new Set(lt);
     let tall = "", short = "";
     lt.forEach((ms) => { tall += `M${px(s.x(ms))} 13V${DAY_BASE}`; });
     if (minor.ms < label.ms) ticksOf(minor, T.from, T.now).forEach((ms) => { if (!ls.has(ms)) short += `M${px(s.x(ms))} ${DAY_BASE - 5}V${DAY_BASE}`; });
-    const f = dateFmt(label.m ? "m" : "d");
-    const labels = [{ x: w - 7, s: t("now"), cls: "now", end: true, pri: 0 }].concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: f.format(ms), pri: 1 })));
+    const labels = [{ x: w - 7, s: t("now"), cls: "now", end: true, pri: 0 }].concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: dayNum(ms), pri: 1 })));
     ax.svg.setAttribute("viewBox", `0 0 ${w} 34`);
     ax.svg.innerHTML = `<path class="tk" d="${tall}"/><path class="tk s" d="${short}"/><path class="base" d="M0 ${DAY_BASE + 0.5}H${w}"/>`
-      + marksSvg(s.x, T.from, T.now, w, DAY_BASE + 3) + labelsSvg(labels, w);
+      + daysSvg(s.x, w, DAY_BASE + 3) + labelsSvg(labels, w);
   }
   // the time axis: the day; hours, a tall tick with the date at 00:00, "now" on today
   function renderTod() {
@@ -647,7 +645,7 @@ svg.i { vertical-align: middle; }
     if (!T || !w) { ax.svg.innerHTML = ""; return; }
     const s = lin(win.a, win.b, w), k = w / (win.b - win.a);
     ax.x = s.x; ax.t = s.t;
-    const label = finest(TOD_LEVELS.filter((lv) => lv.min >= 60), k, widthOf("h") + LABEL_GAP), minor = finest(TOD_LEVELS, k, MINOR_PX);
+    const label = finest(TOD_LEVELS.filter((lv) => lv.min >= 60), k, textW("00:00") + LABEL_GAP), minor = finest(TOD_LEVELS, k, MINOR_PX);
     const mid = ticksOf({ d: 1 }, win.a, win.b).filter((ms) => ms < win.b), ms0 = new Set(mid);
     const lt = ticksOf(label, win.a, win.b).filter((ms) => !ms0.has(ms) && ms < win.b), ls = new Set(lt);
     let tall = "", med = "", short = "", na = "";
@@ -658,8 +656,8 @@ svg.i { vertical-align: middle; }
     if (x0 > 0 || x1 < w) na = `<pattern id="rs-na" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V6"/></pattern>`
       + (x0 > 0 ? `<rect class="na" x="0" y="0" width="${x0}" height="50"/>` : "")
       + (x1 < w ? `<rect class="na" x="${x1}" y="0" width="${w - x1}" height="50"/>` : ""); // before the earliest point, after now: hatched
-    const f = dateFmt("wd"), hf = (ms) => { const p = parts(ms); return p.hour + ":" + p.minute; };
-    const labels = mid.map((ms) => ({ x: Math.max(0, s.x(ms)) + 3, s: f.format(ms), cls: "d", pri: 1 }))
+    const hf = (ms) => { const p = parts(ms); return p.hour + ":" + p.minute; };
+    const labels = mid.map((ms) => ({ x: Math.max(0, s.x(ms)) + 3, s: dayNum(ms), cls: "d", pri: 1 }))
       .concat(lt.map((ms) => ({ x: s.x(ms) + 3, s: hf(ms), pri: 2 })));
     if (x1 < w && x1 > 0) labels.push({ x: x1 - 3, s: t("now"), cls: "now", end: true, pri: 0 });
     ax.svg.setAttribute("viewBox", `0 0 ${w} 50`);
@@ -684,8 +682,10 @@ svg.i { vertical-align: middle; }
   function place() { // the two lines and the shade to their right: only transforms, no layout
     if (!T || sel === null || !A.day.x || !A.tod.x) return;
     const xd = A.day.x(dayMs), xt = A.tod.x(clamp(sel, win.a, win.b));
-    A.day.cur.style.transform = A.day.shade.style.transform = `translateX(${xd}px)`;
-    A.tod.cur.style.transform = A.tod.shade.style.transform = `translateX(${xt}px)`;
+    A.day.cur.style.transform = `translateX(${xd}px)`;
+    A.tod.cur.style.transform = `translateX(${xt}px)`;
+    A.day.shade.style.transform = `translateX(${xd - A.day.w}px)`; // the data that stays: the left of the line
+    A.tod.shade.style.transform = `translateX(${xt - A.tod.w}px)`;
   }
 
   // ---- selection: the time, its state key, and whether the preview on the screen still belongs to it
