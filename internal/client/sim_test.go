@@ -113,6 +113,7 @@ func (w crashFS) Symlink(t, p string) error {
 	_, err := call(w.c, func() (struct{}, error) { return struct{}{}, w.in.Symlink(t, p) })
 	return err
 }
+func (w crashFS) SetWritable(p string, ok bool) error { return w.in.SetWritable(p, ok) }
 
 // simTransport hands requests to the server's handler in the process; with crash set, the request is
 // processed and the response lost ("after") or the request never sent ("before").

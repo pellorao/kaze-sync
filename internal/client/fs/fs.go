@@ -30,6 +30,9 @@ type Entry struct {
 	Size      int64
 	MtimeNs   int64
 	Exec      bool
+	// ReadOnly: no write permission bit is set (Windows: the read-only attribute). A link has none, so it is never
+	// read-only.
+	ReadOnly bool
 }
 
 // FS paths are relative to the root, separated by "/"; "" is the root.
@@ -49,4 +52,8 @@ type FS interface {
 	SetMeta(p string, mtimeNs int64, exec bool) error
 	Readlink(p string) (string, error) // the target of the link p, verbatim
 	Symlink(target, p string) error    // creates the link p; ErrLinkUnsupported when the machine cannot
+	// SetWritable gives the owner write permission to p or takes every write permission away (Windows: clears or sets
+	// the read-only attribute; a directory has none there, and a link has no permissions: both are left alone). It
+	// changes neither the mtime nor the content, so a scan does not see it (design 2.8).
+	SetWritable(p string, w bool) error
 }
