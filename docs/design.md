@@ -852,16 +852,27 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 9.3 升级
 
-服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 按 `schema_version` 顺序迁移 (服务端在 `install` 中逐库执行: 先全局库, 再每个文件夹库, 各库有自己的版本号). 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵. 版本过旧的客户端收到明确错误, 版本号显示在总览页, 机制如下 (不增加端点, 不增加表, 空闲时没有任何额外开销):
+服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>`. OpenWrt 本身的 sysupgrade 见 9.1. 客户端: 替换二进制后重启 agent. 两端的 SQLite 按 `schema_version` 顺序迁移 (服务端在启动和 `install` 时自动执行, 迁移前先备份, 见本节末尾的 "库表迁移"). 协议不兼容时使用新的 `/api/vN/` 前缀; 约定先升级服务端再升级客户端, 不维护兼容矩阵. 版本过旧的客户端收到明确错误, 版本号显示在总览页, 机制如下 (不增加端点, 不增加表, 空闲时没有任何额外开销):
 
 - 客户端协议版本是整数常量 `proto.AgentVersion`, 设备 API 每次发生改动 (新增或改变端点, 字段语义) 时加一; 服务端另有常量 `proto.MinAgentVersion`, 只在旧客户端无法再正常工作的改动中提高, 其余时候低于 `AgentVersion`. 当前 `AgentVersion` 是 4, 符号链接 (6.7) 使其成为 5: 提交和变更条目多了 `link` 字段, 旧客户端会把链接当作普通文件内容下载, 所以 `MinAgentVersion` 同时升到 5, 旧客户端被服务端拒绝并提示升级 (版本 4 的说明: 版本 3 起长轮询返回增加 `epoch`, 提交按块数分批; 版本 4 起 `/blocks/get` 一次可带多个文件的块, 上限改为 2 万个哈希和 64 MiB 响应: 旧服务端会以 "too many blocks" 拒绝新客户端的成批请求, 所以先升级服务端), 版本 5 在下次发布 (kaze-sync/release, 不早于 2026-11-11) 之前仍可追加字段: 大文件改动 (kaze-sync/bigfile, 2.4 节) 增加 `POST /stage` 和提交操作的 `stage` 字段, 沿用 5, 不再升 6, 使两项共用一次升级. 此前 `MinAgentVersion` 是 2: 版本 1 是 M4 之前 (没有 `GET /changes`, 不会下载) 的客户端.
 - 客户端在每个请求的 `Kaze-Agent-Version` 头里带 `AgentVersion` (长轮询请求体里仍有 `agent_version`, 供总览页显示). 服务端在已认证的设备路由和 `enroll` 上先比较: 低于 `MinAgentVersion` 的请求立即得到 HTTP 426 和一行说明 "client version N is too old, the server needs M or newer: upgrade kaze-syncc", 其余处理都不执行. 没有这个头的请求来自这个头出现之前的客户端, 按版本 1 处理, 所以最早的客户端也会被同样拒绝, 并在自己的日志里读到这行说明 (它们把非 200 的响应体写进 "poll failed" 日志).
 - 新客户端把 426 变成 `UpgradeError`: 长轮询日志记一条错误级别的 "client too old, sync is stopped until kaze-syncc is upgraded" 并按现有的退避 (1 秒起, 最长 1 分钟) 重试, 各文件夹的提交与下载错误里也是同一句话, 即客户端自己的状态. 被拒绝的客户端无法上报状态 (服务端不处理它的任何请求), 所以总览页由服务端在拒绝时记在内存里: 该设备的版本列显示 "N (过旧, 请升级客户端)"; 客户端升级后的第一次长轮询覆盖这条记录. 服务端重启后在客户端下一次请求前不显示, 与客户端上报的状态一致 (4.3).
 - 比服务端新的客户端不被这个检查拒绝 (升级顺序是先服务端, 不保证兼容).
 
+**库表迁移 (服务端, 用户 2026-11-05)**: `kaze-syncd run` 启动时和 `install` 走同一个函数 (`migrateState`), 所以用户级部署 (无 root, 不执行 `install`) 与 OpenWrt 一样, 升级只需换二进制并重启, 不再手工改库. 先处理全局库 `meta.db`, 再处理每个文件夹库, 各库有自己的版本号, 逐库判断:
+
+- 版本等于当前: 什么也不做, 不备份, 所以平时启动没有额外开销.
+- 新建的空库: 直接建表, 没有可备份的内容.
+- 低于当前: 先用 SQLite 的 `VACUUM INTO` 把该库 (连同 WAL 中尚未合并的内容) 复制成一致的快照, 放在 `var/backups/`, 文件名 `<库>-v<旧版本号>-<UTC 时间>.db`, `<库>` 为 `meta` 或 `folder-<id>`, 权限 0600; 先写临时名再改名, 所以备份要么完整要么不存在. 然后在一个事务里执行所有缺的步骤并写入新的版本号 (事务内失败则整库回滚, 不会停在中间版本).
+- 备份或迁移失败: 服务不启动, 进程以错误退出, 错误指明是哪个库和哪一步, 并说明该库未被改动. 前面已迁移成功的库保持新版本 (各有自己的备份), 排除原因后重新启动即可继续. 磁盘满是备份失败的常见原因: 备份和原库一样大, 迁移时 `var/` 所在的盘要有同样大小的空闲空间.
+- 高于当前 (用旧二进制打开了新二进制迁移过的库, 即降级): 拒绝启动, 不打开, 不改动, 错误里说明应运行新版本, 或放回升级前的备份.
+- 文件夹行存在而库文件缺失: 同样停止启动, 不重建 (与 `install` 一致).
+- 保留策略: 每个库只留最近 `keepBackups` (常量, 3) 份, 在迁移成功后删除更早的; 删除文件夹时一并删除它的备份 (备份里有它的全部数据). 备份只在升级那一次产生, 平时不占 CPU, 内存和流量, 磁盘只占 3 份以内. `var/backups/` 不是 9.4 要求备份的内容.
+- 回滚: 停止服务, 换回旧二进制, 把需要的备份 (每个已迁移的库一份, 取升级时刻最新的) 复制回 `var/meta.db` 或 `var/folders/<id>.db` 并删掉该库旁的 `-wal`, `-shm`, 再按 9.4 的还原步骤执行 `install --new-epoch`. 备份之后客户端上传的内容随之回到过去, 由 `--new-epoch` 让客户端重新对账.
+
 ### 9.4 备份
 
-`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻); 建议同时备份 `var/tls/` (很小) 和本地 CA 模式下的 `<data>/ca/`, 否则还原后证书 (或 CA) 重新生成, 指纹变化, 全部客户端需重新注册; 还原后执行 `kaze-syncd install --new-epoch` 修正属主并更换服务端的 `epoch` (5.5): 还原使服务端的 `seq` 回到过去, 各客户端据此放弃已知的服务端状态并重新读取, 与服务端不一致的本地文件成为冲突副本; 完整步骤见 `docs/operations.md`. 备份步骤: 停止服务 (OpenWrt `/etc/init.d/kaze-sync stop`, systemd `systemctl stop kaze-sync`, OpenRC `rc-service kaze-sync stop`), 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), 启动服务 (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
+`var/meta.db` 和 `var/folders/` 下的全部库必须备份 (没有它们, 块无法还原成文件, 且各库须取自同一时刻); `var/backups/` (升级前的迁移备份) 不需要备份; 建议同时备份 `var/tls/` (很小) 和本地 CA 模式下的 `<data>/ca/`, 否则还原后证书 (或 CA) 重新生成, 指纹变化, 全部客户端需重新注册; 还原后执行 `kaze-syncd install --new-epoch` 修正属主并更换服务端的 `epoch` (5.5): 还原使服务端的 `seq` 回到过去, 各客户端据此放弃已知的服务端状态并重新读取, 与服务端不一致的本地文件成为冲突副本; 完整步骤见 `docs/operations.md`. 备份步骤: 停止服务 (OpenWrt `/etc/init.d/kaze-sync stop`, systemd `systemctl stop kaze-sync`, OpenRC `rc-service kaze-sync stop`), 复制 `var/meta.db` 与 `var/folders/` (含各库的 `-wal` 文件, 停服务后 WAL 已合并), 启动服务 (几秒钟), 再复制 `var/blobs/` (块写入后不再修改, 可增量复制). 避开 GC 运行时刻. 另外可定期 `kaze-syncd export` 得到普通文件形式的快照. 备份应放在另一块盘或另一台机器上.
 
 ## 10. 语言与依赖
 

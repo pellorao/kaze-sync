@@ -91,18 +91,18 @@ const onlineWindow = 90 * time.Second
 
 func (r *report) online(now time.Time) bool { return r.pending > 0 || now.Sub(r.at) < onlineWindow }
 
-// New opens the server state in <data>/var; meta.db must exist and be at the current schema.
+// New opens the server state in <data>/var; meta.db must exist. Databases of an older schema are backed up and migrated (migrateState).
 func New(data string, now func() time.Time) (*Server, error) {
 	data = filepath.Join(data, VarDir)
 	db, err := OpenDB(filepath.Join(data, DBFile), false)
 	if err != nil {
 		return nil, err
 	}
-	if v, err := schemaVersion(db); err != nil || v != SchemaVersion {
+	if now == nil {
+		now = time.Now
+	}
+	if err := migrateState(db, data, now()); err != nil {
 		db.Close()
-		if err == nil {
-			err = &schemaError{v}
-		}
 		return nil, err
 	}
 	blobs, err := blobstore.Open(data)
@@ -116,7 +116,7 @@ func New(data string, now func() time.Time) (*Server, error) {
 type schemaError struct{ have int }
 
 func (e *schemaError) Error() string {
-	return "database schema version " + strconv.Itoa(e.have) + " differs from this binary's; run install"
+	return "database schema version " + strconv.Itoa(e.have) + " differs from this binary's"
 }
 
 func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() time.Time) *Server {

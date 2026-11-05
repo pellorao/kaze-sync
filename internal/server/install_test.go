@@ -499,6 +499,9 @@ func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
 	if v, _ := schemaVersion(fdb); v != FolderSchemaVersion {
 		t.Fatalf("folder schema %d after install, want %d", v, FolderSchemaVersion)
 	}
+	if b := backupsOf(state, "folder-1"); len(b) != 1 || !strings.Contains(b[0], "folder-1-v1-") {
+		t.Fatalf("install did not back up the old folder database: %v", b)
+	}
 	owned := map[string]bool{}
 	for _, p := range f.chowned {
 		owned[p] = true

@@ -135,31 +135,39 @@ func Migrate(db *sql.DB) error { return migrate(db, migrations) }
 // MigrateFolder does the same for a folder database.
 func MigrateFolder(db *sql.DB) error { return migrate(db, folderMigrations) }
 
+// migrate runs all missing steps in one transaction: a failing step leaves the database as it was.
 func migrate(db *sql.DB, steps []string) error {
 	v, err := schemaVersion(db)
 	if err != nil {
 		return err
 	}
 	if v > len(steps) {
-		return fmt.Errorf("database schema %d is newer than this binary (%d)", v, len(steps))
+		return &newerError{have: v, want: len(steps)}
 	}
+	if v == len(steps) {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	for ; v < len(steps); v++ {
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
-		if _, err = tx.Exec(steps[v]); err == nil {
-			_, err = tx.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, v+1)
-		}
-		if err != nil {
-			tx.Rollback()
+		if _, err := tx.Exec(steps[v]); err != nil {
 			return fmt.Errorf("migrate to %d: %w", v+1, err)
 		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
-	return nil
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, len(steps)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// newerError is a database written by a newer binary: never opened, never changed (a downgrade).
+type newerError struct{ have, want int }
+
+func (e *newerError) Error() string {
+	return fmt.Sprintf("database schema %d is newer than this binary's (%d): run the newer kaze-syncd, or put back the backup from before the upgrade (<data>/%s/%s)", e.have, e.want, VarDir, BackupDir)
 }
 
 func schemaVersion(db *sql.DB) (int, error) {

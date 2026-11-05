@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"kaze-sync/internal/blobstore"
 )
@@ -317,32 +318,10 @@ func (in *Installer) runAll(cmds [][]string) error {
 	return nil
 }
 
-// migrateFolders migrates the database of every folder; a missing one is an error, never recreated.
-func migrateFolders(db *sql.DB, varDir string) error {
-	ids, err := queryAll(db, func(rows *sql.Rows, id *int64) error { return rows.Scan(id) }, `SELECT id FROM folders ORDER BY id`)
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		fdb, err := OpenDB(FolderDBPath(varDir, id), false)
-		if err == nil {
-			err = MigrateFolder(fdb)
-			fdb.Close()
-		}
-		if err != nil {
-			return fmt.Errorf("folder %d: %w", id, err)
-		}
-	}
-	return nil
-}
-
 // initState migrates the database and decides the listen address and certificate.
 func (in *Installer) initState(db *sql.DB, root string, o InstallOptions) (listen, fingerprint string, err error) {
 	data := filepath.Join(root, VarDir)
-	if err := Migrate(db); err != nil {
-		return "", "", err
-	}
-	if err := migrateFolders(db, data); err != nil {
+	if err := migrateState(db, data, time.Now()); err != nil {
 		return "", "", err
 	}
 	if o.NewEpoch {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kaze-sync/internal/ignore"
 	"kaze-sync/internal/proto"
@@ -87,7 +88,7 @@ func TestCreateFolderIsAtomic(t *testing.T) {
 func TestMigrateFoldersRunsPerDatabase(t *testing.T) {
 	e := newEnv(t)
 	f := e.folder("docs")
-	if err := migrateFolders(e.s.db, e.s.varDir); err != nil {
+	if err := migrateFolders(e.s.db, e.s.varDir, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	db, _ := e.s.folderDB(f)
@@ -95,7 +96,7 @@ func TestMigrateFoldersRunsPerDatabase(t *testing.T) {
 		t.Fatalf("folder schema %d", v)
 	}
 	e.s.db.Exec(`INSERT INTO folders(id, name, rules) VALUES(9, 'ghost', '')`)
-	if err := migrateFolders(e.s.db, e.s.varDir); err == nil {
+	if err := migrateFolders(e.s.db, e.s.varDir, time.Now()); err == nil {
 		t.Fatal("a folder without a database passed migration")
 	}
 }

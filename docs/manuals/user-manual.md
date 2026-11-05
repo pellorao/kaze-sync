@@ -348,7 +348,7 @@ The step-by-step version with OpenWrt commands is in [`docs/operations.md`](../o
 Always upgrade the **server first**, then the clients.
 
 1. Build the new binaries (section 2.1).
-2. **Server**: run `./kaze-syncd install --data <same directory>` with the new binary (on OpenWrt or Linux, as root). Port, certificate and password stay. It copies the new binary, migrates the databases (global first, then each folder) and restarts the service; with systemd it also reloads the unit definition, and it rewrites the unit file, so keep your changes in a drop-in. OpenWrt's own `sysupgrade` does not touch the data or the service.
+2. **Server**: run `./kaze-syncd install --data <same directory>` with the new binary (on OpenWrt or Linux, as root). Port, certificate and password stay. It copies the new binary and restarts the service (the databases are migrated automatically, see below); with systemd it also reloads the unit definition, and it rewrites the unit file, so keep your changes in a drop-in. OpenWrt's own `sysupgrade` does not touch the data or the service.
 3. **Linux client**: stop the agent, replace the binary at the same path, start it again:
 
 ```bash
@@ -364,6 +364,10 @@ Stop-Process -Name kaze-syncc-agent
 Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <install directory>
 Start-Process "<install directory>\kaze-syncc-agent.exe" -ArgumentList run
 ```
+
+**Database migration and rollback.** When the server starts (and when `install` runs) it brings its databases to the schema of the new version by itself, global database first, then each folder. If there is nothing to migrate, nothing happens. Before a database is changed, it is copied to `<data>/var/backups/` (`meta-v<old version>-<UTC time>.db`, or `folder-<id>-v<old version>-<UTC time>.db`; the newest 3 copies of each database are kept, and deleting a folder deletes its copies). The copy is as large as the database, so the disk needs that much free space during the upgrade. If a backup or migration step fails, the server does not start and the error says which database and why; that database is unchanged, so fix the cause (for example free disk space) and start again. A server set up without root (a user-level service) needs no `install`: replace the binary and restart; no manual database edit is needed.
+
+To go back to the old version after a migration: stop the server, put the old binary back, copy the backup of every migrated database over `var/meta.db` and `var/folders/<id>.db` (newest copy from the upgrade; delete the `-wal` and `-shm` files next to each), then follow the restore steps in section 14, including `--new-epoch`. An old binary refuses to start on a database that a newer version has migrated, and says so, rather than damaging it.
 
 Why the order matters: some releases change the protocol (the current protocol version is 5; version 5 added symbolic links, and its minimum is 5, so every client must be upgraded after the server). A new client talking to an old server fails on batched downloads. A client older than the server's minimum version is refused with HTTP 426; its log then contains `client too old, sync is stopped until kaze-syncc is upgraded` about once a minute and the device table shows "N, `过旧`" in red. Upgrade that client as above; its data is not harmed and it resumes by itself. Only changes that make old clients unusable raise the minimum, so most upgrades do not force a client upgrade.
 

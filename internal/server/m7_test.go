@@ -297,6 +297,9 @@ func TestDeleteFolder(t *testing.T) {
 		t.Error("the page lacks the deletion of an unmapped folder")
 	}
 	path := FolderDBPath(e.s.varDir, gone)
+	if err := backupDB(e.s.db, e.s.varDir, folderBackupName(gone), 2, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	if st, _ := e.post(c, "/folders/"+itoa(gone)+"/delete", nil); st != 303 {
 		t.Fatalf("delete: %d", st)
 	}
@@ -304,6 +307,9 @@ func TestDeleteFolder(t *testing.T) {
 		if _, err := os.Stat(path + suffix); err == nil {
 			t.Errorf("%s%s remains", filepath.Base(path), suffix)
 		}
+	}
+	if b := backupsOf(e.s.varDir, folderBackupName(gone)); len(b) != 0 {
+		t.Errorf("backups of the deleted folder remain: %v", b)
 	}
 	if e.count(`SELECT count(*) FROM folders`) != 1 || e.fcount(keep, `SELECT count(*) FROM files`) != 0 {
 		t.Fatal("wrong folders left")

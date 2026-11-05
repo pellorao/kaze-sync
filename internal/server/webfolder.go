@@ -432,6 +432,9 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 			slog.Warn("cannot remove a file of the deleted folder", "folder", f.Name, "file", p+suffix, "err", err)
 		}
 	}
+	if err := removeBackups(s.varDir, folderBackupName(f.ID)); err != nil {
+		slog.Warn("cannot remove the backups of the deleted folder", "folder", f.Name, "err", err)
+	}
 	slog.Info("folder deleted", "folder", f.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
