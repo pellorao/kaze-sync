@@ -315,6 +315,15 @@ func (f *Folder) resolve(ctx context.Context, it *item, cur *proto.Entry) (outco
 		f.retry = true // the copy is a new file: scan again to upload it
 		src = &blockSrc{path: q, blocks: it.op.Blocks, size: it.op.Size}
 	}
+	if st, err := f.FS.Stat(it.path); err == nil && st.IsDir { // a deletion of a file whose place a directory took
+		if wait, err := f.clearDir(it.path); err != nil {
+			f.note(it.path, proto.KindIO, err.Error())
+			return refused, nil
+		} else if wait {
+			f.retry = true // the directory still holds synced files: try again after the server's deletions
+			return refused, nil
+		}
+	}
 	err := f.fetch(ctx, cur, src, place.Expect{})
 	switch {
 	case err == nil:
