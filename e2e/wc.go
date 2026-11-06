@@ -55,6 +55,7 @@ type wcGroup struct {
 	folders map[string]string // name -> id
 	clicks  int
 	window  string // the window setting to restore
+	winWork string // the Windows-side directory made by setup (a path of the machine running the driver)
 }
 
 // runWC is the entry point of the group; it reports success.
@@ -80,6 +81,7 @@ func runWC(base, fp, winDir string, local bool, only string) bool {
 	g := &wcGroup{d: d, folders: map[string]string{}}
 	defer func() {
 		g.cleanup()
+		g.removeWinWork()
 		for _, m := range d.metrics {
 			log.Print("METRIC ", m)
 		}
@@ -144,6 +146,7 @@ func (g *wcGroup) setup(winDir string) error {
 		if err != nil {
 			return err
 		}
+		g.winWork = work
 		os.MkdirAll(filepath.Join(work, "state"), 0o755)
 		exe, runExe := filepath.Join(work, "wct.exe"), filepath.Join(work, "wct-agent.exe")
 		for from, to := range map[string]string{d.bins.windows: exe, d.bins.winAgent: runExe} {
@@ -618,8 +621,15 @@ func (g *wcGroup) exclusive() error {
 // git is informational: what git does to the index of a synced repository depends on the version, so the outcome is
 // recorded, not asserted.
 func (g *wcGroup) git() error {
-	if _, err := exec.LookPath("git"); err != nil || g.b.sep != "/" {
-		g.d.metric("WC git: skipped (no git here or side B is not on this machine)")
+	// A is always local. A Windows B uses git.exe (WSL interop); a local B uses git.
+	gitB := "git"
+	if g.b.sep != "/" {
+		gitB = "git.exe"
+	}
+	_, errA := exec.LookPath("git")
+	_, errB := exec.LookPath(gitB)
+	if errA != nil || errB != nil {
+		g.d.metric("WC git: skipped (%s not found here)", gitB)
 		return nil
 	}
 	id, err := g.folder("git", "single")
@@ -628,7 +638,11 @@ func (g *wcGroup) git() error {
 	}
 	f := wcPrefix + "-git"
 	run := func(dir string, args ...string) error {
-		c := exec.Command("git", append([]string{"-c", "user.name=wct", "-c", "user.email=wct@example.invalid"}, args...)...)
+		bin := "git"
+		if dir == g.b.dir(f) {
+			bin = gitB
+		}
+		c := exec.Command(bin, append([]string{"-c", "user.name=wct", "-c", "user.email=wct@example.invalid"}, args...)...)
 		c.Dir = dir
 		out, err := c.CombinedOutput()
 		if err != nil {
@@ -705,4 +719,17 @@ func (g *wcGroup) cleanup() {
 			d.web.post("/devices/"+s.id+"/revoke", url.Values{})
 		}
 	}
+}
+
+// removeWinWork deletes what setup put in the Windows-side directory (only those entries), then the directory if empty.
+func (g *wcGroup) removeWinWork() {
+	if g.winWork == "" {
+		return
+	}
+	for _, n := range []string{"wct.exe", "wct-agent.exe", "state", "root"} {
+		if err := os.RemoveAll(filepath.Join(g.winWork, n)); err != nil {
+			log.Printf("remove %s: %v", filepath.Join(g.winWork, n), err)
+		}
+	}
+	os.Remove(g.winWork)
 }
