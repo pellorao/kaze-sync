@@ -368,7 +368,13 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **Windows 客户端**: 运行中的 agent 会锁定它的 exe, 所以先停止它 (PowerShell), 复制两个 exe, 再启动 agent:
+4. **Windows 客户端**: 先检查新的 `kaze-syncc-agent.exe` 是用 `-H=windowsgui` 构建的; 下面的命令应输出 `2` (图形界面), 输出 `3` (控制台) 说明每次登录都会弹出可见窗口, 不能部署:
+
+```
+python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
+```
+
+   运行中的 agent 会锁定它的 exe, 所以先停止它 (PowerShell), 复制两个 exe, 再启动 agent:
 
 ```powershell
 Stop-Process -Name kaze-syncc-agent

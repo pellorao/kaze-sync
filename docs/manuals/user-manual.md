@@ -368,7 +368,13 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **Windows client**: the running agent locks its exe, so stop it first (PowerShell), copy both exe files, start the agent:
+4. **Windows client**: first check that the new `kaze-syncc-agent.exe` was built with `-H=windowsgui`; this prints `2` (GUI) and must not print `3` (console, which opens a visible window at every sign-in):
+
+```
+python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
+```
+
+   The running agent locks its exe, so stop it (PowerShell), copy both exe files, start the agent:
 
 ```powershell
 Stop-Process -Name kaze-syncc-agent

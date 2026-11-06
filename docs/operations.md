@@ -13,7 +13,11 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-sy
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
 ```
 
-`kaze-syncc-agent.exe` 必须与 `kaze-syncc.exe` 放在同一目录, 自启动才无窗口.
+`kaze-syncc-agent.exe` 必须与 `kaze-syncc.exe` 放在同一目录, 自启动才无窗口. 复制到客户端前检查它的 PE 子系统, 输出 `2` (图形界面) 才可部署, `3` (控制台) 会在每次登录时弹出可见窗口:
+
+```
+python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
+```
 
 ### OpenWrt
 
