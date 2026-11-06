@@ -59,7 +59,7 @@ func Run(ctx context.Context, data string) error {
 		srv.Shutdown(sctx)
 		srv.Close()
 	}()
-	if s.Push, err = ntfy.Load(data, "server"); err != nil {
+	if s.Push, err = ntfy.Load(data, "Server"); err != nil {
 		slog.Error("ntfy is off", "err", err)
 	}
 	go s.gcLoop(ctx)

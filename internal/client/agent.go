@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cfs "kaze-sync/internal/client/fs"
@@ -72,6 +73,7 @@ type Agent struct {
 	sig      string    // status sent with the running poll
 	statusAt time.Time // when to try again to report a changed status
 
+	pollDown  atomic.Bool         // polls are failing to connect: folder failures are probably the same outage
 	revoked   bool                // the last poll was rejected with 401: read-only ranges are released
 	openRetry map[int64]*openFail // folders whose state database cannot be opened
 }
@@ -418,7 +420,7 @@ func (a *Agent) applyConfig() {
 				wait = openRetryNewer
 			}
 			slog.Error("cannot open folder state", "folder", id, "err", err, "retry_in", wait)
-			a.Notify.Fail("open-"+itoa(id), "kaze-sync cannot open the state of folder "+itoa(id)+"; sync of it is stopped", 1)
+			a.Notify.Fail("open-"+itoa(id), "Cannot open the state of folder "+itoa(id)+"; sync of it is stopped", 1)
 			a.mu.Lock()
 			if fail == nil {
 				fail = &openFail{seen: -1, since: time.Now().Unix()}
@@ -431,7 +433,7 @@ func (a *Agent) applyConfig() {
 		a.mu.Lock()
 		delete(a.openRetry, id)
 		a.mu.Unlock()
-		a.Notify.Ok("open-"+itoa(id), "kaze-sync opened the state of folder "+itoa(id)+" again")
+		a.Notify.Ok("open-"+itoa(id), "Opened the state of folder "+itoa(id)+" again")
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
 		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
@@ -496,6 +498,9 @@ func (a *Agent) notifyFolder(r *runner, rep Report, err error, scanned bool) {
 		return
 	}
 	id, name := itoa(r.cfg.ID), r.cfg.Name
+	if err != nil && a.pollDown.Load() { // the outage is already reported once by "poll"; no second message for it
+		return
+	}
 	if err != nil {
 		a.Notify.Fail("sync-"+id, "Sync of folder "+name+" keeps failing", failuresBeforePush)
 	} else {

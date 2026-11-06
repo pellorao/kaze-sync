@@ -20,7 +20,7 @@ func pushEnv(t *testing.T) (*env, chan string) {
 		ch <- string(b)
 	}))
 	t.Cleanup(srv.Close)
-	n, err := ntfy.New(ntfy.Config{URL: srv.URL, Topic: "t"}, "server")
+	n, err := ntfy.New(ntfy.Config{URL: srv.URL, Topic: "t"}, "Server")
 	if err != nil {
 		t.Fatal(err)
 	}

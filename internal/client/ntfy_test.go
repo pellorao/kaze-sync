@@ -75,6 +75,26 @@ func TestNotifyFolderPushesAfterRetriesOnceAndRecovery(t *testing.T) {
 	expect(t, ch, "works again")
 }
 
+// While polls fail to connect, folder failures are the same outage and are not pushed.
+func TestNotifyFolderSilentDuringOutage(t *testing.T) {
+	n, ch := fakeNtfy(t)
+	a := &Agent{Notify: n}
+	r := &runner{}
+	r.cfg.ID, r.cfg.Name = 7, "Docs"
+	boom := errors.New("connection refused")
+	a.pollDown.Store(true)
+	for range 3 * failuresBeforePush {
+		a.notifyFolder(r, Report{}, boom, true)
+	}
+	a.pollDown.Store(false)
+	a.notifyFolder(r, Report{}, nil, true)
+	expectNone(t, ch)
+	for range failuresBeforePush { // a failure with the server reachable still counts
+		a.notifyFolder(r, Report{}, boom, true)
+	}
+	<-ch
+}
+
 // Disk and permission errors count; files in use do not.
 func TestNotifyFolderFileErrors(t *testing.T) {
 	n, ch := fakeNtfy(t)

@@ -57,7 +57,7 @@ func TestSendsOnceAfterThresholdThenRecovered(t *testing.T) {
 	none(t, ch)
 	n.Fail("poll", "cannot reach the server", 3)
 	m := get(t, ch)
-	if m.path != "/t-opic" || m.body != "cannot reach the server" || m.prio != "high" || !strings.HasPrefix(m.title, "kaze-sync pc") {
+	if m.path != "/t-opic" || m.body != "cannot reach the server" || m.prio != "high" || !strings.HasPrefix(m.title, "[pc] Problem") {
 		t.Fatalf("%+v", m)
 	}
 	for range 50 { // a retry loop cannot spam

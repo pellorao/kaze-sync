@@ -47,7 +47,7 @@ type Notifier struct {
 	endpoint string
 	hc       *http.Client
 	now      func() time.Time
-	prefix   string // "kaze-sync <host or device>" in every title
+	prefix   string // "[<device>]" or "[Server]" in every title
 
 	mu    sync.Mutex
 	probs map[string]*problem
@@ -56,7 +56,7 @@ type Notifier struct {
 }
 
 // Load reads dir/ntfy.json. A missing or incomplete file gives a nil Notifier (disabled); a broken file is an error
-// the caller logs, and also disables. name identifies the sender in titles (the device name, or "server").
+// the caller logs, and also disables. name identifies the sender in titles (the device name, or "Server").
 func Load(dir, name string) (*Notifier, error) {
 	b, err := os.ReadFile(dir + string(os.PathSeparator) + File)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -84,7 +84,7 @@ func New(c Config, name string) (*Notifier, error) {
 	}
 	return &Notifier{
 		endpoint: c.URL + "/" + url.PathEscape(c.Topic), hc: &http.Client{Timeout: postTimout}, now: time.Now,
-		prefix: "kaze-sync " + name, probs: map[string]*problem{},
+		prefix: "[" + name + "]", probs: map[string]*problem{},
 	}, nil
 }
 
@@ -149,7 +149,7 @@ func (n *Notifier) post(kind, tag, msg string) {
 	if err != nil {
 		return
 	}
-	req.Header.Set("Title", n.prefix+": "+kind)
+	req.Header.Set("Title", n.prefix+" "+kind)
 	req.Header.Set("Tags", tag)
 	if kind == "Problem" {
 		req.Header.Set("Priority", "high")
