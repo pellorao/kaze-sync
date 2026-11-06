@@ -25,12 +25,11 @@ type fileRow struct {
 	exec      bool
 	device    string
 	createdAt int64
-	conflict  bool
 	link      bool
 }
 
 func (f *fileRow) scan(r interface{ Scan(...any) error }) error {
-	return r.Scan(&f.path, &f.key, &f.seq, &f.hash, &f.blocks, &f.size, &f.mtimeNs, &f.exec, &f.device, &f.createdAt, &f.conflict, &f.link)
+	return r.Scan(&f.path, &f.key, &f.seq, &f.hash, &f.blocks, &f.size, &f.mtimeNs, &f.exec, &f.device, &f.createdAt, &f.link)
 }
 
 func (f *fileRow) entry() *proto.Entry {
@@ -267,13 +266,12 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	}
 	var hash, blocks []byte
 	var size, mtime int64
-	var exec, isConflict, link bool
+	var exec, link bool
 	if op.Hash != nil {
 		hash, blocks, size, mtime, exec, link = op.Hash[:], proto.JoinHashes(op.Blocks), op.Size, op.MtimeNs, op.Exec && !op.Link, op.Link
-		isConflict = pp.IsConflictName(op.Path)
 	}
-	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, isConflict, link)
+	_, err = tx.Exec(`INSERT OR REPLACE INTO files(`+fileCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		op.Path, key, seq, hash, blocks, size, mtime, exec, device, now, link)
 	return proto.Result{Status: proto.StatusOK, Seq: seq}, err
 }
 

@@ -69,6 +69,7 @@ type Agent struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup // the folder tasks running
 	epoch    string         // the server's epoch from the last poll
+	boot     string         // the server's run (proto.PollResp.Boot) from the last poll
 	pollAt   time.Time
 	sig      string    // status sent with the running poll
 	statusAt time.Time // when to try again to report a changed status
@@ -86,8 +87,10 @@ type runner struct {
 	done   chan struct{}
 
 	// Guarded by Agent.mu.
-	cfgVer     int64 // the configuration version the runner last saw
-	requeue    bool  // the configuration changed: held refused writes go again (design 2.8.6)
+	cfgVer     int64          // the configuration version the runner last saw
+	requeue    bool           // the configuration changed: held refused writes go again (design 2.8.6)
+	actions    []proto.Action // the user's decisions on held changes, to carry out in the next task (design 2.8.7)
+	resend     bool           // the server restarted: send the held list again (design 2.8.10)
 	report     Report
 	lastSynced int64
 	scanned    bool
@@ -226,9 +229,17 @@ func (a *Agent) work(ctx context.Context, t task) {
 	var rep Report
 	var err error
 	a.mu.Lock()
-	requeue := r.requeue
-	r.requeue = false
+	requeue, acts, resend := r.requeue, r.actions, r.resend
+	r.requeue, r.actions, r.resend = false, nil, false
 	a.mu.Unlock()
+	if resend {
+		f.heldSent = ""
+	}
+	for _, act := range acts {
+		if err := f.Resolve(ctx, act); err != nil {
+			slog.Info("the decision was not carried out", "folder", r.cfg.ID, "action", act.Action, "err", err)
+		}
+	}
 	if requeue {
 		if err = f.Requeue(); err != nil {
 			slog.Warn("cannot send the held changes again", "folder", r.cfg.ID, "err", err)

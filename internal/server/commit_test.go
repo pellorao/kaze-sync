@@ -156,15 +156,6 @@ func TestCommitNameRules(t *testing.T) {
 	}
 }
 
-func TestCommitFlagsConflictCopies(t *testing.T) {
-	e := newEnv(t)
-	f := e.folder("docs")
-	e.commit(f, e.op("sub/report.conflict-laptop-20261101-153012.docx", 0, "c"), e.op("report.docx", 0, "c"))
-	if n := e.fcount(f, `SELECT count(*) FROM files WHERE conflict AND hash IS NOT NULL`); n != 1 {
-		t.Fatalf("conflict copies = %d", n)
-	}
-}
-
 func TestCommitMalformed(t *testing.T) {
 	e := newEnv(t)
 	f := e.folder("docs")

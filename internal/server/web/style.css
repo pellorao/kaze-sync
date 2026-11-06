@@ -93,7 +93,9 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 .tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 1; white-space: nowrap; color: var(--muted); border: 1px solid var(--line); }
 .tag.err { color: #f0a0a6; border-color: color-mix(in srgb, var(--danger) 55%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
-.tag.lock { color: var(--fg); background: var(--hover); border-color: var(--line); }
+.tag.wc-free { color: var(--muted); }
+.tag.wc-single { color: #8fb4ff; border-color: color-mix(in srgb, #8fb4ff 45%, transparent); }
+.tag.wc-exclusive { color: #c9a4ff; border-color: color-mix(in srgb, #c9a4ff 45%, transparent); background: color-mix(in srgb, #c9a4ff 10%, transparent); }
 .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .tag.dev { color: var(--fg); background: var(--hover); border-color: transparent; }
 .tag.dev.off { color: var(--faint); background: none; border-color: var(--line); }
@@ -114,6 +116,11 @@ table.files td.name { width: 100%; }
 .fname a:hover { color: var(--accent); text-decoration: none; }
 .fname svg.dir { color: var(--accent); }
 .fname svg.file { color: var(--muted); }
+.fname svg.dir.wc-free { color: var(--muted); }
+.fname svg.dir.wc-single { color: #8fb4ff; }
+.fname svg.dir.wc-exclusive, .fname svg.file.wc-exclusive { color: #c9a4ff; }
+.ico { position: relative; display: inline-flex; flex: none; }
+.ico svg.ov { position: absolute; right: -4px; bottom: -4px; width: 11px; height: 11px; color: var(--warn); background: var(--bg); border-radius: 50%; }
 .fname .tags { display: inline-flex; gap: 6px; flex-wrap: nowrap; }
 tr.gone .fname a, tr.gone .fname .t { color: var(--muted); }
 tr.gone svg { color: var(--faint) !important; }
@@ -369,3 +376,25 @@ td.act { width: 40px; }
   dialog.dlg { margin-top: 4vh; max-height: 92vh; }
   .dlg-f { flex-wrap: wrap; }
 }
+
+/* write control */
+.wc-line { display: inline-flex; align-items: center; gap: 4px; }
+.wc-opts { display: grid; gap: 6px; }
+.wc-opts .help { margin: -2px 0 4px 24px; }
+.wc-dev { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 24px; }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--accent); cursor: pointer; }
+.linkbtn:hover { text-decoration: underline; }
+form.inl { display: inline; margin-left: 12px; }
+.nitem .acts { font-size: 12px; margin-top: 2px; }
+/* held changes dialog */
+.held-grp { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+.held-h { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; }
+.held-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.held-acts .chk { font-size: 12px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+.held-grp details { margin-top: 8px; }
+.held-grp summary { cursor: pointer; font-size: 12px; color: var(--accent); }
+table.held-rows { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+table.held-rows th, table.held-rows td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.held-rows .num { font-variant-numeric: tabular-nums; }
+.held-go { margin-top: 8px; text-align: right; }
+.small { font-size: 12px; }

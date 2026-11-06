@@ -27,6 +27,14 @@
 <div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
 </form>
 
+<form class="card" method="post" action="/settings/window">
+<div class="card-h"><h2>{{t "set.window"}}</h2></div>
+<div class="card-b"><div class="row"><input type="number" name="window" value="{{.WindowMin}}" min="0" max="60" class="narrow" aria-label="{{t "set.window"}}"><span>{{t "set.minutes"}}</span>
+<span class="muted small">{{t "set.windowNote"}}</span></div>
+{{with index .Errs "window"}}<span class="err-msg">{{.}}</span>{{end}}</div>
+<div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
+</form>
+
 <form class="card" method="post" action="/rules">
 <div class="card-h"><h2>{{t "set.rules"}}</h2><span class="muted small">{{t "set.rulesNote"}}</span></div>
 <div class="card-b">

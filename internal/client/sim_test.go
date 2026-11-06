@@ -37,7 +37,6 @@ import (
 
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/proto"
-	pp "kaze-sync/internal/proto/path"
 	"kaze-sync/internal/server"
 )
 
@@ -708,7 +707,7 @@ func (s *sim) settle() {
 		for _, sf := range c.folders {
 			for p, h := range treeOf(sf.mem) {
 				held[h] = true
-				if pp.IsConflictName(p) {
+				if strings.Contains(p, ".conflict-") {
 					conflictNames++
 				}
 			}

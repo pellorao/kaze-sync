@@ -102,7 +102,7 @@ func (w *webClient) addDevice(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m := regexp.MustCompile(`<code>([A-Z2-7-]+)</code>`).FindStringSubmatch(b)
+	m := regexp.MustCompile(`class="code-big">([A-Z2-7-]+)</span>`).FindStringSubmatch(b)
 	if m == nil {
 		return "", fmt.Errorf("no code in the answer for device %s", name)
 	}

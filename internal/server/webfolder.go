@@ -11,13 +11,11 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"kaze-sync/internal/proto"
-	pp "kaze-sync/internal/proto/path"
 )
 
 type folderRow struct {
@@ -40,27 +38,15 @@ type entryTag struct{ Class, Text, Title string }
 type browseEntry struct {
 	Name, Path string
 	IsDir      bool
-	Gone       bool   // a deleted file; for a directory: nothing but deleted files below it
-	Time       int64  // modified; for a deleted file: when it was deleted; for a directory: the latest modification below it
-	Size       int64  // for a directory: the total size of the files below it
-	Conflict   bool   // a conflict copy
-	Orig       string // the path of the file it is a copy of
-	Unsynced   bool   // reported by a device but not on the server (a symbolic link, a refused name)
+	Gone       bool  // a deleted file; for a directory: nothing but deleted files below it
+	Time       int64 // modified; for a deleted file: when it was deleted; for a directory: the latest modification below it
+	Size       int64 // for a directory: the total size of the files below it
+	Unsynced   bool  // reported by a device but not on the server (a symbolic link, a refused name)
 	Tags       []entryTag
 	Note       *notice // an unsynced entry's report
-	LockDev    string  // the device that holds this path exclusively
-	LockDevID  int64
-}
-
-// conflictName splits "dir/report.conflict-laptop-20261101-153012.docx" into its original and extension parts.
-var conflictName = regexp.MustCompile(`^(.*)\.conflict-[^/]+-\d{8}-\d{6}(\.[^/]*)?$`)
-
-// conflictOriginal returns the path of the file a conflict copy was made from.
-func conflictOriginal(p string) string {
-	if m := conflictName.FindStringSubmatch(p); m != nil {
-		return m[1] + m[2]
-	}
-	return ""
+	WC         wcInfo
+	HeldN      int    // changes devices hold below (or at) this entry
+	HeldDev    string // the devices that hold them
 }
 
 // browse lists the entries directly below dir ("" or "a/b"); directories are
@@ -72,7 +58,7 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 	if err != nil {
 		return nil, err
 	}
-	prefix, q, args := "", `SELECT path, size, mtime_ns, created_at, conflict, hash IS NULL FROM files WHERE true`, []any{}
+	prefix, q, args := "", `SELECT path, size, mtime_ns, created_at, hash IS NULL FROM files WHERE true`, []any{}
 	if dir != "" {
 		prefix = dir + "/"
 		q += ` AND path >= ? AND path < ?` // "0" is the character after "/"
@@ -88,8 +74,8 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 	for rows.Next() {
 		var p string
 		var size, mtime, created int64
-		var conflict, gone bool
-		if err := rows.Scan(&p, &size, &mtime, &created, &conflict, &gone); err != nil {
+		var gone bool
+		if err := rows.Scan(&p, &size, &mtime, &created, &gone); err != nil {
 			return nil, err
 		}
 		if gone && !deleted {
@@ -110,12 +96,9 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 			}
 			continue
 		}
-		e := browseEntry{Name: rest, Path: p, Size: size, Time: mtime / 1e9, Gone: gone, Conflict: conflict && !gone}
+		e := browseEntry{Name: rest, Path: p, Size: size, Time: mtime / 1e9, Gone: gone}
 		if gone {
 			e.Time = created
-		}
-		if e.Conflict {
-			e.Orig = conflictOriginal(p)
 		}
 		out = append(out, e)
 	}
@@ -139,23 +122,15 @@ func unsyncedLabel(t translator, n notice) string {
 }
 
 // decorate adds what the devices report about the entries to the listing: tags on the paths that have notices,
-// "has a conflict" on the originals of conflict copies, and a row for each entry of dir that a device reports as
+// and a row for each entry of dir that a device reports as
 // skipped or refused and the server does not have. The data is in memory: no database query.
 func decorate(t translator, entries []browseEntry, dir string, notes []notice) []browseEntry {
 	byPath := map[string]int{}
 	for i, e := range entries {
 		byPath[e.Path] = i
 	}
-	for i, e := range entries {
-		if e.Conflict {
-			entries[i].Tags = append(entries[i].Tags, entryTag{"err", t.T("tag.conflictCopy"), ""})
-			if j, ok := byPath[e.Orig]; ok && !hasTag(entries[j].Tags, t.T("tag.hasConflict")) {
-				entries[j].Tags = append(entries[j].Tags, entryTag{"err", t.T("tag.hasConflict"), ""})
-			}
-		}
-	}
 	for _, n := range notes {
-		if n.Path == "" || n.Kind == kindConflict {
+		if n.Path == "" {
 			continue
 		}
 		parent := ""
@@ -228,18 +203,11 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	}
 	t := trOf(r)
 	entries = decorate(t, entries, dir, notes)
-	locks, err := folderLocks(s.db, f.ID)
+	wcRules, err := folderWC(s.db, f.ID)
 	if err != nil {
 		return err
 	}
-	for i := range entries {
-		for _, l := range locks {
-			if l.key == pp.Key(entries[i].Path) {
-				entries[i].LockDev, entries[i].LockDevID = l.Device, l.DeviceID
-				entries[i].Tags = append([]entryTag{{"lock", t.T("fo.tag.locked", "device", l.Device), ""}}, entries[i].Tags...)
-			}
-		}
-	}
+	s.decorateWC(t, entries, dir, f.ID, wcRules)
 	type crumb struct{ Name, Path string }
 	var crumbs []crumb
 	for i, p := range strings.Split(dir, "/") {
@@ -272,7 +240,19 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "Devs": devs, "Mapped": len(devs),
 		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": seq,
 		"Rules": rules, "SavedRules": f.Rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
-		"Scope": dir, "LockHere": lockCovering(locks, dir), "LockPaths": lockPaths(locks)}
+		"Scope": dir, "LockPaths": lockPaths(wcRules), "WCHere": wcFor(wcRules, dir)}
+	s.wcLine(t, data, f.ID, wcRules, dir)
+	if wp, ok := r.URL.Query()["wc"]; ok && ds == nil { // a link of the notifications opens the dialog (design 2.8.11)
+		data["Open"], data["WCOpen"] = "dlg-wc", wcFor(wcRules, strings.Trim(wp[0], "/"))
+	} else if ds != nil && ds.dialog == "dlg-wc" {
+		data["WCOpen"] = wcFor(wcRules, strings.Trim(r.PostForm.Get("path"), "/"))
+	}
+	if hd, err := strconv.ParseInt(r.FormValue("held"), 10, 64); err == nil && ds == nil {
+		if data["HeldView"], err = s.heldView(f.ID, hd); err != nil {
+			return err
+		}
+		data["Open"] = "dlg-held"
+	}
 	if ds != nil && ds.dialog == "dlg-restore" {
 		data["Scope"] = r.PostForm.Get("path")
 	}
@@ -283,7 +263,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		if data["Versions"], err = s.versionList(f.ID, file); err != nil {
 			return err
 		}
-		data["File"], data["FileOrig"] = file, conflictOriginal(file)
+		data["File"] = file
 		data["Open"] = "dlg-versions"
 	}
 	s.show(w, r, ds, "folder", t.T("title.folder", "name", f.Name), data)
@@ -452,23 +432,14 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// lockCovering is the lock that covers dir (the directory itself or one above it), or nil.
-func lockCovering(locks []lockRow, dir string) *lockRow {
-	k := pp.Key(dir)
-	for i := range locks {
-		if locks[i].covers(k) {
-			return &locks[i]
-		}
-	}
-	return nil
-}
-
-// lockPaths is the locks as the JSON the restore dialog reads to warn about an exclusive in its range.
-func lockPaths(locks []lockRow) string {
+// lockPaths is the exclusive settings as the JSON the restore dialog reads to warn about an exclusive in its range.
+func lockPaths(rules []lockRow) string {
 	type l struct{ P, K, D string }
 	out := []l{}
-	for _, x := range locks {
-		out = append(out, l{x.Path, x.key, x.Device})
+	for _, x := range rules {
+		if x.Mode == proto.ModeExclusive {
+			out = append(out, l{x.Path, x.key, x.Device})
+		}
 	}
 	b, _ := json.Marshal(out)
 	return string(b)

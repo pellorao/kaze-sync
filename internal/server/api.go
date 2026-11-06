@@ -16,6 +16,7 @@ import (
 
 	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
+	pp "kaze-sync/internal/proto/path"
 )
 
 type device struct {
@@ -195,8 +196,8 @@ func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 	epoch := MetaString(s.db, "epoch")
 	for {
 		ch := s.waitCh() // taken before reading the state so no change is missed
-		resp := proto.PollResp{Cursors: s.cursors(d.id), Epoch: epoch}
-		news := metaInt(s.db, "config_version") != req.ConfigVersion
+		resp := proto.PollResp{Cursors: s.cursors(d.id), Epoch: epoch, Boot: s.boot}
+		news := metaInt(s.db, "config_version") != req.ConfigVersion || s.undelivered(d.id)
 		for id, seq := range resp.Cursors {
 			if have, ok := req.Cursors[id]; !ok || have != seq {
 				news = true
@@ -211,6 +212,7 @@ func (s *Server) poll(w http.ResponseWriter, r *http.Request, d device) {
 				}
 				resp.Config = &cfg
 			}
+			resp.Actions = s.deliver(d.id)
 			writeJSON(w, resp)
 			return
 		}
@@ -310,7 +312,13 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, d device) {
 	}
 	db, err := s.folderDB(folder)
 	var rows *sql.Rows
-	if err == nil {
+	if b := r.FormValue("blocking"); b != "" && err == nil { // the live entries a file at b clashes with (design 2.8.7)
+		var ents []proto.Entry
+		if ents, err = blockingEntries(db, b); err == nil {
+			writeJSON(w, proto.ChangesResp{Entries: ents, Cursor: since})
+			return
+		}
+	} else if err == nil {
 		rows, err = db.Query(`SELECT `+fileCols+` FROM files WHERE seq > ? ORDER BY seq LIMIT ?`, since, proto.MaxChangesPage+1)
 	}
 	if err != nil {
@@ -337,6 +345,24 @@ func (s *Server) changes(w http.ResponseWriter, r *http.Request, d device) {
 		resp.Cursor = f.seq
 	}
 	writeJSON(w, resp)
+}
+
+// blockingEntries lists the live entries a file at p cannot coexist with: files below p, or a file where one of its
+// directories is needed (design 6.6). A decision to overwrite deletes them first.
+func blockingEntries(db *sql.DB, p string) ([]proto.Entry, error) {
+	key := pp.Key(p)
+	q, args := `SELECT `+fileCols+` FROM files WHERE hash IS NOT NULL AND (key >= ? AND key < ?`, []any{key + "/", key + "0"}
+	for i := 0; i < len(key); i++ {
+		if key[i] == '/' {
+			q, args = q+` OR key=?`, append(args, key[:i])
+		}
+	}
+	rows, err := queryAll(db, func(r *sql.Rows, f *fileRow) error { return f.scan(r) }, q+`) ORDER BY path`, args...)
+	out := make([]proto.Entry, 0, len(rows))
+	for i := range rows {
+		out = append(out, *rows[i].entry())
+	}
+	return out, err
 }
 
 func (s *Server) commitHandler(w http.ResponseWriter, r *http.Request, d device) {
@@ -471,36 +497,4 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 			go read(i + par)
 		}
 	}
-}
-
-// maxHeldItems bounds the list of held changes the server keeps per folder and device (design 2.8.10).
-const maxHeldItems = 20000
-
-// heldHandler stores the list of held changes a device reports for a folder; it lives in memory only and the device
-// sends it again when it changes.
-func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
-	var req proto.HeldReq
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if !s.mapped(d.id, req.Folder) {
-		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
-		return
-	}
-	if len(req.Items) > maxHeldItems {
-		req.Items = req.Items[:maxHeldItems]
-	}
-	s.mu.Lock()
-	rep := s.reports[d.id]
-	if rep == nil {
-		rep = &report{}
-		s.reports[d.id] = rep
-	}
-	if rep.held == nil {
-		rep.held = map[int64][]proto.HeldItem{}
-	}
-	rep.held[req.Folder] = req.Items
-	s.bumpLocked()
-	s.mu.Unlock()
-	writeJSON(w, map[string]int{"held": len(req.Items)})
 }

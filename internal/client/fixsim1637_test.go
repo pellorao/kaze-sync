@@ -44,7 +44,7 @@ func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
 		t.Fatalf("held: %+v", rows)
 	}
 	// One decision on "d" sets the directory aside; the held file below it is gone with it (the next scan drops it).
-	if err := g2.f.Resolve(context.Background(), "d", ActDiscard, true); err != nil {
+	if err := g2.f.Resolve(context.Background(), proto.Action{Path: "d", Action: ActDiscard, Save: true}); err != nil {
 		t.Fatal(err)
 	}
 	g2.scan()

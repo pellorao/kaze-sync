@@ -88,7 +88,7 @@ func TestDictionaryKeysAreUsed(t *testing.T) {
 		names = append(names, regexp.QuoteMeta(g))
 	}
 	keyRe := regexp.MustCompile(`"((?:` + strings.Join(names, "|") + `)\.[A-Za-z0-9_.-]*[A-Za-z0-9_])"`)
-	dynamic := []string{"st.", "cfg.", "kind.", "advice.", "fold.", "unsynced.", "js.ago_", "js.menu."}
+	dynamic := []string{"st.", "cfg.", "kind.", "advice.", "fold.", "unsynced.", "js.ago_", "js.menu.", "held.why.", "held.kind.", "held.note.", "wc.tag.", "wc.desc.", "wc.mode.", "js.wc.mode."}
 
 	var files []string
 	for _, pat := range []string{"*.go", "web/*.html", "web/app.js"} {
@@ -126,7 +126,7 @@ func TestDictionaryKeysAreUsed(t *testing.T) {
 	}
 	// The families: a text for every state and kind the code can ask for.
 	for _, k := range []string{"st.idle", "st.syncing", "st.error", "cfg.latest", "cfg.pending", "kind.rejected", "kind.io", "kind.folder", "kind.in_use",
-		"kind.skipped", "advice.rejected", "advice.io", "advice.folder", "advice.in_use", "advice.skipped", "advice.conflict", "fold.skipped",
+		"kind.skipped", "advice.rejected", "advice.io", "advice.folder", "advice.in_use", "advice.skipped", "advice.held", "fold.skipped",
 		"fold.in_use", "fold.link-not-created", "unsynced.linkNotCreated", "unsynced.symlink", "unsynced.utf8"} {
 		if _, ok := base[k]; !ok {
 			t.Errorf("the dictionary lacks %q", k)
@@ -206,7 +206,7 @@ func TestTranslatorTexts(t *testing.T) {
 	if got := string(en.H("pv.count", "n", 3)); got != "Files that existed then and differ now: <b>3</b>" {
 		t.Errorf("tags: %q", got)
 	}
-	if got := string(en.H("ver.conflictNote", "href", "/x?a=1&b=2", "file", "<i>x</i>")); !strings.Contains(got, `<a href="/x?a=1&amp;b=2">`) || !strings.Contains(got, "&lt;i&gt;x&lt;/i&gt;") {
+	if got := string(en.H("notif.offlineDays", "href", "/x?a=1&b=2", "name", "<i>x</i>", "d", 3)); !strings.Contains(got, `<a href="/x?a=1&amp;b=2">`) || !strings.Contains(got, "&lt;i&gt;x&lt;/i&gt;") {
 		t.Errorf("escaping: %q", got)
 	}
 }

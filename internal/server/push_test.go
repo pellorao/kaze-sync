@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kaze-sync/internal/ntfy"
+	"kaze-sync/internal/proto"
 )
 
 func pushEnv(t *testing.T) (*env, chan string) {
@@ -48,17 +49,19 @@ func pushNone(t *testing.T, ch chan string) {
 	}
 }
 
-func TestPushConflictsOnceThenNothingUntilGone(t *testing.T) {
+func TestPushHeldOnceThenNothingUntilGone(t *testing.T) {
 	e, ch := pushEnv(t)
 	f := e.folder("docs")
+	dev, tok := e.enrollDevice("laptop", "linux")
+	e.mapFolder(dev, f, "/docs")
 	e.s.pushCheck()
 	pushNone(t, ch)
-	e.commit(f, e.op("sub/report.conflict-laptop-20261101-153012.docx", 0, "c"))
+	e.heldReport(tok, f, proto.HeldItem{Path: "sub/report.docx", Scope: "d:sub", Reason: "owner", Kind: "modify", At: e.clk.Now().Unix()})
 	for range 5 {
 		e.s.pushCheck()
 	}
 	m := pushGet(t, ch)
-	if !strings.Contains(m, "1 conflict copies in folder docs") || strings.Contains(m, "report") || strings.Contains(m, "sub/") {
+	if !strings.Contains(m, "1 changes in folder docs are on hold") || strings.Contains(m, "report") || strings.Contains(m, "sub/") {
 		t.Fatalf("message %q", m)
 	}
 	pushNone(t, ch)

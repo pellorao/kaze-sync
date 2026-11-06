@@ -46,19 +46,3 @@ func TestKey(t *testing.T) {
 		t.Error("distinct names share a key")
 	}
 }
-
-func TestIsConflictName(t *testing.T) {
-	for p, want := range map[string]bool{
-		"report.conflict-laptop-20261101-153012.docx": true,
-		"a/b/report.conflict-my_pc-20261101-153012":   true,
-		"x.conflict-pc-20261101-153012.tar.gz":        true,
-		"report.docx":                                 false,
-		"a.conflict-pc-2026-153012.docx":              false,
-		"conflict-pc-20261101-153012.docx":            false,
-		"dir.conflict-pc-20261101-153012/file.txt":    false,
-	} {
-		if got := IsConflictName(p); got != want {
-			t.Errorf("IsConflictName(%q) = %v, want %v", p, got, want)
-		}
-	}
-}

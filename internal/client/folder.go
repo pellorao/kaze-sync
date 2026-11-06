@@ -80,8 +80,9 @@ type Folder struct {
 	heldDirty      bool                 // the held list may differ from what the server has
 	heldSig        string
 	heldSent       string
-	unsent         bool // a scan found changes it could not send, and no whole scan has found everything sent since
-	linkProbe      int  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
+	heldNote       map[string]string // why the last decision on a held path was not carried out (HeldItem.Note)
+	unsent         bool              // a scan found changes it could not send, and no whole scan has found everything sent since
+	linkProbe      int               // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
 type rejection struct {
@@ -180,6 +181,9 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	}
 	if f.ready && err == nil {
 		err = f.scan(ctx, dirs, &rep)
+		if whole {
+			f.cleanSaved()
+		}
 		if f.scope != nil { // a partial scan: errors outside what it covered still stand (design 3.6)
 			var kept []proto.FileError
 			for _, e := range old {

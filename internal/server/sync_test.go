@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -214,15 +215,17 @@ func TestNotificationsFromEverySource(t *testing.T) {
 		proto.FileError{Kind: proto.KindFolder, Message: "marker file missing", Since: e.clk.Now().Unix()},
 		proto.FileError{Path: "open.db", Kind: proto.KindInUse, Message: "in use", Since: e.clk.Now().Unix()},
 		proto.FileError{Path: "huge.iso", Kind: proto.KindSkipped, Message: "too large", Since: e.clk.Now().Unix()})
-	e.commit(f, e.op("a.conflict-laptop-20261101-120000.txt", 0, "copy"))
+	e.commit(f, e.op("a.txt", 0, "copy"))
+	e.heldReport(tok, f, proto.HeldItem{Path: "a.txt", Scope: "d:", Reason: "conflict", Kind: "modify", BaseSeq: 1, At: e.clk.Now().Unix()})
+	e.post(c, "/folders/"+itoa(f)+"/wc-ack", url.Values{}) // the new-folder reminder is a warning of its own
 
 	_, over := e.get(c, "/")
-	// Errors: rejected, io, folder, conflict copy; warnings: in use and skipped.
+	// Errors: rejected, io, folder, held changes; warnings: in use and skipped.
 	if !hasCounts(over, f, 4, 2) {
 		t.Fatalf("overview summary:\n%s", over)
 	}
 	_, page := e.get(c, "/folders/"+itoa(f))
-	for _, want := range []string{"illegal name", "disk full", "marker file missing", "in use", "too large", "冲突副本",
+	for _, want := range []string{"illegal name", "disk full", "marker file missing", "in use", "too large", "待处理",
 		`href="/folders/` + itoa(f) + `?dir=dir#dir%2Fbad:name.txt"`, `href="/folders/` + itoa(f) + `?dir=db#db%2Fx.sqlite"`,
 		`href="/folders/` + itoa(f) + `?dir=#huge.iso"`, "laptop"} {
 		if !strings.Contains(page, want) {
@@ -230,17 +233,18 @@ func TestNotificationsFromEverySource(t *testing.T) {
 		}
 	}
 
-	// A conflict copy survives a restart of the server: nothing is stored apart from the file rows.
+	// The reports and held lists are in memory: after a restart they are gone until the devices send them again.
 	e.restart()
 	e.login(c, "pw") // sessions are in memory
 	_, over = e.get(c, "/")
-	if !hasCounts(over, f, 1, 0) {
-		t.Fatalf("after restart the reports are gone but the conflict copy stays:\n%s", over)
+	if !hasCounts(over, f, 0, 0) {
+		t.Fatalf("after restart the reports are gone:\n%s", over)
 	}
 
 	// Removing the cause removes the notice.
+	e.heldReport(tok, f, proto.HeldItem{Path: "a.txt", Scope: "d:", Reason: "conflict", Kind: "modify", BaseSeq: 1, At: e.clk.Now().Unix()})
+	e.heldReport(tok, f)
 	e.report(tok, f)
-	e.commit(f, proto.Op{Path: "a.conflict-laptop-20261101-120000.txt", BaseSeq: 1})
 	_, over = e.get(c, "/")
 	if strings.Contains(over, `class="badge`) {
 		t.Fatalf("notices remain:\n%s", over)

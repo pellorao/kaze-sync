@@ -202,43 +202,35 @@ func releaseExclusive(tx *sql.Tx, device, folder int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-// writectlHandler sets, moves or removes a setting (POST /folders/{id}/writectl; fields path, mode, device).
+// writectlHandler sets, moves or removes a setting (POST /folders/{id}/writectl; fields path, mode, device). Any save
+// confirms the folder's write rules (design 2.8.11).
 func (s *Server) writectlHandler(w http.ResponseWriter, r *http.Request) error {
-	return s.wcPost(w, r, r.FormValue("mode"), "dlg-lock")
-}
-
-// lockHandler is the exclusive-only form of the same until the write-control dialog replaces it (POST
-// /folders/{id}/lock; field device empty: remove).
-func (s *Server) lockHandler(w http.ResponseWriter, r *http.Request) error {
-	mode := proto.ModeExclusive
-	if r.FormValue("device") == "" {
-		mode = "inherit"
-	}
-	return s.wcPost(w, r, mode, "dlg-lock")
-}
-
-func (s *Server) wcPost(w http.ResponseWriter, r *http.Request, mode, dlg string) error {
 	f, err := s.loadFolder(r)
 	if err != nil {
 		return err
 	}
+	mode := r.FormValue("mode")
 	p := strings.Trim(r.FormValue("path"), "/")
 	back := "/folders/" + strconv.FormatInt(f.ID, 10)
 	if p != "" && pp.CheckPortable(p) != nil || p == "" && mode == "inherit" {
-		return fieldErr(s.folderPage, http.StatusBadRequest, dlg, "path", "err.lock.path")
+		return fieldErr(s.folderPage, http.StatusBadRequest, "dlg-wc", "path", "err.lock.path")
 	}
 	dev, _ := strconv.ParseInt(r.FormValue("device"), 10, 64)
 	err = s.configChange(func(tx *sql.Tx) (bool, error) {
 		changed, err := setWC(tx, f.ID, p, mode, dev, s.now().Unix())
 		var m msg
 		if errors.As(err, &m) {
-			return false, fieldErr(s.folderPage, http.StatusBadRequest, dlg, "path", m.key, m.kv...)
+			return false, fieldErr(s.folderPage, http.StatusBadRequest, "dlg-wc", "path", m.key, m.kv...)
+		}
+		if err == nil {
+			_, err = tx.Exec(`UPDATE folders SET wc_ack=1 WHERE id=?`, f.ID)
 		}
 		return changed, err
 	})
 	if err != nil {
 		return err
 	}
+	s.uiBump() // the new-folder reminder of the notification bar goes
 	http.Redirect(w, r, back+"?dir="+url.QueryEscape(strings.Trim(r.FormValue("dir"), "/")), http.StatusSeeOther)
 	return nil
 }

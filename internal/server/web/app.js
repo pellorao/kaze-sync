@@ -102,11 +102,11 @@
   const cf = $("#dlg-confirm");
   let pending = null;
   document.addEventListener("submit", (e) => {
-    const f = e.target;
-    if (!f.dataset || !f.dataset.confirm || f.dataset.confirmed) return;
+    const f = e.target, text = (e.submitter && e.submitter.dataset.confirm) || (f.dataset && f.dataset.confirm);
+    if (!text || f.dataset.confirmed) return;
     e.preventDefault();
     pending = { form: f, submitter: e.submitter };
-    $("#cf-msg").textContent = f.dataset.confirm;
+    $("#cf-msg").textContent = text;
     const ok = $("#cf-ok");
     ok.textContent = f.dataset.confirmOk || rt("common.ok");
     ok.className = "btn " + ("danger" in f.dataset ? "danger" : "primary");
@@ -141,21 +141,36 @@
     for (const k in params) { if (params[k] === null) u.searchParams.delete(k); else u.searchParams.set(k, params[k]); }
     location.href = u;
   }
-  // lockItems: set, move or clear the exclusive writer of the row's path (a directory, or the one the page shows)
-  const lockItems = (c) => c.row.dataset.lock
-    ? [[rt("js.menu.transfer"), "lock", "lock"], [rt("js.menu.unlock"), "lock", "unlock"]]
-    : [[rt("js.menu.lock"), "lock", "lock"]];
+  // wcItem: the write control of the row's path (a directory, a file, or the one the page shows)
+  const wcItem = [rt("js.menu.wc"), "lock", "wc"];
+  // fillWC sets the write-control dialog for a path from the data-* of a row, of the folder button or of the dialog
+  // itself (r.wcMode is the mode set on the path, empty when it only inherits).
+  function fillWC(d, r, isFile) {
+    const f = $("form", d), p = r.path || "", inh = r.inh || "single";
+    f.elements.path.value = p;
+    $('[data-fill="scope"]', d).textContent = d.dataset.folderName + (p ? " / " + p : "");
+    $('[data-fill="inherit"]', d).textContent = rt("js.wc.inherit", { mode: rt("js.wc.mode." + inh), from: r.inhFrom ? "/" + r.inhFrom : "/" });
+    $$('[data-opt="inherit"]', d).forEach((x) => { x.hidden = !p; });
+    $$('[data-opt="free"]', d).forEach((x) => { x.hidden = !!isFile; });
+    $("[data-wc-root]", d).hidden = !!p;
+    const sel = r.wcMode || (p ? "inherit" : "single");
+    [...f.elements.mode].forEach((x) => { x.checked = x.value === sel; });
+    const dev = f.elements.device;
+    if (r.wcDev && r.wcDev !== "0" && [...dev.options].some((o) => o.value === r.wcDev)) dev.value = r.wcDev;
+    const sync = () => { dev.disabled = !dev.options.length || f.elements.mode.value !== "exclusive"; };
+    f.onchange = sync;
+    sync();
+  }
   const restoreLabel = (d) => rt(d.path ? "js.menu.restoreDir" : "js.menu.restoreFolder");
   const MENUS = {
-    dir: (c) => [[rt("js.menu.open"), "open", "open"], [rt("js.menu.restoreAt"), "restore", "restore-at"], ...lockItems(c)],
-    file: () => [[rt("js.menu.versions"), "history", "versions"], [rt("js.menu.restoreAt"), "restore", "restore-at"]],
+    dir: () => [[rt("js.menu.open"), "open", "open"], [rt("js.menu.restoreAt"), "restore", "restore-at"], wcItem],
+    file: () => [[rt("js.menu.versions"), "history", "versions"], [rt("js.menu.restoreAt"), "restore", "restore-at"], wcItem],
     gone: () => [[rt("js.menu.restoreLast"), "restore", "restore-last"], [rt("js.menu.versions"), "history", "versions"]],
-    conflict: (c) => [[rt("js.menu.versions"), "history", "versions"], c.row.dataset.orig ? [rt("js.menu.versionsOrig"), "history", "versions-orig"] : null, [rt("js.menu.restoreAt"), "restore", "restore-at"]],
     unsynced: () => [[rt("js.menu.detail"), "info", "detail"]],
     blank: (c) => [[restoreLabel(c.row.dataset), "restore", "restore-dir"]],
     "folder-head": (c) => {
       const n = +c.row.dataset.maps;
-      return [[restoreLabel(c.row.dataset), "restore", "restore-dir"], ...lockItems(c),
+      return [[restoreLabel(c.row.dataset), "restore", "restore-dir"], wcItem,
         [rt("js.menu.delFolder"), "trash", "del-folder", { danger: true, disabled: n > 0, hint: n > 0 ? rt("js.menu.delFolderHint", { n }) : "" }]];
     },
     "map-row": () => [[rt("js.menu.editMap"), "edit", "edit-map"], [rt("js.menu.delMap"), "trash", "del-map", { danger: true }]],
@@ -164,23 +179,13 @@
   const ACTIONS = {
     open: (c) => { location.href = $("a.nm", c.row).href; },
     versions: (c) => goto({ file: c.row.dataset.path }),
-    "versions-orig": (c) => goto({ file: c.row.dataset.orig }),
     "restore-at": (c) => openRestore(c.row.dataset.path, c.row.dataset.kind === "dir"),
     "restore-dir": (c) => openRestore(c.row.dataset.path || "", !!c.row.dataset.path),
-    lock: (c) => {
-      const d = $("#dlg-lock"), f = $("form", d), p = c.row.dataset.path || "", cur = c.row.dataset.lockId || "";
-      f.elements.path.value = p;
-      $('[data-fill="scope"]', d).textContent = d.dataset.folderName + (p ? " / " + p : "");
+    wc: (c) => {
+      const d = $("#dlg-wc");
       $$(".err-msg", d).forEach((x) => x.remove());
-      const sel = f.elements.device, other = [...sel.options].find((o) => o.value !== cur);
-      if (other) sel.value = other.value;
+      fillWC(d, c.row.dataset, c.row.dataset.kind === "file");
       openDialog(d);
-    },
-    unlock: (c) => {
-      const f = $("#f-unlock"), p = c.row.dataset.path || "";
-      f.elements.path.value = p;
-      f.dataset.confirm = rt("js.unlock.confirm", { device: c.row.dataset.lock, path: p || "/" });
-      f.requestSubmit();
     },
     "restore-last": (c) => { const f = $("#f-restore-last"); f.elements.path.value = c.row.dataset.path; f.requestSubmit(); },
     detail: (c) => {
@@ -217,7 +222,7 @@
     const items = (MENUS[kind] || (() => []))({ row }).filter(Boolean);
     if (!items.length) return;
     menu.replaceChildren();
-    if (row.dataset.path && /^(dir|file|gone|conflict|unsynced)$/.test(kind)) menu.append(el("div", { class: "mh" }, row.dataset.path + (kind === "dir" ? "/" : "")));
+    if (row.dataset.path && /^(dir|file|gone|unsynced)$/.test(kind)) menu.append(el("div", { class: "mh" }, row.dataset.path + (kind === "dir" ? "/" : "")));
     for (const [label, ic, act, o] of items) {
       const b = el("button", { type: "button", class: "mi" + (o && o.danger ? " danger" : ""), role: "menuitem" }, icon(ic), label);
       b.dataset.act = act;
@@ -1015,7 +1020,10 @@
   // ---- start
   renderTimes(document);
   $$("[data-ruleedit]").forEach(ruleEditor);
-  $$("dialog[data-autoopen]").forEach((d) => { if (restore && d.id === "dlg-restore") restore.open(d.querySelector("form").elements.path.value, null); else openDialog(d); });
+  $$("dialog[data-autoopen]").forEach((d) => {
+    if (restore && d.id === "dlg-restore") restore.open(d.querySelector("form").elements.path.value, null);
+    else { if (d.id === "dlg-wc") fillWC(d, d.dataset, false); openDialog(d); }
+  });
   const hit = decodeURIComponent(location.hash.slice(1));
   if (hit) {
     const row = $$("tr[data-path]").find((r) => r.dataset.path === hit);

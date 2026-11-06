@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -217,6 +218,20 @@ func (a *API) Changes(ctx context.Context, folder, since int64) (proto.ChangesRe
 	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
 	req.Header.Set("Authorization", "Bearer "+a.Token)
 	return r, a.send(req, "changes", &r)
+}
+
+// Blocking lists the server's live entries a file at p cannot coexist with: files below p, or a file where a directory
+// of p is needed (design 2.8.7).
+func (a *API) Blocking(ctx context.Context, folder int64, p string) ([]proto.Entry, error) {
+	var r proto.ChangesResp
+	u := fmt.Sprintf("%s/api/v1/changes?folder=%d&since=0&blocking=%s", strings.TrimRight(a.Base, "/"), folder, url.QueryEscape(p))
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(proto.VersionHeader, strconv.Itoa(proto.AgentVersion))
+	req.Header.Set("Authorization", "Bearer "+a.Token)
+	return r.Entries, a.send(req, "changes", &r)
 }
 
 // GetBlocks requests blocks; the caller reads the packet from the body (see

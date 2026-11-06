@@ -112,6 +112,19 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 		}
 		news = true
 	}
+	if resp.Boot != "" && resp.Boot != a.boot { // another run of the server: it has lost the held lists
+		if a.boot != "" {
+			for _, r := range a.runners {
+				r.resend, r.s.pull, news = true, true, true
+			}
+		}
+		a.boot = resp.Boot
+	}
+	for _, act := range resp.Actions {
+		if r := a.runners[act.Folder]; r != nil {
+			r.actions, r.s.full, news = append(r.actions, act), true, true
+		}
+	}
 	for id, o := range a.openRetry {
 		if seq, ok := resp.Cursors[id]; ok {
 			o.seen = seq

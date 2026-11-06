@@ -5,21 +5,21 @@
 <span class="sp"></span>
 <a class="toggle{{if .Deleted}} on{{end}}" role="switch" aria-checked="{{if .Deleted}}true{{else}}false{{end}}" href="/folders/{{.Folder.ID}}?{{if .Dir}}dir={{.Dir}}{{end}}{{if not .Deleted}}{{if .Dir}}&amp;{{end}}deleted=1{{end}}"><span class="sw"></span>{{t "fo.showDeleted"}}</a>
 {{if not .Dir}}<button type="button" class="btn" data-dialog="dlg-rules">{{icon "rules"}}{{t "fo.rules"}}{{if .RuleCount}} <span class="n">{{.RuleCount}}</span>{{end}}</button>{{end}}
-<button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}"{{with .LockHere}}{{if eq .Path $.Dir}} data-lock="{{.Device}}" data-lock-id="{{.DeviceID}}"{{else}} data-locked-in="1"{{end}}{{end}} aria-label="{{t "fo.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
+<button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}"{{template "wc-data" .WCHere}} aria-label="{{t "fo.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
 <p class="sub"><span>{{if .Mapped}}{{t "fo.devices" "n" .Mapped "names" (names .Devs)}}{{else}}{{t "fo.noMapped"}}{{end}}</span>
 <span class="dot-sep num">{{t "fo.nFiles" "n" .Files}}</span><span class="dot-sep num">{{size .Bytes}}</span>
 <span class="dot-sep">{{template "folder-state" .}}</span>
-{{with .LockHere}}<span class="dot-sep">{{icon "lock"}}{{tm "fo.locked.line" "device" .Device "time" (time .CreatedAt)}}</span>{{end}}
+<span class="dot-sep wc-line">{{icon (modeIcon .WCHere.Mode)}}{{tm "fo.wc.line" "mode" .WCMode "from" .WCFrom}}{{if .WCOwner}}{{tm "fo.wc.owner" "device" .WCOwner "time" (time .WCUntil)}}{{end}}</span>
 {{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</button>{{end}}</p>
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
 <div class="list-h"><span>{{t "fo.items" "n" (len .Entries)}}</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}{{t "fo.reload"}}</button></div>
 {{if .Entries}}<table class="files">
 <thead><tr><th>{{t "ov.name"}}</th><th class="size r">{{t "fo.size"}}</th><th class="time">{{t "fo.modified"}}</th><th class="act"></th></tr></thead>
 <tbody>
-{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else if .Conflict}}conflict{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if .LockDev}} data-lock="{{.LockDev}}" data-lock-id="{{.LockDevID}}"{{end}}{{if .Orig}} data-orig="{{.Orig}}"{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
-<td class="name"><div class="fname">{{if .IsDir}}{{icon "folder" "dir"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
+{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if not .Unsynced}}{{template "wc-data" .WC}}{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
+<td class="name"><div class="fname">{{if .IsDir}}{{rowIcon .}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
 {{else if .Unsynced}}{{icon "link" "file"}}<span class="t nm">{{.Name}}</span>
-{{else}}{{icon "file" "file"}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
+{{else}}{{rowIcon .}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
 <span class="tags">{{if and .IsDir .Gone}}<span class="tag">{{t "fo.onlyDeleted"}}</span>{{else if and .Gone (not .IsDir)}}<span class="tag">{{t "fo.deleted"}}</span>{{end}}{{range .Tags}}<span class="tag {{.Class}}"{{if .Title}} title="{{.Title}}"{{end}}>{{.Text}}</span>{{end}}</span></div>
 {{if and (or .Size .Time) (not .Unsynced) (not (and .IsDir .Gone))}}<div class="sm-meta">{{if not .Gone}}{{size .Size}} · {{time .Time}}{{else}}{{tm "fo.deletedAt" "time" (time .Time)}}{{end}}</div>{{end}}</td>
 <td class="size">{{if and (not .Gone) (not .Unsynced)}}{{size .Size}}{{end}}</td>
@@ -30,6 +30,36 @@
 {{else}}<div class="empty">{{if and (not .Dir) (not .Mapped)}}{{t "fo.emptyUnmapped"}}{{else if .Deleted}}{{t "fo.emptyDeleted"}}{{else}}{{t "fo.empty"}}{{end}}</div>{{end}}
 </section>
 {{end}}
+
+{{define "held-dialog"}}{{with .HeldView}}<dialog id="dlg-held" class="dlg wide held" data-autoopen data-clear="held" aria-labelledby="hd-t">
+<div class="dlg-h">{{icon "warn"}}<h3 id="hd-t">{{t "dlg.held.title" "device" .Device}}</h3><button type="button" class="icon-btn x" data-close aria-label="{{t "common.close"}}">{{icon "x"}}</button></div>
+<div class="dlg-b">
+{{if not .Groups}}<p class="muted">{{t "dlg.held.none"}}</p>{{end}}
+{{if and .Groups (not .Online)}}<p class="note">{{icon "info"}}<span>{{t "dlg.held.offline" "device" .Device}}</span></p>{{end}}
+{{range .Groups}}<form method="post" action="/folders/{{$.Folder.ID}}/resolve" class="held-grp">
+<button class="sr" tabindex="-1" aria-hidden="true"></button><input type="hidden" name="device" value="{{$.HeldView.DeviceID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><input type="hidden" name="scope" value="{{.Scope}}"><input type="hidden" name="seen" value="{{$.HeldView.Seen}}">
+<div class="held-h"><span class="mono">/{{.Path}}</span><span class="muted">{{t "held.n" "n" .Total}} · {{heldWhy .Reason .Other}}</span></div>
+<div class="held-acts"><button class="btn sm" name="action" value="discard">{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite" data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
+<label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
+<details><summary>{{t "dlg.held.expand"}}</summary>
+<table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
+{{range .Rows}}<tr><td class="mono">{{.Path}}</td>
+<td>{{t (printf "held.kind.%s" .Kind)}}{{if ne .Kind "delete"}} · {{size .Size}} · {{time .Mtime}}{{end}}</td>
+<td class="num">#{{.BaseSeq}}</td>
+<td>{{if not .CurSeq}}<span class="muted">{{t "dlg.held.noEntry"}}</span>{{else}}#{{.CurSeq}} · {{.CurDevice}} · {{time .CurTime}}{{if .CurGone}} · {{t "fo.deleted"}}{{end}} · {{if .Changed}}<span class="cnt warn">{{t "dlg.held.changed" "device" .CurDevice}}</span>{{else}}{{t "dlg.held.same"}}{{end}}{{end}}</td>
+<td>{{if .Waiting}}<span class="muted">{{t "dlg.held.waiting" "device" $.HeldView.Device}}</span>{{else}}<input type="hidden" name="r" value="{{.Field}}"><select name="a" aria-label="{{t "dlg.held.action"}}"><option value="">-</option>
+<option value="upload"{{if not .CanUpload}} disabled{{end}}>{{t "dlg.held.upload"}}</option><option value="overwrite">{{t "dlg.held.overwrite"}}</option><option value="discard">{{t "dlg.held.discard"}}</option></select>
+{{if .Note}}<span class="err-msg">{{t (printf "held.note.%s" .Note)}}</span>{{else if not .CanUpload}}<span class="help">{{if eq .Reason "type"}}{{t "dlg.held.whyType"}}{{else}}{{t "dlg.held.whyChanged"}}{{end}}</span>{{end}}{{end}}</td></tr>
+{{end}}</tbody></table>
+{{if gt .Total (len .Rows)}}<p class="muted small">{{t "dlg.held.more" "n" (len .Rows) "m" .Total}}</p>{{end}}
+<div class="held-go"><button class="btn primary">{{t "dlg.held.apply"}}</button></div>
+</details></form>
+{{end}}
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.close"}}</button></div>
+</dialog>{{end}}{{end}}
+
+{{define "wc-data"}} data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}
 
 {{define "preview"}}<div class="preview-h" data-count="{{.N}}">{{icon "history"}}<span>{{if .N}}{{else if .None}}{{t "pv.none"}}{{else}}{{t "pv.same"}}{{end}}</span></div>
 {{if .First}}<div class="first-n">{{icon "info"}}<span>{{if .Import}}{{tm "pv.firstImport" "time" (time .First)}}{{else}}{{tm "pv.firstRecord" "time" (time .First)}}{{end}}</span></div>{{end}}
@@ -56,20 +86,27 @@
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>{{t "common.restore"}}</span></button></div>
 </form></dialog>
 
-<dialog id="dlg-lock" class="dlg" data-folder-name="{{.Folder.Name}}"{{if eq .Open "dlg-lock"}} data-autoopen{{end}} aria-labelledby="lk-t"><form method="post" action="/folders/{{.Folder.ID}}/lock">
-<input type="hidden" name="path" value="{{index .Vals "path"}}"><input type="hidden" name="dir" value="{{.Dir}}">
-<div class="dlg-h">{{icon "lock"}}<h3 id="lk-t">{{t "dlg.lock.title"}}</h3></div>
+<dialog id="dlg-wc" class="dlg" data-folder-name="{{.Folder.Name}}" data-clear="wc"{{with .WCOpen}} data-path="{{.Path}}" data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}{{if eq .Open "dlg-wc"}} data-autoopen{{end}} aria-labelledby="wc-t"><form method="post" action="/folders/{{.Folder.ID}}/writectl">
+<input type="hidden" name="path" value="{{with .WCOpen}}{{.Path}}{{end}}"><input type="hidden" name="dir" value="{{.Dir}}">
+<div class="dlg-h">{{icon "lock"}}<h3 id="wc-t">{{t "dlg.wc.title"}}</h3></div>
 <div class="dlg-b">
-<div class="field"><span class="lbl">{{t "rs.scope"}}</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{with index .Vals "path"}} / {{.}}{{end}}</span></div>
-{{with index .Errs "path"}}{{if eq $.Open "dlg-lock"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}</div>
-<div class="field"><label for="lk-dev">{{t "dlg.lock.device"}}</label><select id="lk-dev" name="device"{{if not .Devs}} disabled{{end}}>{{range .Devs}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) (index $.Vals "device")}} selected{{end}}>{{.Name}}{{if .Online}} ●{{end}}</option>{{end}}</select>
+<div class="field"><span class="lbl">{{t "rs.scope"}}</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{with .WCOpen}}{{if .Path}} / {{.Path}}{{end}}{{end}}</span></div>
+{{with index .Errs "path"}}{{if eq $.Open "dlg-wc"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}</div>
+<div class="field wc-opts">
+<label class="radio" data-opt="inherit"><input type="radio" name="mode" value="inherit"> <span data-fill="inherit">{{t "dlg.wc.inherit"}}</span></label>
+<label class="radio" data-opt="free"><input type="radio" name="mode" value="free"> {{t "dlg.wc.free"}}</label><span class="help" data-opt="free">{{t "dlg.wc.free.help"}}</span>
+<label class="radio" data-opt="single"><input type="radio" name="mode" value="single"> {{t "dlg.wc.single"}}</label><span class="help">{{t "dlg.wc.single.help"}}</span>
+<label class="radio" data-opt="exclusive"><input type="radio" name="mode" value="exclusive"> {{t "dlg.wc.exclusive"}}</label><span class="help">{{t "dlg.wc.exclusive.help"}}</span>
+<div class="wc-dev"><label for="wc-dev">{{t "dlg.lock.device"}}</label><select id="wc-dev" name="device"{{if not .Devs}} disabled{{end}}>{{range .Devs}}<option value="{{.ID}}">{{.Name}}{{if .Online}} ●{{end}}</option>{{end}}</select>
 {{if not .Devs}}<span class="help">{{t "dlg.lock.none"}}</span>{{end}}</div>
-<p class="note">{{icon "info"}}<span>{{tm "dlg.lock.help"}}</span></p>
 </div>
-<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary"{{if not .Devs}} disabled{{end}}>{{t "dlg.lock.title"}}</button></div>
+<p class="note" data-wc-root hidden>{{icon "info"}}<span>{{t "dlg.wc.root"}}</span></p>
+<p class="note">{{icon "info"}}<span>{{t "dlg.wc.sub"}}</span></p>
+</div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "common.save"}}</button></div>
 </form></dialog>
-<form id="f-unlock" method="post" action="/folders/{{.Folder.ID}}/lock" hidden data-confirm="" data-confirm-ok="{{t "js.unlock.ok"}}" data-danger>
-<input type="hidden" name="path" value=""><input type="hidden" name="dir" value="{{.Dir}}"><input type="hidden" name="device" value=""></form>
+
+{{template "held-dialog" .}}
 
 <dialog id="dlg-rules" class="dlg wide"{{if eq .Open "dlg-rules"}} data-autoopen{{end}} aria-labelledby="ru-t"><form method="post" action="/folders/{{.Folder.ID}}/rules">
 <div class="dlg-h">{{icon "rules"}}<h3 id="ru-t">{{t "ru.title" "name" .Folder.Name}}</h3></div>
@@ -101,7 +138,6 @@
 <input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"></form>{{end}}</td>
 </tr>{{else}}<tr><td colspan="4" class="muted">{{t "ver.none"}}</td></tr>{{end}}
 </tbody></table>
-{{if .FileOrig}}<p class="note">{{icon "info"}}<span>{{tm "ver.conflictNote" "href" (printf "/folders/%d?dir=%s&file=%s%s" .Folder.ID (urlq .Dir) (urlq .FileOrig) (delq .Deleted)) "file" .FileOrig}}</span></p>{{end}}
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.close"}}</button></div>
 </dialog>{{end}}

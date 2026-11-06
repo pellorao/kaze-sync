@@ -272,7 +272,7 @@ func (f *Folder) HeldItems() (items []proto.HeldItem, changed bool) {
 	rows, _ := f.DB.held("")
 	items = []proto.HeldItem{}
 	for _, h := range rows {
-		items = append(items, proto.HeldItem{Path: h.Path, Scope: h.Scope, Reason: h.Reason, BaseSeq: h.BaseSeq, Kind: h.Kind, Size: h.Size, MtimeNs: h.MtimeNs, At: h.At})
+		items = append(items, proto.HeldItem{Path: h.Path, Scope: h.Scope, Reason: h.Reason, BaseSeq: h.BaseSeq, Kind: h.Kind, Size: h.Size, MtimeNs: h.MtimeNs, At: h.At, Note: f.heldNote[h.Path]})
 	}
 	b, _ := json.Marshal(items)
 	sum := sha256.Sum256(b)
@@ -285,9 +285,9 @@ func (f *Folder) HeldSent() { f.heldSent = f.heldSig }
 
 // Decisions on a held change (design 2.8.7).
 const (
-	ActUpload    = "upload"
-	ActOverwrite = "overwrite"
-	ActDiscard   = "discard"
+	ActUpload    = proto.ActUpload
+	ActOverwrite = proto.ActOverwrite
+	ActDiscard   = proto.ActDiscard
 )
 
 var (
@@ -304,9 +304,11 @@ func (f *Folder) probe(ctx context.Context, p string) (*proto.Entry, error) {
 	return res[0].Current, nil
 }
 
-// Resolve carries out the decision on the held change of p. It checks first that the local file is still the one
-// that was held; a failed check or a changed server leaves everything as it was.
-func (f *Folder) Resolve(ctx context.Context, p, action string, save bool) error {
+// Resolve carries out the user's decision on the held change of act.Path. It checks first that the local file is
+// still the one that was held, and that the held change and the server are what the user saw (act.Expect, Size and
+// MtimeNs); a failed check or a changed server leaves everything as it was and leaves a note for the Web UI.
+func (f *Folder) Resolve(ctx context.Context, act proto.Action) error {
+	p := act.Path
 	rows, err := f.DB.held("")
 	if err != nil {
 		return err
@@ -316,17 +318,22 @@ func (f *Folder) Resolve(ctx context.Context, p, action string, save bool) error
 		return nil
 	}
 	h := rows[i]
+	delete(f.heldNote, p)
 	st, serr := f.FS.Stat(p)
-	if h.Kind == "delete" && serr == nil && !st.IsDir || h.Kind != "delete" && (serr != nil || (!st.IsDir && (st.Size != h.Size || st.MtimeNs != h.MtimeNs))) {
-		return errLocalChanged
+	if h.Kind == "delete" && serr == nil && !st.IsDir || h.Kind != "delete" && (serr != nil || (!st.IsDir && (st.Size != h.Size || st.MtimeNs != h.MtimeNs))) ||
+		act.Expect != nil && (act.Size != h.Size || act.MtimeNs != h.MtimeNs) {
+		return f.failNote(p, "local", errLocalChanged)
 	}
-	if action == ActDiscard {
-		err = f.discard(ctx, h, serr == nil, save)
+	if act.Action == ActDiscard {
+		err = f.discard(ctx, h, serr == nil, act.Save)
 	} else {
-		err = f.uploadHeld(ctx, h, st, action == ActOverwrite)
+		err = f.uploadHeld(ctx, h, st, act)
 	}
-	if err != nil {
-		return err
+	switch {
+	case errors.Is(err, errServerChanged):
+		return f.failNote(p, "server", err)
+	case err != nil:
+		return f.failNote(p, "failed", err)
 	}
 	f.heldDirty = true
 	if err := f.DB.dropHeld(p); err != nil {
@@ -335,17 +342,44 @@ func (f *Folder) Resolve(ctx context.Context, p, action string, save bool) error
 	return f.thaw(h.Scope, false)
 }
 
-// uploadHeld commits the held change with the resolve flag; overwrite takes the server's current version as its base.
-func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, overwrite bool) error {
+// failNote records why a decision was not carried out, for the held list the Web UI shows.
+func (f *Folder) failNote(p, note string, err error) error {
+	if f.heldNote == nil {
+		f.heldNote = map[string]string{}
+	}
+	f.heldNote[p] = note
+	f.heldDirty = true
+	return err
+}
+
+// uploadHeld commits the held change with the resolve flag. Upload keeps the base of the change, so the server must
+// not have changed the path since; overwrite takes the seq the user saw (else the server's current one) as its base.
+// A change against a file or directory of the other kind first deletes what is in its way (design 2.8.7).
+func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, act proto.Action) error {
 	it := &item{path: h.Path, del: h.Kind == "delete", decided: true, op: proto.Op{Path: h.Path, BaseSeq: h.BaseSeq, Resolve: true}}
-	if overwrite {
-		cur, err := f.probe(ctx, h.Path)
-		if err != nil {
-			return err
+	var pre []*item
+	if act.Action == ActOverwrite {
+		switch {
+		case act.Expect != nil:
+			it.op.BaseSeq = *act.Expect
+		default:
+			cur, err := f.probe(ctx, h.Path)
+			if err != nil {
+				return err
+			}
+			it.op.BaseSeq = 0
+			if cur != nil {
+				it.op.BaseSeq = cur.Seq
+			}
 		}
-		it.op.BaseSeq = 0
-		if cur != nil {
-			it.op.BaseSeq = cur.Seq
+		if h.Reason == "type" {
+			blocking, err := f.API.Blocking(ctx, f.ID, h.Path)
+			if err != nil {
+				return err
+			}
+			for _, e := range blocking {
+				pre = append(pre, &item{path: e.Path, del: true, decided: true, op: proto.Op{Path: e.Path, BaseSeq: e.Seq, Resolve: true}})
+			}
 		}
 	}
 	if !it.del {
@@ -362,7 +396,7 @@ func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, overwr
 		it.op = proto.Op{Path: h.Path, BaseSeq: it.op.BaseSeq, Hash: &wh, Blocks: hs.blocks, Size: hs.size, MtimeNs: st.MtimeNs, Exec: it.row.Exec, Link: st.IsLink, Resolve: true}
 	}
 	var rep Report
-	if err := f.commitChunk(ctx, []*item{it}, &rep); err != nil {
+	if err := f.commitChunk(ctx, append(pre, it), &rep); err != nil {
 		return err
 	}
 	if !it.done {

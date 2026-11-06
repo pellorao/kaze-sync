@@ -351,7 +351,7 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 	if got, ok := e.serverFile(f, "doc.txt"); ok {
 		t.Fatalf("a held change reached the server: %q", got)
 	}
-	if err := g1.f.Resolve(ctx, "doc.txt", ActOverwrite, false); err != nil {
+	if err := g1.f.Resolve(ctx, proto.Action{Path: "doc.txt", Action: ActOverwrite, Save: false}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "v2 by dev1" {
@@ -368,7 +368,7 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 	if rep.Held != 1 || len(treeOf(g2.fs)) != 2 { // doc.txt and same.txt
 		t.Fatalf("conflict scan: %+v %v", rep, treeOf(g2.fs))
 	}
-	if err := g2.f.Resolve(ctx, "doc.txt", ActDiscard, false); err != nil {
+	if err := g2.f.Resolve(ctx, proto.Action{Path: "doc.txt", Action: ActDiscard, Save: false}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := g2.read("doc.txt"); got != "v2 by dev1" {

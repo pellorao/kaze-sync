@@ -45,11 +45,12 @@ func newLockEnv(t *testing.T) *lockEnv {
 }
 
 func (l *lockEnv) lock(path string, dev int64) (int, string) {
-	form := url.Values{"path": {path}}
+	form := url.Values{"path": {path}, "mode": {"inherit"}}
 	if dev != 0 {
+		form.Set("mode", "exclusive")
 		form.Set("device", itoa(dev))
 	}
-	return l.post(l.web, "/folders/"+itoa(l.f)+"/lock", form)
+	return l.post(l.web, "/folders/"+itoa(l.f)+"/writectl", form)
 }
 
 func TestLockRejectsOtherDevicesWrites(t *testing.T) {
@@ -167,7 +168,7 @@ func TestWebRestoreIgnoresLocks(t *testing.T) {
 
 func TestMigrateToLocksSchema(t *testing.T) {
 	e := newEnv(t)
-	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='writectl'`) != 1 || SchemaVersion != 4 {
+	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='writectl'`) != 1 || SchemaVersion != 5 {
 		t.Fatal("no locks table")
 	}
 }
@@ -177,14 +178,14 @@ func TestLockWebUI(t *testing.T) {
 	l.lock("repo", l.a)
 	l.apiCommit(l.ta, l.f, l.op("repo/x.txt", 0, "x"), l.op("other/y.txt", 0, "y"))
 	_, body := l.get(l.web, "/folders/"+itoa(l.f))
-	for _, w := range []string{`data-lock="A"`, `独占 · A`, `id="dlg-lock"`, `id="f-unlock"`} {
+	for _, w := range []string{`data-wc-mode="exclusive"`, `data-wc-dev="` + itoa(l.a) + `"`, `独占 · A`, `id="dlg-wc"`} {
 		if !strings.Contains(body, w) {
 			t.Errorf("folder page lacks %s", w)
 		}
 	}
 	_, body = l.get(l.web, "/folders/"+itoa(l.f)+"?dir=repo")
-	if !strings.Contains(body, "此目录由 A 独占") {
-		t.Error("no exclusive line inside the range")
+	if !strings.Contains(body, "A") || !strings.Contains(body, "写入控制") {
+		t.Error("no write-control line inside the range")
 	}
 	// The device page counts the exclusive and the revoke confirmation names it.
 	_, body = l.get(l.web, "/devices/"+itoa(l.a))

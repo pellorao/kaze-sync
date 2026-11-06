@@ -57,7 +57,7 @@ func (sf *simFolder) frozenIDs() map[string]bool {
 }
 
 func (sf *simFolder) resolve(ctx context.Context, path, action string, save bool) error {
-	return sf.f.Resolve(ctx, path, action, save)
+	return sf.f.Resolve(ctx, proto.Action{Path: path, Action: action, Save: save})
 }
 
 // appliedCursor is the cursor the client has applied for a scope.

@@ -45,6 +45,8 @@ type Server struct {
 	// Push tells the user about the problems that need them (notifypush.go); nil is off.
 	Push *ntfy.Notifier
 
+	boot string // identifies this run of the server (proto.PollResp.Boot)
+
 	// Fingerprint is shown in the enrollment commands in self-signed mode; "" otherwise.
 	Fingerprint string
 
@@ -85,10 +87,11 @@ type report struct {
 	req       proto.PollReq
 	at        time.Time // when the last poll ended (or the report arrived)
 	lastWrite time.Time
-	pending   int                        // polls hanging now
-	tooOld    int                        // the version of the client when its last request was refused as too old; 0 once it polls again
-	offline   *time.Timer                // fires when the device counts as offline: the Web UI then updates
-	held      map[int64][]proto.HeldItem // the changes the device holds for the user, by folder (design 2.8.10)
+	pending   int                         // polls hanging now
+	tooOld    int                         // the version of the client when its last request was refused as too old; 0 once it polls again
+	offline   *time.Timer                 // fires when the device counts as offline: the Web UI then updates
+	held      map[int64][]proto.HeldItem  // the changes the device holds for the user, by folder (design 2.8.10)
+	actions   map[actionKey]pendingAction // the user's decisions on them that have not taken effect yet
 }
 
 // onlineWindow is how long after its last poll a device still counts as online.
@@ -129,7 +132,7 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 		now = time.Now
 	}
 	return &Server{
-		db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
+		boot: randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
 		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),

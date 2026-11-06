@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, conflict, link"
+const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, link"
 
 // defaultRules is the factory global rule set: the original eight plus the system and
 // temporary files of Nextcloud's sync-exclude.lst (design 8.2).
@@ -54,7 +54,7 @@ photothumb.db
 
 // migrations[i] upgrades the global database (meta.db) from version i to i+1. Version 2 makes folder ids
 // never reused (AUTOINCREMENT) and adds the epoch (design 2.4): the folder ids and seqs the clients know belong to it.
-// Version 3 adds the exclusive-write locks; version 4 turns them into the write-control settings and adds the time window (design 2.8).
+// Version 3 adds the exclusive-write locks; version 4 turns them into the write-control settings and adds the time window, version 5 the folders' wc_ack mark (design 2.8).
 var migrations = []string{`
 CREATE TABLE folders(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, rules TEXT NOT NULL);
 CREATE TABLE devices(
@@ -79,6 +79,8 @@ CREATE TABLE locks(
 ALTER TABLE locks RENAME TO writectl;
 ALTER TABLE writectl ADD COLUMN mode TEXT NOT NULL DEFAULT 'exclusive';
 INSERT OR IGNORE INTO meta VALUES('write_window', 60);
+`, `
+ALTER TABLE folders ADD COLUMN wc_ack INTEGER NOT NULL DEFAULT 0;
 `}
 
 // folderMigrations[i] upgrades a folder database (folders/<id>.db) from version i to i+1.
@@ -101,6 +103,10 @@ CREATE INDEX files_seq ON files(seq);
 `, `
 ALTER TABLE files ADD COLUMN link INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE versions ADD COLUMN link INTEGER NOT NULL DEFAULT 0;
+`, `
+DROP INDEX files_conflict;
+ALTER TABLE files DROP COLUMN conflict;
+ALTER TABLE versions DROP COLUMN conflict;
 `}
 
 // Schema versions this binary works with.

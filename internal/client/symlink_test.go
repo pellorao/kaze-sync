@@ -197,7 +197,7 @@ func TestSymbolicLinkOutsideTheFolderIsNeverFollowed(t *testing.T) {
 	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Path != "out" || rows[0].Reason != "type" {
 		t.Fatalf("held: %+v", rows)
 	}
-	if err := g2.f.Resolve(context.Background(), "out", ActDiscard, false); err != nil {
+	if err := g2.f.Resolve(context.Background(), proto.Action{Path: "out", Action: ActDiscard, Save: false}); err != nil {
 		t.Fatal(err)
 	}
 	g2.sync()

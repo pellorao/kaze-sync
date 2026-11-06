@@ -435,7 +435,7 @@ func TestNoticesFoldAboveFive(t *testing.T) {
 
 // A device's report of a symbolic link shows as a row of the directory that holds it, and as a tag on the original of a
 // conflict copy.
-func TestFolderPageShowsSkippedAndConflictRows(t *testing.T) {
+func TestFolderPageShowsSkippedRows(t *testing.T) {
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -443,12 +443,11 @@ func TestFolderPageShowsSkippedAndConflictRows(t *testing.T) {
 	f := e.folder("Docs")
 	dev, tok := e.enrollDevice("pc", "windows")
 	e.mapFolder(dev, f, "/docs")
-	e.commit(f, e.op("d/report.docx", 0, "one"), e.op("d/report.conflict-pc-20261101-120000.docx", 0, "two"))
+	e.commit(f, e.op("d/report.docx", 0, "one"))
 	e.report(tok, f, proto.FileError{Path: "d/latest", Kind: proto.KindSkipped, Message: "symbolic link", Since: e.clk.Now().Unix()},
 		proto.FileError{Path: "other/x", Kind: proto.KindSkipped, Message: "symbolic link", Since: e.clk.Now().Unix()})
 	_, page := e.get(c, "/folders/"+itoa(f)+"?dir=d")
-	for _, want := range []string{`data-kind="unsynced" data-path="d/latest"`, "未同步: 符号链接 · pc", `data-kind="conflict" data-path="d/report.conflict-pc-20261101-120000.docx"`,
-		"冲突副本", "有冲突", `data-orig="d/report.docx"`} {
+	for _, want := range []string{`data-kind="unsynced" data-path="d/latest"`, "未同步: 符号链接 · pc"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
 		}

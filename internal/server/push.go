@@ -33,7 +33,7 @@ func (s *Server) pushLoop(ctx context.Context) {
 	}
 }
 
-// pushCheck is one look: conflict copies, errors devices report, devices offline for long, and the free disk.
+// pushCheck is one look: changes on hold, errors devices report, devices offline for long, and the free disk.
 // Messages name a folder or a device, never a file.
 func (s *Server) pushCheck() {
 	p := s.Push
@@ -50,20 +50,20 @@ func (s *Server) pushCheck() {
 		if err != nil {
 			continue
 		}
-		conflicts, errs := 0, 0
+		held, errs := 0, 0
 		for _, n := range notes {
 			switch {
-			case n.Kind == kindConflict:
-				conflicts++
+			case n.Kind == kindHeld:
+				held += n.N
 			case n.Error:
 				errs++
 			}
 		}
 		id := strconv.FormatInt(f.ID, 10)
-		if conflicts > 0 {
-			p.Fail("conflict-"+id, strconv.Itoa(conflicts)+" conflict copies in folder "+f.Name+": open the web page and pick the right file", 1)
+		if held > 0 {
+			p.Fail("held-"+id, strconv.Itoa(held)+" changes in folder "+f.Name+" are on hold for your decision: open the web page and choose", 1)
 		} else {
-			p.Ok("conflict-"+id, "No more conflict copies in folder "+f.Name)
+			p.Ok("held-"+id, "No more changes on hold in folder "+f.Name)
 		}
 		if errs > 0 {
 			p.Fail("errors-"+id, strconv.Itoa(errs)+" errors reported by devices in folder "+f.Name+": see the notifications on the web page", pushErrorsAfter)

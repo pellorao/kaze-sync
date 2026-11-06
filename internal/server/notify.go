@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"database/sql"
 	"log/slog"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"kaze-sync/internal/proto"
+	pp "kaze-sync/internal/proto/path"
 )
 
 // offlineAfter is how long a device may be silent before it raises a notice (design 4.3).
@@ -19,22 +21,32 @@ const offlineAfter = 7 * 24 * time.Hour
 // the current state on every request; none is stored (design 4.3).
 type notice struct {
 	Error                 bool   // an error needs action to go away; otherwise it is a reminder
-	Kind                  string // a proto kind, or kindConflict
+	Kind                  string // a proto kind, kindHeld or kindNewFolder
 	Device, Path, Message string
 	Since                 int64
-	Owner                 string // the device that holds the exclusive behind a refusal
 	Link                  string
 	ReportedAt            int64 // when the device last reported, if it is offline; else 0
+	Folder                int64
+	// Of a kindHeld notice: the changes a device holds in one scope, the scope's path ("" is the root), the reason
+	// of the first of them and the device behind it (design 2.8.11).
+	N                    int
+	Scope, Reason, Other string
 }
 
-// kindConflict is the kind of the notice of a conflict copy on the server.
-const kindConflict = "conflict"
+// kindHeld is the kind of the notice of the changes a device holds for the user's decision (design 2.8.11);
+// kindNewFolder that of a folder whose write rules the user has not yet looked at.
+const (
+	kindHeld      = "held"
+	kindNewFolder = "wc-unset"
+)
 
 // adviceOf is what to do about a kind of notice, in the language of the page ("" when there is nothing to say).
 func adviceOf(t translator, kind string) string {
 	switch kind {
-	case proto.KindRejected, proto.KindIO, proto.KindFolder, proto.KindInUse, proto.KindSkipped, kindConflict:
+	case proto.KindRejected, proto.KindIO, proto.KindFolder, proto.KindInUse, proto.KindSkipped, kindHeld:
 		return t.T("advice." + kind)
+	case kindNewFolder:
+		return t.T("advice.wc.unset")
 	}
 	return ""
 }
@@ -48,8 +60,8 @@ func browseLink(folder int64, p string) string {
 	return "/folders/" + strconv.FormatInt(folder, 10) + "?dir=" + url.QueryEscape(dir) + "#" + url.PathEscape(p)
 }
 
-// folderNotices lists the notices of a folder: what the mapped devices report,
-// and the conflict copies on the server.
+// folderNotices lists the notices of a folder: what the mapped devices report, the changes they hold for the user,
+// and the reminder of a new folder.
 func (s *Server) folderNotices(folder int64) ([]notice, error) {
 	type dev struct {
 		id   int64
@@ -62,6 +74,11 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 	}
 	now := s.now()
 	var out []notice
+	type heldGroup struct {
+		n         notice
+		firstPath string
+	}
+	var groups []heldGroup
 	s.mu.Lock()
 	for _, d := range devs {
 		rep := s.reports[d.id]
@@ -77,7 +94,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				continue
 			}
 			for _, e := range fs.Errors {
-				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale,
+				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale, Folder: folder,
 					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped}
 				if e.Kind == proto.KindFolder {
 					n.Link = "/devices/" + strconv.FormatInt(d.id, 10)
@@ -87,21 +104,54 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				out = append(out, n)
 			}
 		}
+		byScope := map[string]*heldGroup{}
+		var order []string
+		for _, h := range rep.held[folder] {
+			g := byScope[h.Scope]
+			if g == nil {
+				g = &heldGroup{n: notice{Error: true, Kind: kindHeld, Device: d.name, Since: h.At, ReportedAt: stale, Folder: folder, Scope: h.Scope, Reason: h.Reason,
+					Link: "/folders/" + strconv.FormatInt(folder, 10) + "?held=" + strconv.FormatInt(d.id, 10)}, firstPath: h.Path}
+				byScope[h.Scope] = g
+				order = append(order, h.Scope)
+			}
+			g.n.N++
+			g.n.Since = min(g.n.Since, h.At)
+		}
+		for _, sc := range order {
+			groups = append(groups, *byScope[sc])
+		}
 	}
 	s.mu.Unlock()
-	db, err := s.folderDB(folder)
-	if err != nil {
-		return nil, err
+	if len(groups) > 0 {
+		rules, err := folderWC(s.db, folder)
+		if err != nil {
+			return nil, err
+		}
+		db, err := s.folderDB(folder)
+		if err != nil {
+			return nil, err
+		}
+		var latest sql.NullString // the device that wrote last: the other side of a concurrent write
+		for _, g := range groups {
+			n := g.n
+			n.Scope, n.Path = heldScopePath(rules, n.Scope, g.firstPath), ""
+			rule := ruleFor(rules, pp.Key(g.firstPath))
+			switch {
+			case n.Reason == "owner" && rule.Mode == proto.ModeExclusive:
+				n.Reason, n.Other = "exclusive", rule.Device
+			case n.Reason == "owner":
+				if !latest.Valid {
+					db.QueryRow(`SELECT device FROM files WHERE device<>? AND device<>? ORDER BY seq DESC LIMIT 1`, n.Device, excludedDevice).Scan(&latest)
+					latest.Valid = true
+				}
+				n.Other = latest.String
+			}
+			out = append(out, n)
+		}
 	}
-	conflicts, err := queryAll(db, func(rows *sql.Rows, n *notice) error {
-		return rows.Scan(&n.Path, &n.Device, &n.Since)
-	}, `SELECT path, device, created_at FROM files WHERE conflict AND hash IS NOT NULL ORDER BY path`)
-	if err != nil {
-		return nil, err
-	}
-	for _, n := range conflicts {
-		n.Error, n.Kind, n.Link = true, kindConflict, browseLink(folder, n.Path) // the page says what a conflict copy is
-		out = append(out, n)
+	var ack int
+	if err := s.db.QueryRow(`SELECT wc_ack FROM folders WHERE id=?`, folder).Scan(&ack); err == nil && ack == 0 {
+		out = append(out, notice{Kind: kindNewFolder, Folder: folder, Link: "/folders/" + strconv.FormatInt(folder, 10) + "?wc="})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Error && !out[j].Error })
 	return out, nil
@@ -268,4 +318,33 @@ func noticeKindCounts(errs []proto.FileError) (errors, warnings int) {
 		}
 	}
 	return
+}
+
+// heldScopePath is the path a held scope is shown as: the path of its setting, or of the file for a file of a free
+// directory; "" is the root.
+func heldScopePath(rules []lockRow, scope, firstPath string) string {
+	if strings.HasPrefix(scope, "f:") {
+		return firstPath
+	}
+	key := strings.TrimPrefix(scope, "d:")
+	for _, r := range rules {
+		if r.key == key {
+			return r.Path
+		}
+	}
+	return ""
+}
+
+// heldWhy is the reason of held changes in words.
+func heldWhy(t translator, reason, other string) string {
+	return t.T("held.why."+reason, "other", cmp.Or(other, "?"))
+}
+
+// heldMsg is the text of the notice of a device's held changes in one scope (design 2.8.11).
+func heldMsg(t translator, n notice) string {
+	scope := n.Scope
+	if scope == "" {
+		scope = "/"
+	}
+	return t.T("notice.held", "device", n.Device, "n", n.N, "scope", scope, "why", heldWhy(t, n.Reason, n.Other))
 }

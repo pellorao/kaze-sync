@@ -123,7 +123,7 @@ func readOr(p string) string {
 	return string(b)
 }
 
-// conflictCopies lists the conflict copies below root.
+// conflictCopies lists the conflict copies below root; there must be none.
 func conflictCopies(root string) []string {
 	t, _ := tree(root)
 	var out []string
@@ -180,8 +180,7 @@ func (d *driver) m4Scenarios(skipM4 bool) {
 		return
 	}
 	d.step("M4 1: a new file on one side appears on the other within 10 s", m.newFile)
-	d.step("M4 2: both sides edit one file: the same conflict copy on both, folder error count 1, deleting it clears the notice", m.conflict)
-	d.step("M4 3: stop one client, edit both sides, resume: converge per the conflict table", m.offlineEdits)
+	// M4 2 and 3 (conflict copies) are gone with the copies; the held-change scenarios are the wc group (e2e/wc.go).
 	d.step("M4 4: the server restarts during a large upload: only the remaining blocks are sent again", m.restartUpload)
 	d.step("M4 5: rewriting 1 MiB inside a large file moves 4 blocks", m.bigFile)
 	d.step("M4 6: moving a directory of 1000 files moves no blocks", m.moveDir)
@@ -319,126 +318,6 @@ func (m *m4) newFile() error {
 		m.d.metric("M4 1: %s appeared on the other side after %.1f s", x.name, took.Seconds())
 	}
 	return nil
-}
-
-func (m *m4) conflict() error {
-	d := m.d
-	m.put(m.lroot("m4a"), "doc.txt", []byte("base"))
-	if _, err := m.converge("m4a", 3, 30*time.Second); err != nil {
-		return err
-	}
-	m.win.stop(false)
-	m.put(m.lroot("m4a"), "doc.txt", []byte("edited on linux"))
-	if err := d.waitFile(m.ids["m4a"], "", "doc.txt", "15 B", 60*time.Second); err != nil {
-		return err
-	}
-	m.put(m.wroot("m4a"), "doc.txt", []byte("edited on windows!"))
-	if err := m.win.start(); err != nil {
-		return err
-	}
-	var copies []string
-	if _, err := until("the conflict copy on both sides", 90*time.Second, func() (bool, error) {
-		l, w := conflictCopies(m.lroot("m4a")), conflictCopies(m.wroot("m4a"))
-		copies = l
-		return len(l) == 1 && len(w) == 1 && l[0] == w[0], fmt.Errorf("linux %v windows %v", l, w)
-	}); err != nil {
-		return err
-	}
-	if _, err := m.converge("m4a", 4, 60*time.Second); err != nil {
-		return err
-	}
-	if got := readOr(filepath.Join(m.lroot("m4a"), "doc.txt")); got != "edited on linux" {
-		return fmt.Errorf("doc.txt = %q on Linux, the server version should win", got)
-	}
-	if got := readOr(filepath.Join(m.lroot("m4a"), copies[0])); got != "edited on windows!" {
-		return fmt.Errorf("conflict copy = %q", got)
-	}
-	if _, err := until("folder error count 1 in the overview", 30*time.Second, func() (bool, error) {
-		e, w, err := d.summary("m4a")
-		return e == "1" && w == "0", fmt.Errorf("errors %q warnings %q %v", e, w, err)
-	}); err != nil {
-		return err
-	}
-	page, err := d.web.folderPage(m.ids["m4a"], "")
-	if err != nil || !strings.Contains(page, "冲突副本") || !strings.Contains(page, `href="/folders/`+m.ids["m4a"]+`?dir="`) {
-		return fmt.Errorf("folder page lacks the conflict notice or its link (%v)", err)
-	}
-	if err := os.Remove(filepath.Join(m.wroot("m4a"), copies[0])); err != nil {
-		return err
-	}
-	if _, err := until("the notice to disappear", 60*time.Second, func() (bool, error) {
-		e, _, err := d.summary("m4a")
-		return e == "" && err == nil, fmt.Errorf("errors %q %v", e, err)
-	}); err != nil {
-		return err
-	}
-	_, err = m.converge("m4a", 3, 60*time.Second)
-	return err
-}
-
-func (m *m4) offlineEdits() error {
-	a, b := m.lroot("m4a"), m.wroot("m4a")
-	for _, n := range []string{"both.txt", "winmod.txt", "lindel.txt", "windel.txt", "base-del.txt"} {
-		m.put(a, "t/"+n, []byte("base "+n))
-	}
-	if _, err := m.converge("m4a", 8, 60*time.Second); err != nil {
-		return err
-	}
-	m.lin.stop(false)
-	// The Windows client edits and the server has it before the Linux client comes back (server first).
-	m.put(b, "t/both.txt", []byte("windows both"))
-	m.put(b, "t/winmod.txt", []byte("windows only"))
-	m.put(b, "t/lindel.txt", []byte("windows beats a delete"))
-	os.Remove(filepath.Join(b, "t", "windel.txt"))
-	os.Remove(filepath.Join(b, "t", "base-del.txt"))
-	m.put(b, "t/new-diff.txt", []byte("new on windows"))
-	m.put(b, "t/new-same.txt", []byte("same everywhere"))
-	if err := m.d.waitFile(m.ids["m4a"], "t", "new-same.txt", "15 B", 60*time.Second); err != nil {
-		return err
-	}
-	m.put(a, "t/both.txt", []byte("linux both"))
-	os.Remove(filepath.Join(a, "t", "lindel.txt"))
-	m.put(a, "t/windel.txt", []byte("linux beats a delete"))
-	m.put(a, "t/new-diff.txt", []byte("new on linux"))
-	m.put(a, "t/new-same.txt", []byte("same everywhere"))
-	if err := m.lin.start(); err != nil {
-		return err
-	}
-	if _, err := m.converge("m4a", 9, 120*time.Second); err != nil {
-		return err
-	}
-	want := map[string]string{"t/both.txt": "windows both", "t/winmod.txt": "windows only", "t/lindel.txt": "windows beats a delete",
-		"t/windel.txt": "linux beats a delete", "t/new-diff.txt": "new on windows", "t/new-same.txt": "same everywhere"}
-	for p, c := range want {
-		for _, root := range []string{a, b} {
-			if got := readOr(filepath.Join(root, p)); got != c {
-				return fmt.Errorf("%s = %q in %s, want %q", p, got, root, c)
-			}
-		}
-	}
-	if _, err := os.Stat(filepath.Join(a, "t", "base-del.txt")); err == nil {
-		return fmt.Errorf("base-del.txt came back")
-	}
-	copies := conflictCopies(a)
-	if len(copies) != 2 {
-		return fmt.Errorf("conflict copies %v, want two (both.txt and new-diff.txt)", copies)
-	}
-	for _, c := range copies {
-		got := readOr(filepath.Join(a, c))
-		if got != "linux both" && got != "new on linux" {
-			return fmt.Errorf("conflict copy %s = %q", c, got)
-		}
-	}
-	// Clean up the copies so that the notices of this folder are gone for the next scenarios.
-	for _, c := range copies {
-		os.Remove(filepath.Join(a, c))
-	}
-	_, err := until("no notices left", 90*time.Second, func() (bool, error) {
-		e, _, err := m.d.summary("m4a")
-		ok, terr := m.sameTrees("m4a", 7)
-		return e == "" && err == nil && ok, fmt.Errorf("errors %q %v %v", e, err, terr)
-	})
-	return err
 }
 
 func (m *m4) restartUpload() error {

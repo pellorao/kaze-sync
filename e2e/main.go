@@ -53,8 +53,20 @@ func main() {
 	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".kaze-sync/config/e2e.json"), "e2e config file")
 	logs := flag.String("logs", "", "directory for collected logs (default: a new temp directory)")
 	only := flag.String("only", "", "stop after a stage while debugging: setup (up to the admin login), sync (before security, sysupgrade and the certificate), m4 (only the M4 and M5 scenarios), m5 (only the M5 scenarios), m6, m7 (the M7 scenarios, then the backup restore), upgrade (only the upgrade phase)")
+	wcURL := flag.String("wc", "", "run only the write-control scenario group (e2e/wc.go) against this server URL; the admin password is in KAZE_E2E_PASSWORD")
+	wcFP := flag.String("wc-fp", "", "certificate fingerprint of the server for -wc (empty: a certificate the system trusts)")
+	wcWin := flag.String("wc-win-dir", "", "with -wc: a directory on the Windows disk (Windows spelling) to run side B there as a Windows client")
+	wcLocal := flag.Bool("wc-local", false, "run the write-control group against a throw-away server in this process and two Linux clients")
+	wcOnly := flag.String("wc-only", "", "with -wc or -wc-local: run only the scenarios whose name contains this text")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
+	if *wcURL != "" || *wcLocal {
+		if !runWC(*wcURL, *wcFP, *wcWin, *wcLocal, *wcOnly) {
+			os.Exit(1)
+		}
+		log.Print("ALL PASSED")
+		return
+	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatal(err)

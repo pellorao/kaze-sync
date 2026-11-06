@@ -46,6 +46,17 @@ func funcs(t translator) template.FuncMap {
 			}
 			return ""
 		},
+		"heldMsg": func(v any) string {
+			switch n := v.(type) {
+			case notice:
+				return heldMsg(t, n)
+			case noticeRow:
+				return heldMsg(t, n.notice)
+			}
+			return ""
+		},
+		"heldWhy": func(reason, other string) string { return heldWhy(t, reason, other) },
+		"rowIcon": rowIcon, "modeIcon": modeIcon,
 		"fold":    func(kind string, n int) string { return t.T("fold."+kind, "n", n) },
 		"cfg":     func(state string) string { return cfgText(t, state) },
 		"lineErr": func(line int, m string) string { return t.T("js.ruleLine", "n", line, "msg", ruleMsg(t, m)) },
@@ -253,8 +264,10 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /folders/{id}/restore":        s.restore,
 		"POST /folders/{id}/restore-dir":    s.restoreDir,
 		"POST /folders/{id}/delete":         s.deleteFolder,
-		"POST /folders/{id}/lock":           s.lockHandler,
 		"POST /folders/{id}/writectl":       s.writectlHandler,
+		"POST /folders/{id}/wc-ack":         s.wcAckHandler,
+		"POST /folders/{id}/resolve":        s.resolveHandler,
+		"POST /settings/window":             s.saveWindow,
 		"POST /folders/{id}/rules":          s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
@@ -626,7 +639,7 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, ds *dialog
 	if c, err := r.Cookie(langCookie); err == nil && isLang(c.Value) {
 		langSetting = c.Value
 	}
-	s.show(w, r, ds, "settings", trOf(r).T("nav.settings"), map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "SavedRules": MetaString(s.db, "global_rules"), "TimeZone": MetaString(s.db, "time_zone"),
+	s.show(w, r, ds, "settings", trOf(r).T("nav.settings"), map[string]any{"KeepDays": metaInt(s.db, "keep_days"), "Rules": rules, "SavedRules": MetaString(s.db, "global_rules"), "TimeZone": MetaString(s.db, "time_zone"), "WindowMin": metaInt(s.db, "write_window") / 60,
 		"Langs": languages, "LangSetting": langSetting})
 	return nil
 }
@@ -640,6 +653,20 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.requestGC() // clears the versions that the new value has expired at once
+	http.Redirect(w, r, "/settings?ok=saved", http.StatusSeeOther)
+	return nil
+}
+
+// saveWindow stores the single-writer time window (design 2.8.11); it only matters to the server and changes no
+// configuration, like keep_days.
+func (s *Server) saveWindow(w http.ResponseWriter, r *http.Request) error {
+	min, err := strconv.Atoi(r.FormValue("window"))
+	if err != nil || min < 0 || min > 60 {
+		return fieldErr(s.settingsPage, http.StatusBadRequest, "window", "window", "err.window")
+	}
+	if err := SetMeta(s.db, "write_window", min*60); err != nil {
+		return err
+	}
 	http.Redirect(w, r, "/settings?ok=saved", http.StatusSeeOther)
 	return nil
 }
@@ -992,6 +1019,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		PendingDown      int
 		Errors, Warnings int
 		Locks            int // exclusive ranges the device holds in this folder
+		Held             int // changes the device holds for the user in this folder
 	}
 	maps, err := queryAll(s.db, func(rows *sql.Rows, m *mapping) error {
 		return rows.Scan(&m.FolderID, &m.Folder, &m.Path, &m.Adopt)
@@ -1046,7 +1074,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 			for i := range maps {
 				if maps[i].FolderID == fs.ID {
 					m := &maps[i]
-					m.Reported, m.State, m.Synced, m.PendingUp, m.PendingDown, m.Errors, m.Warnings = true, fs.State, fs.LastSyncedAt, fs.PendingUp, fs.PendingDown, e, w
+					m.Reported, m.State, m.Synced, m.PendingUp, m.PendingDown, m.Errors, m.Warnings, m.Held = true, fs.State, fs.LastSyncedAt, fs.PendingUp, fs.PendingDown, e, w, fs.Held
 				}
 			}
 		}
@@ -1199,4 +1227,30 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	slog.Info("device revoked", "device", d.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
+}
+
+// modeIcon is the icon of a write-control mode (design 2.8.11).
+func modeIcon(mode string) string {
+	switch mode {
+	case proto.ModeSingle:
+		return "folder-one"
+	case proto.ModeExclusive:
+		return "folder-lock"
+	}
+	return "folder"
+}
+
+// rowIcon is the icon of a row of the file list: the shape follows the write-control mode, a triangle marks held
+// changes below it (colors are in the style sheet).
+func rowIcon(e browseEntry) template.HTML {
+	name, cls := "file", "file"
+	if e.IsDir {
+		name, cls = modeIcon(e.WC.Mode), "dir wc-"+e.WC.Mode
+	} else if e.WC.Mode == proto.ModeExclusive {
+		name, cls = "file-lock", "file wc-exclusive"
+	}
+	if e.HeldN > 0 {
+		return template.HTML(`<span class="ico">`) + icon(name, cls) + icon("warn", "ov") + template.HTML(`</span>`)
+	}
+	return icon(name, cls)
 }

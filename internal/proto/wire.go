@@ -150,6 +150,31 @@ type PollResp struct {
 	Cursors map[int64]int64 `json:"cursors"`          // folder id -> latest seq, for every folder mapped to the device
 	Epoch   string          `json:"epoch"`            // identifies the server's history; a client that sees it change reads every folder again
 	Config  *Config         `json:"config,omitempty"` // present when the client's version differs
+	// Boot identifies this run of the server: the lists of held changes it keeps live in memory only, so a client that
+	// sees it change sends its lists again (design 2.8.10).
+	Boot string `json:"boot,omitempty"`
+	// Actions are the decisions the user made on this device's held changes in the Web UI, handed over once.
+	Actions []Action `json:"actions,omitempty"`
+}
+
+// Decisions on a held change (design 2.8.7).
+const (
+	ActUpload    = "upload"
+	ActOverwrite = "overwrite"
+	ActDiscard   = "discard"
+)
+
+// Action is the user's decision on one held change. Expect, Size and MtimeNs are what the user saw: the seq of the
+// server's entry of the path (0 when it has none) and the snapshot of the local file in the held list; the device
+// carries the decision out only when both still hold. A nil Expect (tests) skips the checks.
+type Action struct {
+	Folder  int64  `json:"folder"`
+	Path    string `json:"path"`
+	Action  string `json:"action"`
+	Expect  *int64 `json:"expect,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	MtimeNs int64  `json:"mtime_ns,omitempty"`
+	Save    bool   `json:"save,omitempty"` // discard: move the local file to .syncsaved instead of deleting it
 }
 
 // Op is one change of a commit. A nil Hash deletes the path.
@@ -267,6 +292,9 @@ type HeldItem struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
 	At      int64  `json:"at"`
+	// Note says why the last decision on the path was not carried out: "local" (the file changed after it was held),
+	// "server" (the server's version changed) or "failed".
+	Note string `json:"note,omitempty"`
 }
 
 // HeldReq is POST /api/v1/held: the whole list of one folder, sent when it changes.
