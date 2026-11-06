@@ -817,23 +817,24 @@
       render();
       if (keep) { opened = null; setSel(parseLocal(input.value, zone), true); commit(); }
       else { opened = Date.now(); setSel(opened); show(null, { hint: true }); } // the dialog opens at now: nothing to ask yet
+      lockNote(path);
       loadTicks(path);
+    }
+    // an exclusive, or a single writer that wrote a moment ago, inside the range (or around it) does not stop a restore:
+    // say so (design 4.5). Both entries (the menu, and the page reopened after an error) come through open().
+    function lockNote(path) {
+      const note = $("[data-locknote]", rd);
+      let locks = [];
+      try { locks = JSON.parse(note.dataset.locks || "[]"); } catch (e) { /* no note */ }
+      const p = key(path || "");
+      const hit = locks.find((l) => within(key(l.P), p) || within(p, key(l.P)));
+      note.hidden = !hit;
+      if (hit) note.textContent = rt(hit.S ? "js.restoreOwner" : "js.restoreLocked", { device: hit.D });
     }
     return { open };
   }
   const restore = $("#dlg-restore") && restoreDialog($("#dlg-restore"));
-  function openRestore(path, isDir) {
-    restore.open(path, isDir);
-    // an exclusive, or a single writer that wrote a moment ago, inside the range (or around it) does not stop a restore:
-    // say so (design 4.5)
-    const rd = $("#dlg-restore"), note = $("[data-locknote]", rd);
-    let locks = [];
-    try { locks = JSON.parse(note.dataset.locks || "[]"); } catch (e) { /* no note */ }
-    const p = key(path || "");
-    const hit = locks.find((l) => within(key(l.P), p) || within(p, key(l.P)));
-    note.hidden = !hit;
-    if (hit) note.textContent = rt(hit.S ? "js.restoreOwner" : "js.restoreLocked", { device: hit.D });
-  }
+  const openRestore = (path, isDir) => restore.open(path, isDir);
 
   // ---- decision dialog: different actions chosen row by row may leave the scope a mix of two devices' versions
   document.addEventListener("change", (e) => {

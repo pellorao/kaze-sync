@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -83,5 +84,20 @@ func TestHeldDialogHasMixedChoiceWarning(t *testing.T) {
 	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
 	if !strings.Contains(page, "data-mixwarn hidden") {
 		t.Error("the decision dialog lacks the warning for mixed choices")
+	}
+}
+
+// A restore sent back with an error reopens the dialog by itself; the page still carries the locks the dialog names
+// in its note (design 4.5), the same as the page the menu opens it on.
+func TestRestoreErrorPageCarriesLocks(t *testing.T) {
+	l, _ := heldEnv(t)
+	st, page := l.post(l.web, "/folders/"+itoa(l.f)+"/restore-dir", url.Values{"path": {""}, "dir": {""}, "time": {"garbage"}})
+	if st != 400 || !regexp.MustCompile(`id="dlg-restore"[^>]* data-autoopen`).MatchString(page) {
+		t.Fatalf("restore error: %d, dialog not reopened", st)
+	}
+	var locks []struct{ D string }
+	attr(t, page, "data-locks", &locks)
+	if len(locks) != 1 || locks[0].D != "A" {
+		t.Fatalf("locks %+v", locks)
 	}
 }
