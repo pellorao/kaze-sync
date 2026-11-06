@@ -141,6 +141,8 @@
     for (const k in params) { if (params[k] === null) u.searchParams.delete(k); else u.searchParams.set(k, params[k]); }
     location.href = u;
   }
+  const key = (x) => x.normalize("NFC").toLowerCase();
+  const within = (a, b) => !b || a === b || a.startsWith(b + "/"); // a is b or lies inside b ("" is the root)
   // wcItem: the write control of the row's path (a directory, a file, or the one the page shows)
   const wcItem = [rt("js.menu.wc"), "lock", "wc"];
   // fillWC sets the write-control dialog for a path from the data-* of a row, of the folder button or of the dialog
@@ -160,6 +162,12 @@
     const sync = () => { dev.disabled = !dev.options.length || f.elements.mode.value !== "exclusive"; };
     f.onchange = sync;
     sync();
+    // devices that hold changes inside the range: saving asks first (design 2.8.11)
+    let spans = [];
+    try { spans = JSON.parse(d.dataset.held || "[]"); } catch (e) { /* no spans */ }
+    const k = key(p), hit = spans.filter((g) => within(k, key(g.P)) || within(key(g.P), k));
+    if (hit.length) f.dataset.confirm = rt("js.wc.heldAsk", { n: hit.reduce((a, g) => a + g.N, 0), devices: [...new Set(hit.map((g) => g.D))].join(", ") });
+    else delete f.dataset.confirm;
   }
   const restoreLabel = (d) => rt(d.path ? "js.menu.restoreDir" : "js.menu.restoreFolder");
   const MENUS = {
@@ -816,15 +824,24 @@
   const restore = $("#dlg-restore") && restoreDialog($("#dlg-restore"));
   function openRestore(path, isDir) {
     restore.open(path, isDir);
-    // an exclusive inside the range (or around it) does not stop a restore: say so
-    const rd = $("#dlg-restore"), note = $("[data-locknote]", rd), key = (s) => s.normalize("NFC").toLowerCase();
+    // an exclusive, or a single writer that wrote a moment ago, inside the range (or around it) does not stop a restore:
+    // say so (design 4.5)
+    const rd = $("#dlg-restore"), note = $("[data-locknote]", rd);
     let locks = [];
     try { locks = JSON.parse(note.dataset.locks || "[]"); } catch (e) { /* no note */ }
-    const p = key(path || ""), within = (a, b) => !b || a === b || a.startsWith(b + "/");
+    const p = key(path || "");
     const hit = locks.find((l) => within(key(l.P), p) || within(p, key(l.P)));
     note.hidden = !hit;
-    if (hit) note.textContent = rt("js.restoreLocked", { device: hit.D });
+    if (hit) note.textContent = rt(hit.S ? "js.restoreOwner" : "js.restoreLocked", { device: hit.D });
   }
+
+  // ---- decision dialog: different actions chosen row by row may leave the scope a mix of two devices' versions
+  document.addEventListener("change", (e) => {
+    const sel = e.target.closest(".held-rows select");
+    if (!sel) return;
+    const f = sel.form, picked = new Set(Array.from(f.querySelectorAll("select[name=a]"), (x) => x.value).filter(Boolean));
+    $("[data-mixwarn]", f).hidden = picked.size < 2;
+  });
 
   // ---- version history: the restore asks in its own row
   document.addEventListener("click", (e) => {

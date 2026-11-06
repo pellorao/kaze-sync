@@ -42,6 +42,7 @@
 <div class="held-acts"><button class="btn sm" name="action" value="discard">{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite" data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
 <label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
 <details><summary>{{t "dlg.held.expand"}}</summary>
+<p class="note warn" data-mixwarn hidden>{{icon "warn"}}<span>{{t "dlg.held.mixed"}}</span></p>
 <table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
 {{range .Rows}}<tr><td class="mono">{{.Path}}</td>
 <td>{{t (printf "held.kind.%s" .Kind)}}{{if ne .Kind "delete"}} · {{size .Size}} · {{time .Mtime}}{{end}}</td>
@@ -86,7 +87,7 @@
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>{{t "common.restore"}}</span></button></div>
 </form></dialog>
 
-<dialog id="dlg-wc" class="dlg" data-folder-name="{{.Folder.Name}}" data-clear="wc"{{with .WCOpen}} data-path="{{.Path}}" data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}{{if eq .Open "dlg-wc"}} data-autoopen{{end}} aria-labelledby="wc-t"><form method="post" action="/folders/{{.Folder.ID}}/writectl">
+<dialog id="dlg-wc" class="dlg" data-folder-name="{{.Folder.Name}}" data-clear="wc" data-held="{{.HeldSpans}}"{{with .WCOpen}} data-path="{{.Path}}" data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}{{if eq .Open "dlg-wc"}} data-autoopen{{end}} aria-labelledby="wc-t"><form method="post" action="/folders/{{.Folder.ID}}/writectl">
 <input type="hidden" name="path" value="{{with .WCOpen}}{{.Path}}{{end}}"><input type="hidden" name="dir" value="{{.Dir}}">
 <div class="dlg-h">{{icon "lock"}}<h3 id="wc-t">{{t "dlg.wc.title"}}</h3></div>
 <div class="dlg-b">

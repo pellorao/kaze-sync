@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -208,6 +209,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		return err
 	}
 	s.decorateWC(t, entries, dir, f.ID, wcRules)
+	owners := s.activeOwners(f.ID, wcRules)
 	type crumb struct{ Name, Path string }
 	var crumbs []crumb
 	for i, p := range strings.Split(dir, "/") {
@@ -240,8 +242,8 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "Devs": devs, "Mapped": len(devs),
 		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": seq,
 		"Rules": rules, "SavedRules": f.Rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
-		"Scope": dir, "LockPaths": lockPaths(wcRules), "WCHere": wcFor(wcRules, dir)}
-	s.wcLine(t, data, f.ID, wcRules, dir)
+		"Scope": dir, "LockPaths": lockPaths(wcRules, owners), "HeldSpans": s.heldSpans(f.ID), "WCHere": wcFor(wcRules, dir)}
+	s.wcLine(t, data, owners, wcRules, dir)
 	if wp, ok := r.URL.Query()["wc"]; ok && ds == nil { // a link of the notifications opens the dialog (design 2.8.11)
 		data["Open"], data["WCOpen"] = "dlg-wc", wcFor(wcRules, strings.Trim(wp[0], "/"))
 	} else if ds != nil && ds.dialog == "dlg-wc" {
@@ -432,15 +434,23 @@ func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// lockPaths is the exclusive settings as the JSON the restore dialog reads to warn about an exclusive in its range.
-func lockPaths(rules []lockRow) string {
-	type l struct{ P, K, D string }
+// lockPaths is the exclusive settings and the single-writer scopes with a live owner, as the JSON the restore dialog
+// reads to warn about them in its range (design 4.5).
+func lockPaths(rules []lockRow, owners map[string]ownerNow) string {
+	type l struct {
+		P, K, D string
+		S       bool `json:",omitempty"` // a single-writer scope whose owner is still inside the time window
+	}
 	out := []l{}
 	for _, x := range rules {
 		if x.Mode == proto.ModeExclusive {
-			out = append(out, l{x.Path, x.key, x.Device})
+			out = append(out, l{x.Path, x.key, x.Device, false})
 		}
 	}
+	for k, o := range owners {
+		out = append(out, l{o.Path, k, o.Device, true})
+	}
+	slices.SortFunc(out, func(a, b l) int { return strings.Compare(a.K+"\x00"+a.D, b.K+"\x00"+b.D) })
 	b, _ := json.Marshal(out)
 	return string(b)
 }

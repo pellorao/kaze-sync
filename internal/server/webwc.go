@@ -5,6 +5,7 @@ package server
 
 import (
 	"database/sql"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
@@ -91,8 +92,48 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 	}
 }
 
+// ownerNow is the device whose write still holds a single-writer scope (design 2.8.3), until the given Unix time.
+type ownerNow struct {
+	Path, Device string
+	Until        int64
+}
+
+// activeOwners finds, per single-writer scope of a folder, the latest write if it is still inside the time window.
+// It reads the newest 500 entries only, like the overview line.
+func (s *Server) activeOwners(folder int64, rules []lockRow) map[string]ownerNow {
+	out := map[string]ownerNow{}
+	db, err := s.folderDB(folder)
+	if err != nil {
+		return out
+	}
+	window := metaInt(s.db, "write_window")
+	now := s.now().Unix()
+	rows, err := db.Query(`SELECT key, device, created_at FROM files ORDER BY seq DESC LIMIT 500`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var key, dev string
+		var created int64
+		if rows.Scan(&key, &dev, &created) != nil {
+			break
+		}
+		rule := ruleFor(rules, key)
+		if dev == excludedDevice || rule.Mode != proto.ModeSingle || seen[rule.key] {
+			continue
+		}
+		seen[rule.key] = true // the latest write of the scope decides
+		if until := created + window; until > now {
+			out[rule.key] = ownerNow{rule.Path, dev, until}
+		}
+	}
+	return out
+}
+
 // wcLine adds the overview of the current directory: its mode, where it comes from, and the single writer's owner.
-func (s *Server) wcLine(t translator, data map[string]any, folder int64, rules []lockRow, dir string) {
+func (s *Server) wcLine(t translator, data map[string]any, owners map[string]ownerNow, rules []lockRow, dir string) {
 	w := wcFor(rules, dir)
 	from := "/"
 	if w.From != "" {
@@ -102,33 +143,58 @@ func (s *Server) wcLine(t translator, data map[string]any, folder int64, rules [
 	if w.Mode == proto.ModeExclusive {
 		data["WCMode"] = t.T("wc.tag.exclusive", "device", w.Dev)
 	}
-	if w.Mode != proto.ModeSingle {
-		return
+	if o, ok := owners[ruleFor(rules, pp.Key(dir)).key]; ok && w.Mode == proto.ModeSingle {
+		data["WCOwner"], data["WCUntil"] = o.Device, o.Until
 	}
-	db, err := s.folderDB(folder)
-	if err != nil {
-		return
-	}
-	window := metaInt(s.db, "write_window")
-	now := s.now().Unix()
-	rows, err := db.Query(`SELECT key, device, created_at FROM files ORDER BY seq DESC LIMIT 500`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	scope := ruleFor(rules, pp.Key(dir)).key
-	for rows.Next() {
-		var key, dev string
-		var created int64
-		if rows.Scan(&key, &dev, &created) != nil {
-			return
+}
+
+// heldSpan is what the write-control dialog needs of the changes a device holds in one scope: the directory that
+// contains all of them, and how many there are.
+type heldSpan struct {
+	P string // directory containing every held path of the group ("" is the folder root)
+	N int
+	D string // device name
+}
+
+// heldSpans groups the held changes of a folder by device and scope, as JSON for the page. The dialog asks for
+// confirmation when a setting is saved over a span (design 2.8.11).
+func (s *Server) heldSpans(folder int64) string {
+	names := map[int64]string{}
+	if devs, err := queryAll(s.db, func(r *sql.Rows, d *devTag) error { return r.Scan(&d.ID, &d.Name) }, `SELECT id, name FROM devices`); err == nil {
+		for _, d := range devs {
+			names[d.ID] = d.Name
 		}
-		if dev == excludedDevice || ruleFor(rules, key).key != scope {
-			continue
-		}
-		if until := created + window; until > now {
-			data["WCOwner"], data["WCUntil"] = dev, until
-		}
-		return
 	}
+	type gk struct {
+		dev   int64
+		scope string
+	}
+	groups := map[gk]*heldSpan{}
+	s.mu.Lock()
+	for id, rep := range s.reports {
+		for _, it := range rep.held[folder] {
+			k := gk{id, it.Scope}
+			dir := ""
+			if i := strings.LastIndex(it.Path, "/"); i >= 0 {
+				dir = it.Path[:i]
+			}
+			g := groups[k]
+			if g == nil {
+				groups[k] = &heldSpan{dir, 1, names[id]}
+				continue
+			}
+			g.N++
+			for g.P != "" && g.P != dir && !strings.HasPrefix(dir, g.P+"/") {
+				g.P = g.P[:max(strings.LastIndex(g.P, "/"), 0)]
+			}
+		}
+	}
+	s.mu.Unlock()
+	out := []heldSpan{}
+	for _, g := range groups {
+		out = append(out, *g)
+	}
+	slices.SortFunc(out, func(a, b heldSpan) int { return strings.Compare(a.D+"\x00"+a.P, b.D+"\x00"+b.P) })
+	b, _ := json.Marshal(out)
+	return string(b)
 }
