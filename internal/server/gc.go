@@ -194,6 +194,11 @@ func (s *Server) requestGC() {
 			start := time.Now()
 			st, err := s.gc()
 			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "took", time.Since(start).Round(time.Millisecond), "err", err)
+			if err != nil {
+				s.Push.Fail("gc", "The server's daily cleanup failed", 1)
+			} else {
+				s.Push.Ok("gc", "The server's daily cleanup works again")
+			}
 			s.gcMu.Lock()
 			again, s.gcAgain = s.gcAgain, false
 			s.gcRunning = again

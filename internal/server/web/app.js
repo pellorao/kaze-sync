@@ -402,7 +402,7 @@
   // today's and at the oldest point. The time axis (bottom) always shows one calendar day, 00:00 to 24:00, and its line
   // moves by the minute inside that day; the part after now and the part before the earliest point are hatched and
   // cannot be picked. The tint is the data that stays: left of the line. The server sends the ticks: the ends of the
-  // minutes with a change in the scope; the day axis marks the days that have one. Dragging only moves the lines and
+  // minutes with a change in the scope; the day axis marks each change at its own position. Dragging only moves the lines and
   // changes some text; the preview is asked for when the state under the line changes and the line rests. Only the
   // newest request counts, an older one is aborted. The preview's glob filter is applied by the server, which holds the
   // whole list. Every text this code writes is in the dictionary (rt, above), with {placeholders}.
@@ -523,13 +523,11 @@
       }
       return `<path class="mk" d="${d}"/>`;
     }
-    function daysSvg(x, w, y) { // one mark per day with a change (taller with more changes); nothing finer than a day
-      const cnt = new Map(), n = T.ticks.length - 1;
-      for (let i = 1; i < n; i++) { const d = dayStart(T.ticks[i]); cnt.set(d, (cnt.get(d) || 0) + 1); }
-      const col = new Map();
-      for (const [d, c] of cnt) { const k = Math.min(Math.round(x(d)), w - 1); col.set(k, (col.get(k) || 0) + c); }
+    function daysSvg(x, w, y) { // the day axis: one mark per change at its own position; changes in one pixel column share a mark that is taller with more of them
+      const col = new Map(), n = T.ticks.length - 1;
+      for (let i = 1; i < n; i++) { const k = Math.min(Math.round(x(T.ticks[i])), w - 1); if (k >= 0) col.set(k, (col.get(k) || 0) + 1); }
       let d = "";
-      for (const [k, c] of col) d += `M${k + 0.5} ${y}v${c > 20 ? 8 : c > 3 ? 6 : 4}`;
+      for (const [k, c] of col) d += `M${k + 0.5} ${y}v${c > 3 ? 8 : c > 1 ? 6 : 4}`;
       return `<path class="mk" d="${d}"/>`;
     }
     // the day axis: the day of the earliest point to now; ticks for days, dates on the tall ones. With a long span only

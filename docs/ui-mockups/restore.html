@@ -612,13 +612,11 @@ svg.i { vertical-align: middle; }
     }
     return out;
   }
-  function daysSvg(x, w, y) { // the day axis: one mark per day with a change (taller with more changes), none finer than a day
-    const cnt = new Map(), n = T.ticks.length - 1;
-    for (let i = 1; i < n; i++) { const d = dayStart(T.ticks[i]); cnt.set(d, (cnt.get(d) || 0) + 1); }
-    const col = new Map();
-    for (const [d, c] of cnt) { const k = Math.min(Math.round(x(d)), w - 1); col.set(k, (col.get(k) || 0) + c); }
+  function daysSvg(x, w, y) { // the day axis: one mark per change at its own position; changes in one pixel column share a mark that is taller with more of them
+    const col = new Map(), n = T.ticks.length - 1;
+    for (let i = 1; i < n; i++) { const k = Math.min(Math.round(x(T.ticks[i])), w - 1); if (k >= 0) col.set(k, (col.get(k) || 0) + 1); }
     let d = "";
-    for (const [k, c] of col) d += `M${k + 0.5} ${y}v${c > 20 ? 8 : c > 3 ? 6 : 4}`;
+    for (const [k, c] of col) d += `M${k + 0.5} ${y}v${c > 3 ? 8 : c > 1 ? 6 : 4}`;
     return `<path class="mk" d="${d}"/>`;
   }
   function marksSvg(x, a, b, w, y) { // one short line per pixel column that holds a change between a and b

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"net"
 	"net/http"
@@ -58,7 +59,11 @@ func Run(ctx context.Context, data string) error {
 		srv.Shutdown(sctx)
 		srv.Close()
 	}()
+	if s.Push, err = ntfy.Load(data, "server"); err != nil {
+		slog.Error("ntfy is off", "err", err)
+	}
 	go s.gcLoop(ctx)
+	go s.pushLoop(ctx)
 	slog.Info("listening", "addr", ln.Addr().String(), "fingerprint", s.Fingerprint)
 	if err := srv.ServeTLS(ln, "", ""); err != http.ErrServerClosed {
 		return err
@@ -72,6 +77,9 @@ func (s *Server) certLoop(ctx context.Context, data string) {
 	for {
 		if _, err := CheckServerCert(s.db, data, time.Now()); err != nil {
 			slog.Error("server certificate check failed", "err", err)
+			s.Push.Fail("cert", "The server certificate cannot be renewed or is about to expire", 1)
+		} else {
+			s.Push.Ok("cert", "The server certificate is in order again")
 		}
 		select {
 		case <-ctx.Done():

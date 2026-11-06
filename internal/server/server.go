@@ -11,6 +11,7 @@ import (
 	"errors"
 	"html/template"
 	"io"
+	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,6 +41,9 @@ type Server struct {
 	now    func() time.Time
 	tmplMu sync.Mutex
 	tmpl   map[string]map[string]*template.Template // language -> page -> templates (web.go page)
+
+	// Push tells the user about the problems that need them (notifypush.go); nil is off.
+	Push *ntfy.Notifier
 
 	// Fingerprint is shown in the enrollment commands in self-signed mode; "" otherwise.
 	Fingerprint string

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -139,6 +140,11 @@ func run(dir string) error {
 		Dir: dir, API: &client.API{Base: dev.Server, Token: dev.Token, HC: hc}, NewFS: cfs.OS,
 		OS: runtime.GOOS, Hostname: host, DeviceName: dev.Name, Stable: stablePeriod, ScanInterval: scanInterval, RetryAfter: retryAfter,
 	}
+	notify, err := ntfy.Load(dir, dev.Name)
+	if err != nil {
+		slog.Error("ntfy is off", "err", err)
+	}
+	a.Notify = notify
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	slog.Info("agent started", "server", dev.Server)

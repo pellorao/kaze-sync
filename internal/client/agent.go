@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -56,6 +57,7 @@ type Agent struct {
 	Debounce                 time.Duration   // quiet time after file events before scanning (design 5.2)
 	MaxWait                  time.Duration   // longest wait from the first pending event to the scan, however busy the folder (design 5.2)
 	AuthRetry                time.Duration   // delay before trying again after the server rejected the device token (design 2.5)
+	Notify                   *ntfy.Notifier  // pushes the errors the user must know about (design 4.3); nil is off
 
 	mu       sync.Mutex // guards cfg, runners, their fields below the line, and the poll state
 	cfg      proto.Config
@@ -292,6 +294,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 	} else {
 		a.failures = 0
 	}
+	a.notifyFolder(r, rep, err, t.scan)
 	r.s.done(a.schedConf(), now, t.plan, taskResult{err: err, retry: f.retry, slow: rep.Slow, unstableAt: f.Unstable(),
 		watching: r.w != nil, reported: r.report.State != "", unauth: errors.Is(err, ErrUnauthorized)})
 }
@@ -415,6 +418,7 @@ func (a *Agent) applyConfig() {
 				wait = openRetryNewer
 			}
 			slog.Error("cannot open folder state", "folder", id, "err", err, "retry_in", wait)
+			a.Notify.Fail("open-"+itoa(id), "kaze-sync cannot open the state of folder "+itoa(id)+"; sync of it is stopped", 1)
 			a.mu.Lock()
 			if fail == nil {
 				fail = &openFail{seen: -1, since: time.Now().Unix()}
@@ -427,6 +431,7 @@ func (a *Agent) applyConfig() {
 		a.mu.Lock()
 		delete(a.openRetry, id)
 		a.mu.Unlock()
+		a.Notify.Ok("open-"+itoa(id), "kaze-sync opened the state of folder "+itoa(id)+" again")
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
 		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
@@ -477,5 +482,37 @@ func (a *Agent) stop(r *runner, forget bool) {
 func (a *Agent) closeAll() {
 	for _, r := range a.runners {
 		a.stop(r, false)
+	}
+}
+
+// failuresBeforePush is how many cycles of one folder must fail in a row before the user is told: the retries come
+// first (design 4.3).
+const failuresBeforePush = 3
+
+// notifyFolder tells the user about a folder that keeps failing or keeps reporting disk and permission errors, and
+// that it is fine again. Files in use and skipped files are reminders on the web page, not pushes.
+func (a *Agent) notifyFolder(r *runner, rep Report, err error, scanned bool) {
+	if a.Notify == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	id, name := itoa(r.cfg.ID), r.cfg.Name
+	if err != nil {
+		a.Notify.Fail("sync-"+id, "Sync of folder "+name+" keeps failing", failuresBeforePush)
+	} else {
+		a.Notify.Ok("sync-"+id, "Sync of folder "+name+" works again")
+	}
+	n := 0
+	for _, e := range rep.Errors {
+		if e.Kind == proto.KindIO || e.Kind == proto.KindFolder || e.Kind == proto.KindRejected {
+			n++
+		}
+	}
+	if !scanned {
+		return
+	}
+	if err == nil && n > 0 {
+		a.Notify.Fail("files-"+id, itoa(int64(n))+" files of folder "+name+" cannot be synced (disk, permission or server refusal)", failuresBeforePush)
+	} else if err == nil {
+		a.Notify.Ok("files-"+id, "Folder "+name+" has no more file errors")
 	}
 }

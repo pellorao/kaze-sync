@@ -55,6 +55,7 @@ func (a *Agent) pollLoop(ctx context.Context) {
 			wait := backoff
 			if ue := (*UpgradeError)(nil); errors.As(err, &ue) {
 				slog.Error("client too old, sync is stopped until kaze-syncc is upgraded", "err", err, "retry_in", wait)
+				a.Notify.Fail("upgrade", "Sync is stopped: kaze-syncc must be upgraded", 1)
 			} else if errors.Is(err, ErrUnauthorized) { // revoked: asking often only adds load (design 2.5)
 				wait = a.AuthRetry
 				a.mu.Lock()
@@ -65,8 +66,10 @@ func (a *Agent) pollLoop(ctx context.Context) {
 				a.mu.Unlock()
 				a.wake()
 				slog.Error("sync is stopped, the server does not accept this device", "err", err, "retry_in", wait)
+				a.Notify.Fail("auth", "Sync is stopped: the server does not accept this device", 1)
 			} else {
 				slog.Warn("poll failed", "err", err, "retry_in", wait)
+				a.Notify.Fail("poll", "Cannot reach the server (failing for several minutes)", pollFailuresBeforePush)
 			}
 			select {
 			case <-ctx.Done():
@@ -76,6 +79,9 @@ func (a *Agent) pollLoop(ctx context.Context) {
 			continue
 		}
 		backoff = time.Second
+		a.Notify.Ok("poll", "The server is reachable again")
+		a.Notify.Ok("auth", "The server accepts this device again")
+		a.Notify.Ok("upgrade", "kaze-syncc is up to date again")
 		a.mu.Lock()
 		a.revoked = false
 		for _, r := range a.runners {
@@ -145,3 +151,7 @@ func (a *Agent) handlePoll(req proto.PollReq, resp proto.PollResp) bool {
 	}
 	return news
 }
+
+// pollFailuresBeforePush is how many failed polls in a row (the retry delay doubles from 1 s to 1 min, so about
+// five minutes) pass before the user is told that the server cannot be reached.
+const pollFailuresBeforePush = 10
