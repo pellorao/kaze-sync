@@ -24,10 +24,11 @@ func globFilter(g string) func(path string) bool {
 	}
 	var b strings.Builder
 	b.WriteString("(?is)^")
-	for i := 0; i < len(g); i++ {
-		switch c := g[i]; c {
+	rs := []rune(g)
+	for i := 0; i < len(rs); i++ {
+		switch c := rs[i]; c {
 		case '*':
-			if i+1 < len(g) && g[i+1] == '*' {
+			if i+1 < len(rs) && rs[i+1] == '*' {
 				b.WriteString(".*")
 				i++
 			} else {

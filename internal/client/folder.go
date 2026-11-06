@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -45,16 +44,15 @@ var (
 // Folder is the engine for one mapped folder. It has no timers or goroutines:
 // callers drive it by calling Scan.
 type Folder struct {
-	ID       int64
-	Adopt    bool
-	FS       cfs.FS
-	DB       *localDB
-	API      *API
-	Matcher  *ignore.Matcher
-	Now      func() time.Time
-	Stable   time.Duration // files modified more recently are left for the next scan
-	OS       string        // "windows" keeps the execute bit of the base
-	Readonly []string      // paths another device holds exclusively: made read-only here (design 2.8)
+	ID      int64
+	Adopt   bool
+	FS      cfs.FS
+	DB      *localDB
+	API     *API
+	Matcher *ignore.Matcher
+	Now     func() time.Time
+	Stable  time.Duration // files modified more recently are left for the next scan
+	OS      string        // "windows" keeps the execute bit of the base
 
 	Epoch      string       // the server's epoch from the last poll, "" while unknown (design 5.5)
 	DeviceName string       // used in conflict copy names
@@ -76,11 +74,7 @@ type Folder struct {
 	seen           int64                // latest server seq the last Pull read up to
 	epoch          string               // the epoch the local state belongs to
 	watched        map[string]bool      // the root's directories a scan has entered, so that a watcher has them
-	guard          *cfs.Guard           // FS with the read-only ranges (design 2.8)
-	repair         bool                 // the running scan is a whole one: it also makes the read-only ranges read-only
-	suspend        atomic.Bool          // the server does not accept this device: no protection until it does
 	savedTS        string               // the time directory in .syncsaved of the running scan or pull
-	savedN         map[string]int       // files in .syncsaved per read-only range
 	linkProbe      int                  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
@@ -110,8 +104,7 @@ func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFo
 			db.setMeta("rules", rules)
 		}
 	}
-	g := cfs.NewGuard(fsys, fc.Readonly)
-	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: g, guard: g, Readonly: fc.Readonly, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}, savedN: map[string]int{}}
+	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}}
 }
 
 // Reset forgets the server seqs this folder knows: the next Pull reads everything again (design 5.5).
@@ -171,14 +164,7 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 		err = f.checkEpoch()
 	}
 	if f.ready && err == nil {
-		if f.repair = whole && !f.suspend.Load(); f.repair {
-			f.syncRanges()
-		}
 		err = f.scan(ctx, dirs, &rep)
-		if f.repair {
-			f.countSaved()
-		}
-		f.repair = false
 		if f.scope != nil { // a partial scan: errors outside what it covered still stand (design 3.6)
 			var kept []proto.FileError
 			for _, e := range old {
@@ -200,7 +186,7 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 
 // finish completes a report from the folder's current errors and counters.
 func (f *Folder) finish(rep *Report) {
-	all := append(append(append([]proto.FileError{}, f.errs...), f.pullErrs...), f.lockedErrors()...)
+	all := append(append([]proto.FileError{}, f.errs...), f.pullErrs...)
 	if rows, err := f.DB.unlinked(); err == nil { // links this machine could not create: a state, not an event
 		for _, r := range rows {
 			all = append(all, proto.FileError{Path: r.Path, Kind: proto.KindSkipped, Message: r.Message})
@@ -311,9 +297,6 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 			}
 			continue
 		}
-		if f.repair && !e.IsDir && !e.IsSymlink && !e.IsLink && !e.ReadOnly && f.guard.In(p) {
-			f.FS.SetWritable(p, false)
-		}
 		switch {
 		case !utf8.ValidString(e.Name):
 			f.note(p, proto.KindSkipped, "file name is not valid UTF-8")
@@ -324,9 +307,6 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 		case e.IsDir:
 			if skip == nil || !skip(p) {
 				f.walk(p, files, failed, skip)
-			}
-			if f.repair && !e.ReadOnly && f.guard.In(p) {
-				f.FS.SetWritable(p, false)
 			}
 		default:
 			busy := names[e.Name+"-wal"].Size > 0 || names[e.Name+"-journal"].Size > 0
@@ -484,9 +464,6 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	dirs, rootOnly := pruneDirs(dirs)
 	if len(dirs) == 0 && !rootOnly {
 		f.walk("", files, failed, nil)
-		if f.repair && f.guard.In("") {
-			f.FS.SetWritable("", false)
-		}
 		local, err = f.DB.all()
 	} else {
 		local = map[string]localRow{}
@@ -610,27 +587,6 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		slog.Warn("cannot store the scan's state rows", "folder", f.ID, "err", err)
 		f.note("", proto.KindFolder, "cannot write the state database: "+err.Error())
 	}
-	if len(f.Readonly) > 0 { // the server's version wins in a read-only range
-		var mine, rest []*item
-		for _, it := range items {
-			if f.guard.In(it.path) {
-				mine = append(mine, it)
-			} else {
-				rest = append(rest, it)
-			}
-		}
-		if len(mine) > 0 {
-			if err := f.rescue(ctx, mine); err != nil {
-				return err
-			}
-			for _, it := range mine {
-				if !it.done {
-					f.pendingUp++
-				}
-			}
-			items = rest
-		}
-	}
 	err = f.commitAll(ctx, items, rep)
 	for _, it := range items {
 		if !it.done {
@@ -715,57 +671,4 @@ func builtinPath(p string) bool {
 		}
 	}
 	return false
-}
-
-// readonlyMeta holds the ranges that were made read-only, so that one dropped from the configuration is released.
-const readonlyMeta = "readonly"
-
-func (f *Folder) storedRanges() []string {
-	if v := f.DB.metaString(readonlyMeta); v != "" {
-		return strings.Split(v, "\n")
-	}
-	return nil
-}
-
-// syncRanges releases the ranges the last whole scan protected and the configuration no longer lists (a
-// released or transferred exclusive), then remembers the current ones (design 3.3).
-func (f *Folder) syncRanges() {
-	old := f.storedRanges()
-	for _, r := range old {
-		if !slices.Contains(f.Readonly, r) {
-			f.setTree(r, true)
-		}
-	}
-	if cur := strings.Join(f.Readonly, "\n"); cur != strings.Join(old, "\n") {
-		f.DB.setMeta(readonlyMeta, cur)
-	}
-}
-
-// Unprotect gives the write permission back everywhere this folder made read-only, for a mapping that is
-// removed and for a device the server no longer accepts, which would never hear of the release (design 3.3).
-func (f *Folder) Unprotect() {
-	old := f.storedRanges()
-	if len(old) == 0 {
-		return
-	}
-	for _, r := range old {
-		f.setTree(r, true)
-	}
-	f.DB.setMeta(readonlyMeta, "")
-}
-
-// setTree changes the permission of p and everything below it, whatever the exclusion rules say.
-func (f *Folder) setTree(p string, w bool) {
-	f.FS.SetWritable(p, w)
-	entries, err := f.FS.ReadDir(p)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if q := path.Join(p, e.Name); e.IsDir {
-			f.setTree(q, w)
-		} else if !e.IsSymlink && !e.IsLink {
-			f.FS.SetWritable(q, w)
-		}
-	}
 }

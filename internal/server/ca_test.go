@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -350,4 +352,35 @@ func TestRunServesCAMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	conn.Close()
+}
+
+// The first certificate check runs right after start: its alert must reach ntfy, so the notifier has to be set
+// before the loop starts.
+func TestRunFirstCertAlertIsPushed(t *testing.T) {
+	f := newFakeSystem(t)
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close()
+	if err := f.install(InstallOptions{Listen: addr, CA: true}); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan struct{}, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		select {
+		case got <- struct{}{}:
+		default:
+		}
+	}))
+	defer ts.Close()
+	os.WriteFile(filepath.Join(f.data, "ntfy.json"), []byte(`{"url":"`+ts.URL+`","topic":"t"}`), 0o600)
+	os.WriteFile(filepath.Join(f.data, CADir, caCertFile), []byte("broken"), 0o644) // the check fails at once
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, f.data) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the alert of the first certificate check was lost")
+	}
 }

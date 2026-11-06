@@ -113,7 +113,6 @@ func (w crashFS) Symlink(t, p string) error {
 	_, err := call(w.c, func() (struct{}, error) { return struct{}{}, w.in.Symlink(t, p) })
 	return err
 }
-func (w crashFS) SetWritable(p string, ok bool) error { return w.in.SetWritable(p, ok) }
 
 // simTransport hands requests to the server's handler in the process; with crash set, the request is
 // processed and the response lost ("after") or the request never sent ("before").
@@ -132,12 +131,11 @@ func (t simTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 type simFolder struct {
-	applied string // the read-only ranges the engine was built with (exclusive writes, sim_excl_test.go)
-	id      int64
-	mem     *cfs.Mem
-	dbPath  string
-	f       *Folder
-	synced  bool // a clean Scan has run since the last crash or restart
+	id     int64
+	mem    *cfs.Mem
+	dbPath string
+	f      *Folder
+	synced bool // a clean Scan has run since the last crash or restart
 }
 
 type simClient struct {
@@ -157,10 +155,6 @@ type sim struct {
 	keep    map[string]bool // content hashes a clean Scan saw on disk
 	where   map[string]string
 	crashes int
-
-	excl  bool      // exclusive writes are part of the run
-	locks []simLock // every exclusive set so far (sim_excl_test.go)
-	force bool      // clients take the newest configuration before each sync
 }
 
 const (
@@ -205,9 +199,7 @@ func (s *sim) open(c *simClient, sf *simFolder) {
 		s.t.Fatal(err)
 	}
 	s.t.Cleanup(func() { db.Close() })
-	ro := s.readonly(c, sf)
-	sf.applied = strings.Join(ro, "\n")
-	f := NewFolder(proto.FolderConfig{ID: sf.id, Adopt: true, Readonly: ro}, crashFS{sf.mem, s.crash}, db, c.api, false)
+	f := NewFolder(proto.FolderConfig{ID: sf.id, Adopt: true}, crashFS{sf.mem, s.crash}, db, c.api, false)
 	f.Stable, f.DeviceName = 0, c.name
 	f.Now = func() time.Time { return s.now }
 	sf.f, sf.synced = f, false
@@ -227,9 +219,6 @@ func (s *sim) sync(c *simClient, sf *simFolder) (rep Report, crashed bool) {
 	}()
 	ctx := context.Background()
 	var err error
-	if s.excl && sf.applied != strings.Join(s.readonly(c, sf), "\n") && (s.force || s.rng.Intn(100) < 70) {
-		s.open(c, sf) // the configuration with the new exclusives arrived: the engine restarts with it
-	}
 	if rep, err = sf.f.Scan(ctx); err != nil {
 		s.t.Fatalf("scan: %v", err)
 	}
@@ -327,9 +316,6 @@ func (s *sim) op(sf *simFolder) {
 		sort.Strings(out)
 		return out
 	}
-	if s.excl && len(sf.f.Readonly) > 0 && rng.Intn(4) == 0 {
-		sf.f.Unprotect() // the person lifts the read-only flags by hand
-	}
 	switch k := rng.Intn(100); {
 	case k < 45:
 		put(simPaths[rng.Intn(len(simPaths))], s.content())
@@ -386,10 +372,6 @@ func (s *sim) run(n int, randomCrash bool) {
 	for i := 0; i < n; i++ {
 		s.now = s.now.Add(time.Second)
 		c, sf := s.pick()
-		if s.excl && s.rng.Intn(100) < 4 {
-			s.lockStep()
-			continue
-		}
 		if s.rng.Intn(100) < 60 {
 			s.op(sf)
 			continue
@@ -412,7 +394,6 @@ func (s *sim) run(n int, randomCrash bool) {
 func (s *sim) settle() {
 	t := s.t
 	s.crash.at = 0
-	s.force = true
 	ok := false
 	var diff string
 	for round := 0; round < 40 && !ok; round++ {
@@ -466,7 +447,6 @@ func (s *sim) settle() {
 			}
 		}
 	}
-	s.checkWriters()
 	lost := 0
 	for h := range s.keep {
 		if !held[h] {
@@ -565,4 +545,31 @@ func TestCrashAtEveryCall(t *testing.T) {
 			}
 		}
 	}
+}
+
+// savedTree is the content hashes of the files in .syncsaved.
+func savedTree(m cfs.FS) map[string]string {
+	out := map[string]string{}
+	var walk func(string)
+	walk = func(dir string) {
+		ents, err := m.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			p := dir + "/" + e.Name
+			if e.IsDir {
+				walk(p)
+				continue
+			}
+			if r, err := m.Open(p); err == nil {
+				b, _ := io.ReadAll(r)
+				r.Close()
+				sum := sha256.Sum256(b)
+				out[p] = hex.EncodeToString(sum[:])
+			}
+		}
+	}
+	walk(savedName)
+	return out
 }

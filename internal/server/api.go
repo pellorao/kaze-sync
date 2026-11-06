@@ -155,13 +155,6 @@ func (s *Server) effectiveConfig(deviceID int64) (proto.Config, error) {
 	if err := rows.Err(); err != nil {
 		return cfg, err
 	}
-	for i := range cfg.Folders {
-		locks, err := folderLocks(s.db, cfg.Folders[i].ID)
-		if err != nil {
-			return cfg, err
-		}
-		cfg.Folders[i].Readonly = readonlyFor(locks, deviceID)
-	}
 	return cfg, nil
 }
 

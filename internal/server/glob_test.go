@@ -18,6 +18,9 @@ func TestGlobFilter(t *testing.T) {
 		{"f0?", "d/f012", false},
 		{"a.b", "axb", false},
 		{"(x)+", "(x)+", true},
+		{"é*", "é.txt", true},
+		{"é*", "Ã©.txt", false},
+		{"日?.md", "d/日本.md", true},
 	}
 	for _, c := range cases {
 		if got := globFilter(c.glob)(c.path); got != c.want {

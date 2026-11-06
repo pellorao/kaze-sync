@@ -36,7 +36,7 @@
 {{define "badge"}}{{if .Total}}<span class="badge{{if not .Errors}} warn{{end}}">{{if gt .Total 99}}99+{{else}}{{.Total}}{{end}}</span><span class="sr">{{t "notif.summary" "e" .Errors "w" .Warnings}}</span>{{else}}<span class="sr">{{t "notif.none"}}</span>{{end}}{{end}}
 
 {{define "notice-item"}}<div class="nitem"><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span>
-<span class="msg">{{if eq .Kind "conflict"}}{{t "tag.conflictCopy"}}{{else if .N}}{{t "fold.locked" "n" .N "path" (or .Path "/") "owner" .Owner}}{{else if .Owner}}{{t "reason.locked" "owner" .Owner}}{{else}}{{.Message}}{{end}}</span>
+<span class="msg">{{if eq .Kind "conflict"}}{{t "tag.conflictCopy"}}{{else if .Owner}}{{t "reason.locked" "owner" .Owner}}{{else}}{{.Message}}{{end}}</span>
 {{if .Path}}<a class="path" href="{{.Link}}">{{.Path}}</a>{{else if .Link}}<a class="path" href="{{.Link}}">{{t "notif.devicePage"}}</a>{{end}}
 <span class="meta">{{.Device}} · {{time .Since}}{{if .ReportedAt}} · {{tm "notif.reportedAt" "time" (time .ReportedAt)}}{{end}}</span>
 {{with noteAdvice .}}<span class="adv">{{.}}</span>{{end}}</div>{{end}}

@@ -40,9 +40,9 @@ func funcs(t translator) template.FuncMap {
 		"noteAdvice": func(v any) string {
 			switch n := v.(type) {
 			case notice:
-				return noticeAdvice(t, n)
+				return adviceOf(t, n.Kind)
 			case noticeRow:
-				return noticeAdvice(t, n.notice)
+				return adviceOf(t, n.Kind)
 			}
 			return ""
 		},
@@ -1176,7 +1176,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	freed, _ := res.RowsAffected()
-	if freed > 0 { // the other devices' read-only lists change
+	if freed > 0 { // the configuration of the other devices changes
 		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
 			return err
 		}

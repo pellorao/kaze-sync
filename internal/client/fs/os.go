@@ -28,7 +28,6 @@ func entry(fi os.FileInfo) Entry {
 		Size:      fi.Size(),
 		MtimeNs:   fi.ModTime().UnixNano(),
 		Exec:      runtime.GOOS != "windows" && m&0o100 != 0,
-		ReadOnly:  m&(os.ModeSymlink|os.ModeIrregular) == 0 && m.Perm()&0o222 == 0,
 	}
 }
 
@@ -180,28 +179,4 @@ func (o osFS) SetMeta(p string, mtimeNs int64, exec bool) error {
 	}
 	t := time.Unix(0, mtimeNs)
 	return os.Chtimes(abs, t, t)
-}
-
-func (o osFS) SetWritable(p string, w bool) error {
-	if err := o.guard(p); err != nil {
-		return err
-	}
-	abs := o.abs(p)
-	fi, err := os.Lstat(abs)
-	if err != nil {
-		return err
-	}
-	if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 || runtime.GOOS == "windows" && fi.IsDir() {
-		return nil
-	}
-	mode := fi.Mode().Perm()
-	if w {
-		mode |= 0o200
-	} else {
-		mode &^= 0o222
-	}
-	if mode == fi.Mode().Perm() {
-		return nil
-	}
-	return os.Chmod(abs, mode)
 }

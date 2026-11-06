@@ -74,7 +74,6 @@ type Agent struct {
 	statusAt time.Time // when to try again to report a changed status
 
 	pollDown  atomic.Bool         // polls are failing to connect: folder failures are probably the same outage
-	revoked   bool                // the last poll was rejected with 401: read-only ranges are released
 	openRetry map[int64]*openFail // folders whose state database cannot be opened
 }
 
@@ -120,7 +119,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.pollLoop(ctx)
 	for {
 		a.applyConfig()
-		a.unprotectRevoked()
 		a.cycle(ctx)
 		a.statusChanged()
 		select {
@@ -130,21 +128,6 @@ func (a *Agent) Run(ctx context.Context) error {
 			return nil
 		case <-a.kick:
 		case <-time.After(a.nextWake()):
-		}
-	}
-}
-
-// unprotectRevoked gives the files back that read-only ranges hold when the server rejects the device: it can no
-// longer hear that an exclusive ends. Busy runners are handled when their task has ended and woken the loop.
-func (a *Agent) unprotectRevoked() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.revoked {
-		return
-	}
-	for _, r := range a.runners {
-		if !r.busy {
-			r.f.Unprotect()
 		}
 	}
 }
@@ -468,9 +451,6 @@ func (a *Agent) stop(r *runner, forget bool) {
 	close(r.done)
 	if r.w != nil {
 		r.w.Close()
-	}
-	if forget {
-		r.f.Unprotect()
 	}
 	r.f.DB.Close()
 	if forget {

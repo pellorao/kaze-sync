@@ -45,7 +45,7 @@ func lockedBy(locks []lockRow, devID int64, key string) *lockRow {
 }
 
 // setLock makes device (0: nobody) the exclusive writer of path in a folder, in one transaction (design 2.8). The
-// overlap and mapping checks fail with an error message the dialog shows.
+// mapping check fails with an error message the dialog shows.
 func setLock(tx *sql.Tx, folder int64, path string, device int64, now int64) (changed bool, _ error) {
 	key := pp.Key(path)
 	if device == 0 {
@@ -65,20 +65,10 @@ func setLock(tx *sql.Tx, folder int64, path string, device int64, now int64) (ch
 		tx.QueryRow(`SELECT name FROM devices WHERE id=?`, device).Scan(&dn)
 		return false, M("err.lock.unmapped", "device", dn)
 	}
-	locks, err := folderLocks(tx, folder)
-	if err != nil {
-		return false, err
-	}
-	for _, l := range locks {
-		if l.key == key {
-			if l.DeviceID == device {
-				return false, nil
-			}
-			continue // a transfer: the row is replaced below
-		}
-		if l.covers(key) || (lockRow{key: key}).covers(l.key) {
-			return false, M("err.lock.overlap", "path", l.Path, "device", l.Device)
-		}
+	var cur int64
+	err := tx.QueryRow(`SELECT device_id FROM locks WHERE folder_id=? AND key=?`, folder, key).Scan(&cur)
+	if err == nil && cur == device {
+		return false, nil
 	}
 	_, err = tx.Exec(`INSERT OR REPLACE INTO locks(folder_id, path, key, device_id, created_at) VALUES(?,?,?,?,?)`, folder, path, key, device, now)
 	return true, err
@@ -109,15 +99,4 @@ func (s *Server) lockHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 	http.Redirect(w, r, back+"?dir="+url.QueryEscape(strings.Trim(r.FormValue("dir"), "/")), http.StatusSeeOther)
 	return nil
-}
-
-// readonlyFor lists the paths of a folder that device may not write: those another device holds.
-func readonlyFor(locks []lockRow, devID int64) []string {
-	var out []string
-	for _, l := range locks {
-		if l.DeviceID != devID {
-			out = append(out, l.Path)
-		}
-	}
-	return out
 }

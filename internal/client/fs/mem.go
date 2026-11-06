@@ -19,7 +19,6 @@ type MemOptions struct {
 	CaseInsensitive bool
 	NoSymlinks      bool  // Symlink fails with ErrLinkUnsupported, like Windows without Developer Mode
 	Capacity        int64 // bytes the file system holds (0: no limit), checked by Reserve
-	Windows         bool  // read-only works like Windows: a directory has no such flag, a read-only file cannot be deleted or replaced
 	Clock           int64 // first logical mtime; give clients of one test different ranges so that mtimes never collide
 }
 
@@ -29,7 +28,6 @@ type node struct {
 	data  []byte
 	mtime int64
 	exec  bool
-	ro    bool // no write permission
 	link  bool // a symbolic link: data is the target; Open and OpenAppend refuse it (the real file system would follow it)
 	kids  map[string]*node
 }
@@ -38,7 +36,6 @@ type Mem struct {
 	mu        sync.Mutex
 	ci        bool
 	noLinks   bool
-	windows   bool
 	capacity  int64
 	root      *node
 	clock     int64 // logical time: every modification advances it
@@ -54,7 +51,6 @@ func NewMem(opts MemOptions) *Mem {
 	return &Mem{
 		ci:        opts.CaseInsensitive,
 		noLinks:   opts.NoSymlinks,
-		windows:   opts.Windows,
 		capacity:  opts.Capacity,
 		root:      &node{dir: true, kids: map[string]*node{}},
 		clock:     opts.Clock,
@@ -152,12 +148,8 @@ func (m *Mem) lookup(op, p string) (*node, error) {
 }
 
 func (m *Mem) entry(n *node) Entry {
-	return Entry{Name: n.name, IsDir: n.dir, IsSymlink: n.link, IsLink: n.link, Size: int64(len(n.data)), MtimeNs: n.mtime, Exec: n.exec, ReadOnly: n.ro && !n.link}
+	return Entry{Name: n.name, IsDir: n.dir, IsSymlink: n.link, IsLink: n.link, Size: int64(len(n.data)), MtimeNs: n.mtime, Exec: n.exec}
 }
-
-// noEntries reports whether the directory d refuses new, removed and renamed entries: a read-only directory (not on
-// Windows, where directories have no such flag).
-func (m *Mem) noEntries(d *node) bool { return d.ro && !m.windows }
 
 func (m *Mem) tick() int64 { m.clock++; return m.clock }
 
@@ -241,17 +233,12 @@ func (m *Mem) OpenAppend(p string) (io.WriteCloser, int64, error) {
 		if !parent.dir {
 			return nil, 0, pathErr("open", p, fs.ErrInvalid)
 		}
-		if m.noEntries(parent) {
-			return nil, 0, pathErr("open", p, fs.ErrPermission)
-		}
 		n = &node{name: base, mtime: m.tick()}
 		parent.kids[m.key(base)] = n
 	case n.dir || n.link:
 		return nil, 0, pathErr("open", p, fs.ErrInvalid)
 	case m.locked[n]:
 		return nil, 0, pathErr("open", p, ErrLocked)
-	case n.ro:
-		return nil, 0, pathErr("open", p, fs.ErrPermission)
 	}
 	return memWriter{m, n}, int64(len(n.data)), nil
 }
@@ -288,8 +275,6 @@ func (m *Mem) Rename(oldp, newp string) error {
 		return pathErr("rename", oldp, ErrLocked)
 	case nn != nil && nn != on && (nn.dir || on.dir):
 		return pathErr("rename", newp, fs.ErrExist)
-	case m.noEntries(op) || m.noEntries(np) || m.windows && nn != nil && nn != on && nn.ro:
-		return pathErr("rename", oldp, fs.ErrPermission)
 	}
 	delete(op.kids, m.key(ob))
 	on.name = nb
@@ -311,8 +296,6 @@ func (m *Mem) Remove(p string) error {
 		return pathErr("remove", p, ErrLocked)
 	case len(n.kids) > 0:
 		return pathErr("remove", p, fmt.Errorf("directory not empty"))
-	case m.noEntries(parent) || m.windows && n.ro:
-		return pathErr("remove", p, fs.ErrPermission)
 	}
 	delete(parent.kids, m.key(base))
 	return nil
@@ -331,9 +314,6 @@ func (m *Mem) MkdirAll(p string) error {
 		}
 		k := n.kids[m.key(seg)]
 		if k == nil {
-			if m.noEntries(n) {
-				return pathErr("mkdir", p, fs.ErrPermission)
-			}
 			k = &node{name: seg, dir: true, kids: map[string]*node{}, mtime: m.tick()}
 			n.kids[m.key(seg)] = k
 		} else if !k.dir {
@@ -385,8 +365,6 @@ func (m *Mem) Symlink(target, p string) error {
 		return pathErr("symlink", p, fs.ErrExist)
 	case !parent.dir:
 		return pathErr("symlink", p, fs.ErrInvalid)
-	case m.noEntries(parent):
-		return pathErr("symlink", p, fs.ErrPermission)
 	}
 	parent.kids[m.key(base)] = &node{name: base, link: true, data: []byte(target), mtime: m.tick()}
 	return nil
@@ -416,19 +394,6 @@ func (m *Mem) Reserve(p string, n int64) error {
 	}
 	if used(m.root)+n > m.capacity {
 		return ErrNoSpace
-	}
-	return nil
-}
-
-func (m *Mem) SetWritable(p string, w bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	n, err := m.lookup("chmod", p)
-	if err != nil {
-		return err
-	}
-	if !n.link && !(m.windows && n.dir) {
-		n.ro = !w
 	}
 	return nil
 }

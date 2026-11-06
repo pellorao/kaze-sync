@@ -52,16 +52,6 @@ func (l *lockEnv) lock(path string, dev int64) (int, string) {
 	return l.post(l.web, "/folders/"+itoa(l.f)+"/lock", form)
 }
 
-func (l *lockEnv) readonly(tok string) []string {
-	st, out := l.api(tok, "poll", proto.PollReq{ConfigVersion: -1, AgentVersion: proto.AgentVersion})
-	if st != 200 {
-		l.t.Fatalf("poll: %d", st)
-	}
-	var r proto.PollResp
-	json.Unmarshal(out, &r)
-	return r.Config.Folders[0].Readonly
-}
-
 func TestLockRejectsOtherDevicesWrites(t *testing.T) {
 	l := newLockEnv(t)
 	if st, _ := l.lock("repo/.git", l.a); st != 303 {
@@ -108,15 +98,7 @@ func TestLockRules(t *testing.T) {
 		t.Fatalf("lock: %d", st)
 	}
 	v := metaInt(l.s.db, "config_version")
-	// Overlaps: an ancestor, a descendant, the whole folder, whoever holds it. The same path is a transfer, below.
-	for _, p := range []string{"a", "a/b/c", ""} {
-		for _, dev := range []int64{l.a, l.b} {
-			if st, _ := l.lock(p, dev); st != 400 {
-				t.Fatalf("lock %q for %d: %d", p, dev, st)
-			}
-		}
-	}
-	if st, _ := l.lock("a/bc", l.b); st != 303 { // a sibling that shares a prefix of the name is no overlap
+	if st, _ := l.lock("a/bc", l.b); st != 303 { // a sibling that shares a prefix of the name
 		t.Fatalf("sibling: %d", st)
 	}
 	if st, _ := l.lock("A/B", l.a); st != 303 || metaInt(l.s.db, "config_version") != v+1 {
@@ -130,18 +112,9 @@ func TestLockRules(t *testing.T) {
 	if st, _ := l.lock("bad//path", l.a); st != 400 {
 		t.Fatalf("bad path: %d", st)
 	}
-	// Move to the other device in one step; the config tells each device what it may not write.
-	if got := l.readonly(l.tb); len(got) != 1 || got[0] != "a/b" {
-		t.Fatalf("B readonly %v", got)
-	}
-	if got := l.readonly(l.ta); len(got) != 1 || got[0] != "a/bc" {
-		t.Fatalf("A readonly %v", got)
-	}
+	// Move to the other device in one step.
 	if st, _ := l.lock("a/b", l.b); st != 303 {
 		t.Fatalf("transfer: %d", st)
-	}
-	if got := l.readonly(l.ta); len(got) != 2 {
-		t.Fatalf("after the transfer A readonly %v", got)
 	}
 	if l.count(`SELECT count(*) FROM locks WHERE key=? AND device_id=?`, pp.Key("a/b"), l.b) != 1 {
 		t.Fatal("not transferred")
@@ -212,21 +185,6 @@ func TestLockWebUI(t *testing.T) {
 	_, body = l.get(l.web, "/folders/"+itoa(l.f)+"?dir=repo")
 	if !strings.Contains(body, "此目录由 A 独占") {
 		t.Error("no exclusive line inside the range")
-	}
-	// An overlapping lock comes back as an error in the open dialog.
-	st, body := l.lock("repo/sub", l.b)
-	if st != 400 || !strings.Contains(body, `id="dlg-lock"`) || !strings.Contains(body, "已由 A 独占") || !strings.Contains(body, `value="repo/sub"`) {
-		t.Errorf("overlap: %d", st)
-	}
-	// B reports the summary of refused changes: an error notice naming the owner, with advice.
-	st, _ = l.api(l.tb, "poll", proto.PollReq{ConfigVersion: -1, AgentVersion: proto.AgentVersion, Folders: []proto.FolderState{{ID: l.f, State: "error",
-		Errors: []proto.FileError{{Path: "repo", Kind: proto.KindRejected, Message: "locked", N: 3, Since: 1}}}}})
-	if st != 200 {
-		t.Fatalf("poll %d", st)
-	}
-	_, body = l.get(l.web, "/folders/"+itoa(l.f))
-	if !strings.Contains(body, "3 个对 repo 的改动被拒绝 (A 独占)") || !strings.Contains(body, "拒绝 · B") && !strings.Contains(body, "· B") {
-		t.Error("the refusal summary is not shown")
 	}
 	// The device page counts the exclusive and the revoke confirmation names it.
 	_, body = l.get(l.web, "/devices/"+itoa(l.a))

@@ -381,39 +381,3 @@ func TestSyncingIsReportedForLongTasksOnly(t *testing.T) {
 		t.Fatalf("next wake in %v, want about %v", w, syncingAfter)
 	}
 }
-
-// A new exclusive reaches a running agent and protects the files at once (not at the hourly scan), and releasing it
-// makes them writable again.
-func TestAgentProtectsAtOnceWhenAnExclusiveIsSet(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory permissions")
-	}
-	e := newCEnv(t)
-	e.srv.PollTimeout = 300 * time.Millisecond
-	dev, api := e.newDevice()
-	other, _ := e.newDevice()
-	f := e.newFolder("One")
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "sub", "a.txt"), "alpha")
-	e.mapFolder(dev, f, root, true)
-	e.mapFolder(other, f, filepath.Join(t.TempDir(), "o"), true)
-	a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, Stable: 0, ScanInterval: time.Hour, RetryAfter: 50 * time.Millisecond}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- a.Run(ctx) }()
-	defer func() { cancel(); <-done }()
-	eventually(t, "the upload", func() bool { _, ok := e.serverFile(f, "sub/a.txt"); return ok })
-	writable := func(p string) bool {
-		st, err := os.Stat(filepath.Join(root, p))
-		return err == nil && st.Mode().Perm()&0o200 != 0
-	}
-	lock := func(device string) {
-		if st, _ := e.post("/folders/"+itoa(f)+"/lock", url.Values{"path": {"sub"}, "device": {device}}); st != 303 {
-			t.Fatalf("lock: %d", st)
-		}
-	}
-	lock(itoa(other.DeviceID))
-	eventually(t, "the files to become read-only", func() bool { return !writable("sub/a.txt") && !writable("sub") })
-	lock("")
-	eventually(t, "the files to become writable again", func() bool { return writable("sub/a.txt") && writable("sub") })
-}

@@ -58,13 +58,6 @@ func (a *Agent) pollLoop(ctx context.Context) {
 				a.Notify.Fail("upgrade", "Sync is stopped: the client must be upgraded", 1)
 			} else if errors.Is(err, ErrUnauthorized) { // revoked: asking often only adds load (design 2.5)
 				wait = a.AuthRetry
-				a.mu.Lock()
-				a.revoked = true
-				for _, r := range a.runners {
-					r.f.suspend.Store(true)
-				}
-				a.mu.Unlock()
-				a.wake()
 				slog.Error("sync is stopped, the server does not accept this device", "err", err, "retry_in", wait)
 				a.Notify.Fail("auth", "Sync is stopped: the server does not accept this device", 1)
 			} else {
@@ -84,12 +77,6 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		a.Notify.Ok("poll", "The server is reachable again")
 		a.Notify.Ok("auth", "The server accepts this device again")
 		a.Notify.Ok("upgrade", "The client is up to date again")
-		a.mu.Lock()
-		a.revoked = false
-		for _, r := range a.runners {
-			r.f.suspend.Store(false)
-		}
-		a.mu.Unlock()
 		if !a.handlePoll(req, resp) {
 			continue
 		}

@@ -23,7 +23,6 @@ type notice struct {
 	Kind                  string // a proto kind, or kindConflict
 	Device, Path, Message string
 	Since                 int64
-	N                     int    // a device's refused changes in an exclusive range of its folder, moved to .syncsaved (design 2.8)
 	Owner                 string // the device that holds the exclusive behind a refusal
 	Link                  string
 	ReportedAt            int64 // when the device last reported, if it is offline; else 0
@@ -39,14 +38,6 @@ func adviceOf(t translator, kind string) string {
 		return t.T("advice." + kind)
 	}
 	return ""
-}
-
-// noticeAdvice is what to do about a notice: refused changes in an exclusive range have their own text.
-func noticeAdvice(t translator, n notice) string {
-	if n.N > 0 {
-		return t.T("advice.locked", "owner", n.Owner)
-	}
-	return adviceOf(t, n.Kind)
 }
 
 // browseLink points at the directory holding p in the folder's file browser; the page highlights the row.
@@ -94,14 +85,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale,
 					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped}
 				if e.Kind == proto.KindRejected {
-					if e.N > 0 { // the summary of refused changes: the lock is at the reported range itself
-						n.N = e.N
-						for _, l := range locks {
-							if l.key == pp.Key(e.Path) {
-								n.Owner = l.Device
-							}
-						}
-					} else if e.Message == proto.ReasonLocked { // an older client's refusal of one path
+					if e.Message == proto.ReasonLocked { // the refusal of one path
 						if l := lockedBy(locks, d.id, pp.Key(e.Path)); l != nil {
 							n.Owner = l.Device
 						}

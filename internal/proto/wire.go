@@ -88,9 +88,6 @@ type FolderConfig struct {
 	Path  string   `json:"path"`
 	Adopt bool     `json:"adopt"`
 	Rules []string `json:"rules"`
-	// Readonly lists the paths of the folder that another device holds exclusively: this device only receives them
-	// (design 2.8). A path is relative to the folder; "" is the whole folder.
-	Readonly []string `json:"readonly,omitempty"`
 }
 
 type Config struct {
@@ -112,9 +109,6 @@ type FileError struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message"`
 	Since   int64  `json:"since"` // unix seconds
-	// N, on the one error a device reports for an exclusive range it had to refuse changes in, counts the changes
-	// moved to .syncsaved and not yet handled (design 2.8).
-	N int `json:"n,omitempty"`
 }
 
 type FolderState struct {

@@ -19,6 +19,7 @@ func Run(ctx context.Context, data string) error {
 	}
 	defer s.Close()
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
+	caMode := false
 	if certFile, keyFile := MetaString(s.db, "cert"), MetaString(s.db, "key"); certFile != "" {
 		var cert tls.Certificate
 		if cert, err = tls.LoadX509KeyPair(certFile, keyFile); err != nil {
@@ -32,7 +33,7 @@ func Run(ctx context.Context, data string) error {
 		}
 		tlsConf.GetCertificate = cs.GetCertificate
 		s.Fingerprint = CAFingerprint(cs.Current())
-		go s.certLoop(ctx, data)
+		caMode = true
 	} else {
 		cert, err := EnsureSelfSigned(filepath.Join(data, VarDir, TLSDir))
 		if err != nil {
@@ -61,6 +62,9 @@ func Run(ctx context.Context, data string) error {
 	}()
 	if s.Push, err = ntfy.Load(data, "Server"); err != nil {
 		slog.Error("ntfy is off", "err", err)
+	}
+	if caMode { // after Push is set: the first check may already raise an alert
+		go s.certLoop(ctx, data)
 	}
 	go s.gcLoop(ctx)
 	go s.pushLoop(ctx)

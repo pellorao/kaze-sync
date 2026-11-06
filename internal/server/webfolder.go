@@ -163,7 +163,7 @@ func decorate(t translator, entries []browseEntry, dir string, notes []notice) [
 			parent = n.Path[:i]
 		}
 		if j, ok := byPath[n.Path]; ok {
-			if !entries[j].IsDir || n.N > 0 {
+			if !entries[j].IsDir {
 				class := "warn"
 				if n.Error {
 					class = "err"
