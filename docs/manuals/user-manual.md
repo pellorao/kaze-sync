@@ -2,7 +2,7 @@
 
 [English](user-manual.md) | [简体中文](user-manual.zh-CN.md)
 
-With kaze-sync, you can keep folders in sync across your Linux and Windows computers through your own server, and recover old or deleted files whenever you make a mistake. This manual is your complete reference for running kaze-sync: installing the server and clients, enrolling devices, mapping folders, writing exclusion rules, resolving conflicts, restoring old versions, backing up, upgrading, uninstalling, and troubleshooting.
+With kaze-sync, you can keep folders in sync across your Linux and Windows computers through your own server, and recover old or deleted files whenever you make a mistake. This manual is your complete reference for running kaze-sync: installing the server and clients, enrolling devices, mapping folders, writing exclusion rules, controlling who may write where and deciding what happens on simultaneous writes, restoring old versions, backing up, upgrading, uninstalling, and troubleshooting.
 
 It assumes you are comfortable using a terminal, `ssh`, and `scp`. If you just want to get your first setup running in a few commands, start with the [README](../../README.md) and come back here when you need to look up a specific operation.
 
@@ -151,7 +151,7 @@ You can run `admin-password` again at any time—for example, if you forget the 
 
 Once you can sign in to the Web UI, the next step is to connect your computers to the server.
 
-To enroll a computer, first generate an enrollment command in the Web UI. On the overview page, press **Add device** (`添加设备`), enter a device name (up to 32 characters using letters, digits, `-`, and `_`; the name must be unique and appears in conflict copy filenames), and press **Generate enrollment code** (`生成注册码`). The dialog displays a single-use code valid for 15 minutes along with ready-to-copy enrollment commands for Linux and Windows (including `--fingerprint` when the server uses a self-signed certificate or local CA):
+To enroll a computer, first generate an enrollment command in the Web UI. On the overview page, press **Add device** (`添加设备`), enter a device name (up to 32 characters using letters, digits, `-`, and `_`; the name must be unique and is shown in notifications that name a device), and press **Generate enrollment code** (`生成注册码`). The dialog displays a single-use code valid for 15 minutes along with ready-to-copy enrollment commands for Linux and Windows (including `--fingerprint` when the server uses a self-signed certificate or local CA):
 
 ```text
 kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sha256:...
@@ -193,9 +193,9 @@ Every page shares the same top navigation bar: the **kaze-sync** logo (which tak
 |---|---|---|
 | Sign-in | `/login` | Enter the admin password |
 | Overview (`总览`) | `/` | View the folder table and device table; **New folder** (`新建文件夹`) and **Add device** (`添加设备`) buttons |
-| Folder | `/folders/<id>` | Browse files, restore old versions, edit folder exclusion rules, or delete the folder |
+| Folder | `/folders/<id>` | Browse files, restore old versions, set write control (section 5.1), decide held changes (section 8), edit folder exclusion rules, or delete the folder |
 | Device | `/devices/<id>` | Add, edit, or delete the device's folder mappings, or revoke the device |
-| Settings (`设置`) | `/settings` | Configure time zone, language, version retention, and global exclusion rules |
+| Settings (`设置`) | `/settings` | Configure time zone, language, version retention, the single-writer time window, and global exclusion rules |
 
 On the **Overview** page, the two tables give you the status of your entire setup at a glance:
 - The **folder table** shows each folder's current state (Synced `已同步`, Syncing `同步中` along with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, or Device offline `设备离线`), which devices map it, its total file count and size, and its count of errors and warnings.
@@ -211,19 +211,20 @@ All timestamps use the format `2026-11-03 22:48:27` in your browser's local time
 - **Time zone** (`时区`): follow each browser's local time zone, or lock a specific IANA time zone across all browsers. The dropdown lists every zone with its current UTC offset (such as `+09:00`, including daylight saving time), sorted from `-12:00` to `+14:00` and alphabetically by name within the same offset. This setting only affects how times are displayed and parsed in the Web UI.
 - **Language** (`语言`): follow the browser's preferred language list (the default, falling back to English if none of the five supported languages match) or lock one of the five languages. Because language preference is stored in the current browser only, your phone and desktop can use different languages. Timestamps keep the `2026-11-03 22:48:27` format regardless of language.
 - **Version retention** (`版本保留`): how many days to keep overwritten or deleted versions, from 1 to 3650 (default 30).
+- **Single-writer time window** (`单端写入时间窗`): a number of minutes from 0 to 60 (default 1), explained in section 5.1. It takes effect on the server at once and needs no restart of any client.
 - **Global exclusion rules** (`全局排除规则`): exclusion patterns applied to every folder on every device (section 7).
 
 ## 5. Folders and mappings
 
 To start syncing files between computers, you create a folder on the server and map it to a local directory path on each device that should participate.
 
-**Create a folder.** On the overview page, press **New folder** (`新建文件夹`) and enter a unique name of at most 64 bytes. A new folder starts empty and unmapped.
+**Create a folder.** On the overview page, press **New folder** (`新建文件夹`) and enter a unique name of at most 64 bytes. A new folder starts empty and unmapped. It also starts with a reminder in the notification bell about write control (see section 5.1): you decide there who may write to the folder, and the reminder stays until you do.
 
 **Map it to a device.** Open the device page for a computer and press **Add mapping** (`添加映射`). Choose the folder (the dropdown lists only folders not yet mapped on this device), type the local directory path, and choose whether to allow adopting a non-empty directory:
 
 - The local path must be an absolute path on that device—for example, `D:\Docs` on Windows or `/home/me/Docs` on Linux. On the same device, two mappings cannot be nested inside each other.
 - If the local directory does not exist yet, the client creates it; if it exists and is empty, the client starts syncing immediately.
-- If the directory already exists, is not empty, and has never been synced before, the client refuses to touch it and reports a `folder` error (section 9) unless you tick **Allow adopting a non-empty directory** (`允许接管非空目录`). This safeguard prevents you from accidentally typing `C:\Users\me` and uploading your entire home directory. When you do tick adoption, the client compares its existing local files against the server: identical files are adopted without transferring their data over the network—which is how you migrate from another sync tool or attach a second computer that already has a copy of the files—while files whose contents differ become conflict copies (section 8).
+- If the directory already exists, is not empty, and has never been synced before, the client refuses to touch it and reports a `folder` error (section 9) unless you tick **Allow adopting a non-empty directory** (`允许接管非空目录`). This safeguard prevents you from accidentally typing `C:\Users\me` and uploading your entire home directory. When you do tick adoption, the client compares its existing local files against the server: identical files are adopted without transferring their data over the network—which is how you migrate from another sync tool or attach a second computer that already has a copy of the files—while files whose contents differ are put on hold for your decision (section 8).
 - Once syncing begins, the client places an empty marker file named `.syncroot` at the root of the local directory. If `.syncroot` ever disappears later (because an external drive was unmounted or the directory was moved), the client immediately stops syncing that folder and reports an error rather than mistaking the missing directory for "every file was deleted". Do not delete `.syncroot`.
 
 **Change a mapping.** On the device page, open the **⋯** menu at the end of a mapping's row to choose **Edit mapping…** (`编辑映射…`) or **Delete mapping…** (`删除映射…`). Changing a mapping's local path is treated as deleting the old mapping and creating a new one: the files at the old path remain untouched where they are, and the client compares the new path against the server from scratch.
@@ -234,16 +235,39 @@ To start syncing files between computers, you create a folder on the server and 
 
 If you map several folders on the same device, they sync independently of one another, so a large upload in one folder never blocks changes in another.
 
-### 5.1 Exclusive subfolders
+### 5.1 Write control: who may write where
 
-While most folders are edited on any computer, some subdirectories should only ever be modified on one machine at a time. A Git repository is the classic example: if two computers commit to the same `.git` directory concurrently, its internal metadata will collide. You can mark such a subdirectory as **exclusive** to one device so that only that device may write to it, while all other devices receive updates as read-only copies.
+Most of the time your computers edit different files, and sync simply works. The trouble starts when two computers write to the same place at about the same time. For one document that is an ordinary clash, but for a Git repository it is worse: two computers that both run `git` inside the same working tree each rewrite `.git/index` and other internal files, and a mixture of the two is a broken repository. kaze-sync does not try to merge such writes, and it does not create a second copy of the file either. Instead, **the first computer to reach the server wins, and the computer that comes second stops syncing that part of the folder until you decide what to do with its changes.** Nothing is lost while it waits: its edits stay on its disk, and you choose what happens to them in a dialog (section 8).
 
-- **Set or change an exclusive.** Open the folder in the Web UI, open the menu for the subdirectory (either from the row's menu or from the title bar menu when you are viewing that directory), and choose "Make exclusive...". Select the device that is allowed to write. The same menu also lets you choose "Move exclusive to another device..." or "Release exclusive...". Only a device that currently maps the folder can hold an exclusive, and exclusive directory ranges cannot overlap one another. Because an exclusive belongs to the folder configuration rather than to a client, you as the administrator can move or release it in the Web UI at any time.
-- **How other devices enforce it.** On every non-exclusive device, the client marks the files in that directory read-only (on Linux, directories lose write permission as well; on Windows, only files carry the read-only attribute), preventing ordinary programs from modifying them while allowing the sync service itself to keep updating them. Note that Windows file attributes cannot stop a user or program from creating new files inside the directory.
-- **What happens if a read-only device edits anyway.** If a local change still occurs on a non-exclusive device (for example, because you manually cleared the read-only attribute, created a new file on Windows, or edited before the device learned about the exclusive), the server refuses the upload. To make sure you never lose work, the client moves the modified or new local files aside to `.syncsaved/<time>/<original path>` at the sync root, restores the server's version at the original path, and posts an error notice in the Web UI such as "3 changes to repo refused (exclusive to A), moved to .syncsaved". Nothing is uploaded and nothing is lost. Once you no longer need the saved files, delete the contents of `.syncsaved` and the error notice disappears automatically. `.syncsaved` itself is never synced.
-- **Restoring inside an exclusive directory.** Restoring old content from the Web UI (section 11) still works inside an exclusive directory and syncs the restored files out to every device, including the exclusive writer.
-- **Making files writable again.** Whenever you release or move an exclusive, revoke the holding device, or delete its mapping for the folder, the other devices automatically make their local files writable again as soon as they receive the updated configuration (which restarts the folder with a full scan). If you uninstalled the client before releasing the exclusive, clear the read-only flags manually: run `chmod -R u+w <directory>` on Linux, or `attrib -r <directory>\* /s /d` on Windows.
-- **Older clients.** Devices running an older client version do not mark exclusive files read-only on disk, but the server still refuses their uploads and shows the refusal in the Web UI until you upgrade those clients.
+"That part of the folder" is what write control lets you choose. Every folder, directory and file has one of three write modes:
+
+| Mode | What is allowed | When two devices write at the same time |
+|---|---|---|
+| Any writer (`不限`) | Every device may write. Each file is judged on its own. | Only the file that both changed is frozen on the device that came second; its other files keep syncing. |
+| Single writer (`单端`) | One device at a time writes to the whole directory. The device whose write reached the server last is the current writer. | The device that came second is frozen for the whole directory, not only for the file. |
+| Exclusive (`独占`) | Only the device you name may write. | Any change made on another device freezes that device's sync of the directory. |
+
+**What counts as "at the same time" in single-writer mode.** The server decides when a device's changes arrive, using its own clock and its own version numbers, so the clocks on your computers do not matter. A write by another device is treated as simultaneous if either of these is true:
+
+- It arrives within the **single-writer time window** after the current writer's last write (1 minute by default; section 4, Settings). This covers one `git commit` that reaches the server in several batches while another device is already writing.
+- It was made on content that is out of date: since the device last synced the directory, another device has written something in it. This covers a laptop that was offline, edited the repository, and comes back online after the desktop has already changed it.
+
+Setting the time window to 0 turns off the first test and keeps only the second. In any-writer mode the window is applied to the single file only: a file that another device wrote less than the window ago counts as written at the same time.
+
+**What "frozen" means.** A frozen device stops syncing the affected directory in both directions: it does not upload changes there and does not write the server's changes there into its local files. Every other device and every other directory carries on normally. The freeze survives a restart of the agent. It ends when you have decided every held change of that directory; the device then reads the directory again from the server and continues.
+
+**Where the settings apply.** A setting covers the directory it is set on and everything below it, until a deeper directory has a setting of its own. A deeper setting may loosen or tighten the one above: for example, the root can be any writer, `scratch/` single writer, and `scratch/repo/` exclusive. Directories with no setting of their own inherit. A single file can be made exclusive, but not "any writer". A new folder's root is **single writer** until you say otherwise. If you revoke the exclusive device or delete its mapping, its exclusive directories become single writer.
+
+**Setting write control.** Open the folder in the Web UI, then open the **⋯** menu on a directory or file row (or in the title row, which acts on the directory you are viewing; at the top level that is the root) and choose **Write control…** (`写入控制…`). Pick **Inherit** (`继承`), **Any writer** (`不限`), **Single writer** (`单端`) or **Exclusive** (`独占`) and press **Save** (`保存`). For exclusive you also choose the owner from a list of the devices that map this folder; the list shows which are online. Directories and files with their own setting show a tag (**Any writer**, **Single writer**, **Exclusive · device**) and a coloured icon: grey for any writer, blue for single writer, purple with a lock for exclusive. Inherited settings carry no tag. A line under the folder title always shows the setting that applies to the directory you are viewing, where it comes from, and for single writer who the current writer is. The write-control dialog can also be opened directly with `/folders/<id>?wc=<path>`; the reminder below uses this.
+
+**The reminder for a new folder.** Because the default for the root decides how often a folder freezes, the Web UI asks you once for each new folder. The notification bell shows a yellow entry for the folder, "No write rules are set yet; the root is single writer by default", with the three modes explained and two links: **Set write rules…** (`设置写入规则…`) opens the root's write-control dialog, and **Keep the default** (`保持默认`) accepts single writer for the root. Saving any write setting for the folder also clears the reminder, and once cleared it does not come back, even if you later remove all settings. The reminder is not pushed to your phone. Folders that existed before you installed this version get the reminder once as well.
+
+**Which mode to choose.**
+
+- **A Git repository, or any directory whose files must stay consistent as a whole.** Use single writer for the repository's directory, or exclusive if you want to name the one computer where you work. With exclusive, run `git` only on the owner: even `git status` rewrites `.git/index`, and on any other device that counts as a write and freezes the repository there.
+- **Your root folder.** Single writer at the root is the safe default, but it has a cost you should know about: if a laptop edits a file while offline, and in the meantime the desktop changed anything in the same folder, the laptop's whole folder is frozen when it reconnects, however unrelated the files are. **If the files in a folder are unrelated to each other (documents, photos, notes), set the root to any writer and make only repositories and similar directories single writer or exclusive.** Then two devices only collide on the very same file.
+- **Restoring from the Web UI** (section 11) is always accepted and synced to every device. It counts as a write: for one time window afterwards, and for devices that have not yet received the restored files, edits in a single-writer directory are held.
+- **Older clients.** A client that is too old for the server stops syncing until you upgrade it (section 15), so that it cannot write around these rules.
 
 ## 6. Devices
 
@@ -304,7 +328,7 @@ Open the Settings page to view or edit the full list; after installation, whatev
 
 **What happens when rules change.** When you save updated rules, online clients receive them within a second:
 - When a path **becomes excluded**, clients simply stop tracking it and leave the local copy on every computer untouched—a client never deletes a local file because of an exclusion rule. Instead, the server deletes its own copy of any newly excluded files when you save the rules (moving them into version history, as explained below).
-- When you **remove an exclusion**, clients scan the previously ignored path, compare local files against the server, and resolve any differences using the normal conflict rules (section 8).
+- When you **remove an exclusion**, clients scan the previously ignored path, compare local files against the server, and put any differences on hold for your decision (section 8).
 
 **Previewing and saving rules in the Web UI.** Because saving new exclusion rules deletes any already-synced server files that match those rules, the Web UI always makes you preview the impact before saving:
 1. **Preview.** Both the folder rules dialog and the global rules card on the Settings page have a single primary action button. Whenever you edit the rules text and have not yet previewed your changes, that button reads **Preview** (`预览`). Clicking **Preview** does not save anything; instead, it checks which existing files on the server match your edited rules and displays them under the label "not in effect yet" (`尚未生效`), showing the total match count and up to the first 50 paths (including the folder name when previewing global rules), or stating that no server file matches (`没有命中服务端文件`).
@@ -315,30 +339,60 @@ When matching server files are deleted by saving rules, they are recorded as ord
 
 If you use the Web UI with JavaScript disabled, submitting the save form returns the preview page first whenever server files match, and clicking the red button on that page completes the save. Clicking **Cancel** discards unsaved edits and closes the dialog immediately; closing the dialog in any other way (such as pressing `Esc`) while you have unsaved edits asks whether to discard them.
 
-## 8. Conflicts and conflict copies
+## 8. Simultaneous writes and the decision dialog
 
-In normal day-to-day use, changes flow from one device to the server and out to your other devices within seconds. When two devices modify the same path while out of contact with each other, kaze-sync resolves the collision without ever losing data or relying on system clocks.
+In normal day-to-day use, changes flow from one device to the server and out to your other devices within seconds, and you never see this section's dialogs. When two devices change the same thing while out of contact with each other, kaze-sync never loses data, never relies on system clocks, and never makes a copy named after the clash. The first device to reach the server wins; what the second device wanted to write is **held** until you decide (write modes: section 5.1).
 
-The rule is simple: **the first device to upload to the server wins**, and the second device to sync resolves the difference as follows:
+What counts as a clash depends on the mode of the place where the change was made, but these cases are always held on the second device:
 
 | This device | Server now | Result |
 |---|---|---|
-| Changed | Changed to identical content | Accepted with no data transfer |
-| Changed | Changed differently | The local file is renamed to a **conflict copy** and uploaded as a new file; the server's version is downloaded to the original path |
-| Changed | Deleted | The local change wins and is uploaded again |
-| Deleted | Changed | The deletion gives way and the server's changed file is downloaded |
-| New | Exists with different content | Same as "Changed / Changed differently" |
+| Changed | Changed to identical content | Accepted with no data transfer, nothing is held |
+| Changed | Changed differently | Held |
+| Changed | Deleted | Held |
+| Deleted | Changed | Held |
+| New | Exists with different content | Held |
+| File | Directory with the same name (or the reverse) | Held |
 
-Even when a file is overwritten, the previous server content is preserved in version history.
+Writes that the write mode refuses (a second writer in a single-writer directory, a change by anyone but the owner of an exclusive directory) are held too, even if no file clashes. Files that differ when you adopt a non-empty directory, or after a server restore (section 14), are held in the same way. Even when a file is overwritten, the previous server content is preserved in version history.
 
-**How to resolve a conflict copy.** When a client creates a conflict copy, it inserts the device name and local timestamp before the file extension—for example, `report.conflict-laptop-20261101-153012.docx`. Because a conflict copy is an ordinary file, it syncs to every device so you can inspect it anywhere. In the Web UI folder page, the copy is badged with a red **Conflict copy** (`冲突副本`) label, the original file shows **Has conflict** (`有冲突`), and the notification bell lists the conflict as an error. To resolve it, compare the two files on any client computer and either delete the conflict copy or rename it to a normal filename if you want to keep both; as soon as the conflict copy is gone, the Web UI labels and error notification disappear automatically.
+**Seeing what is held.** The notification bell shows an error entry for each device and directory that has held changes, such as "laptop has 3 changes waiting for your decision: /repo (written at the same time as desktop)"; the other reasons are "exclusive to desktop", "differs from the server's version", "a file and a directory share a name", and "the server's history was reset". The same count appears as a red **On hold** tag on the directory rows of the file list and as "N on hold" on the device page. Click the entry's link, or the tag, to open the decision dialog, which is also addressed by `/folders/<id>?held=<device id>`. If the device is offline, the dialog says so and the decision is carried out when it comes back. Server push messages (section 9.1) tell you only the folder name and the count.
+
+**The decision dialog.** It lists the held changes of one device, grouped by directory that froze. Above each group are two buttons for the whole group, which is how you normally handle a `git` operation that touched hundreds of files:
+
+- **Discard all** (`全部丢弃`): the device's changes in the group are thrown away and the server's version replaces them locally.
+- **Upload all and overwrite** (`全部上传并覆盖`): the device's changes are uploaded and replace the server's versions. It asks for confirmation first. The replaced server content goes to version history and can be restored. It only overwrites the files that the device changed; a file the device did not touch stays as the first device left it.
+
+Below the buttons, **Choose one by one** (`逐个选择`) opens a table with one row per path: the local change (modified, added or deleted, with size and time), the version it was based on, what the server has now (and by whom it was changed), and an action. Choose an action per row, or leave the row alone, then press **Apply the choices** (`执行所选`). The three actions are:
+
+| Action | Available when | What happens |
+|---|---|---|
+| Upload (`上传`) | The server has not changed this path since the device's version | The device's change goes to the server and then to the other devices |
+| Upload and overwrite (`上传并覆盖`) | Always | The same, replacing whatever the server has now; the old server content is kept in version history |
+| Discard (`丢弃`) | Always | The device's version is dropped and the server's current version is downloaded |
+
+When a file and a directory share a name, only overwrite and discard are offered. Choosing different actions for the files of one repository can leave a mixture of both versions on the server; handling a whole group with one button avoids that. The dialog draws at most 2000 rows per group and then says how many more there are; use the group buttons for the rest. It does not refresh by itself; reopen it to see progress.
+
+**What happens to the discarded file: `.syncsaved`.** When you discard, the box **When discarding, keep the local copy in .syncsaved** (`丢弃时把本机那一份保存到 .syncsaved`) is ticked by default. The device then moves its file to `.syncsaved/<YYYYMMDD-HHMMSS>/<original path>` in the sync root before it downloads the server's version, so everything one decision discarded sits together in one time-stamped directory and you can copy it back by hand. Untick the box to throw the local file away at once (a local directory that clashes with a server file of the same name is always set aside, never deleted outright). `.syncsaved` is never synced, and the client deletes time-stamped directories older than 30 days when it scans the folder. If you deliberately want the local version to win, choose **Upload and overwrite** instead.
+
+**Safeguards.** A decision is carried out only if nothing changed in between; otherwise it is dropped, the row stays held, and a note on the row says what to do:
+
+- "Changed again on the device: choose again" (`本机又改过, 请重新选择`): the file on the device no longer has the size and modification time you were shown. Nothing is uploaded or discarded that you have not seen.
+- "The server changed: choose again" (`服务端又变了, 请重新选择`): someone wrote to the path after the dialog was drawn. The row now shows the new server state.
+- "It failed: try again" (`执行失败, 请重试`).
+
+The group buttons are guarded the same way. They act only on the paths the server has not changed since you opened the dialog; paths that changed meanwhile are left held, and you can look at them one by one. After you press a button, rows show "Waiting for laptop" (the name of the held device) until the device carries the decision out, which happens on its next contact with the server (usually within seconds).
+
+A decision lives in the server's memory until the device has carried it out. If the server restarts first, the held changes come back from the device (they are stored there) but the decision is lost, and you press the button again.
+
+When every held change of a directory is decided, the device reads that directory again from the server and the freeze ends. If you change the write setting while something is held (for example to any writer), the device re-submits its held changes under the new setting.
 
 **Other filesystem cases and edge cases:**
 
 - **Rename or move.** Renaming or moving a file is synced as a deletion at the old path plus a new file with the same content hash at the new path. Because other devices already have those data blocks locally, they copy the content on disk instead of downloading it again. If one device moves a directory while another device edits a file inside it, the edited file is kept at its old path so the edit is not lost.
 - **Filename case.** Because Windows and Linux share folders, the server treats filenames case-insensitively within a folder. If a Linux client creates both `A.txt` and `a.txt` in the same directory, the first one uploaded succeeds and the second is rejected (`被拒绝`) and reported as an error; rename one of the files to clear it. On Windows, renaming a file solely to change its case (`a.txt` to `A.txt`) works as expected.
 - **Windows-illegal names.** So that every synced folder can be mapped on Windows, the server rejects filenames that Windows forbids regardless of which OS created them: names containing `<>:"\|?*` or control characters, names ending with a dot or a space, and the reserved device names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, and `LPT1`-`LPT9`. Rename the file on the device where it was created, or exclude it with a rule.
-- **File and directory with the same name.** If one device creates a file and another creates a directory at the exact same path, the second device to reach the server renames its local file or directory to a conflict copy name.
+- **File and directory with the same name.** If one device creates a file and another creates a directory at the exact same path, the second device to reach the server holds its change; the dialog offers only overwrite and discard.
 - **Symbolic links.** Symbolic links are synced as links and are never followed: the server stores the link target as literal text (whether it is a relative path, an absolute path, a dangling link, or a path pointing outside the folder; making sure the target makes sense on other devices is up to you). The target's content is never synced through the link, and because kaze-sync never reads or writes through a symbolic link, a link pointing outside the folder can never cause downloads to write outside the sync root. A symbolic link whose target path is longer than 4096 bytes is skipped (reported as `skipped`, `已跳过`).
   If a receiving device cannot create symbolic links—most commonly Windows when Developer Mode is turned off—the link remains safely on the server while nothing is created on that Windows machine. To avoid flooding you with alerts, the notification bell shows a single folded warning line per device (`win: 3 个符号链接未建立 (Windows 需开启开发人员模式)`), and the folder page shows those links as grey **Not synced** rows. If you turn on Windows Developer Mode (Settings -> System -> For developers), the client creates the missing links automatically without needing a restart. That notification line updates only when the set of affected links changes.
 - **What is not synced inside a folder.** Windows directory junctions are neither followed nor synced (they are reported as `skipped`). Empty directories, file permissions other than the executable bit, file ownership, and extended attributes are not synced. File contents are always copied byte for byte without line-ending conversion.
@@ -349,11 +403,12 @@ Because client agents run silently in the background with no tray icon or pop-up
 
 Click the bell icon in the top bar to open the notification panel. The badge on the bell shows the total number of active issues—coloured red when any error is present, yellow when there are only warnings, and capped at `99+` above 99. Inside the panel, entries are grouped by folder, while devices that have been offline for a long time are grouped under **Devices** (`设备`). Each entry shows what went wrong, the file path (which you can click to jump straight to that file in the folder page, highlighted for two seconds), the affected device, when the issue started, and a short hint on how to fix it. If a single device reports more than 5 entries of the same kind in one folder, they collapse into a single summary line that you can click to expand.
 
-Notifications are never dismissed manually; instead, they reflect the live state of your folders and devices, and each notification disappears on its own as soon as you fix the underlying cause. Client-reported issues are held in server memory, so after a server restart they reappear as soon as the client reports them again (conflict copies and long-offline devices are derived from the database and do not wait for a client report).
+Notifications are never dismissed manually; instead, they reflect the live state of your folders and devices, and each notification disappears on its own as soon as you fix the underlying cause. Client-reported issues are held in server memory, so after a server restart they reappear as soon as the client reports them again (long-offline devices are derived from the database and do not wait for a client report; held changes are re-sent by each device within moments, because they are stored on the device).
 
 | Source | Level | What to do |
 |---|---|---|
-| Conflict copy exists | Error | Compare the files on a client, then delete or rename the conflict copy |
+| Changes on hold ("N changes waiting for your decision") | Error | Open the decision dialog from the link (section 8) |
+| No write rules set for a new folder | Warning | Set the write rules or keep the default (section 5.1) |
 | `rejected` (`被拒绝`): case collision, illegal name, or file and directory with the same name | Error | Rename the item on that client, or exclude its path |
 | `io` (`读写错误`): other local read or write error | Error | Check the disk and file permissions on that client using the error message |
 | `folder` (`文件夹错误`): sync root missing, or non-empty directory not allowed to be adopted | Error | Mount the disk, or fix the path / tick adoption on the device page |
@@ -376,7 +431,7 @@ Push notifications are off by default. To enable them on the server or on a clie
 - **Where to put `ntfy.json`**: on the server, place it in the `--data` directory (next to `var/`); on a client, place it in the state directory (`~/.local/state/kaze-sync` on Linux, `%LOCALAPPDATA%\kaze-sync` on Windows). Because each program reads its own `ntfy.json`, a client can post to a different topic than the server. Removing the file or leaving `url` or `topic` empty turns push notifications off. Because anyone who knows your topic name on a public ntfy server can read your alerts, pick a long random topic name, keep `ntfy.json` private, and never commit it to a repository.
 - **Privacy**: each push message is a single short line naming the folder or device and the kind of problem. It never includes filenames, file contents, passwords, or the admin password.
 - **What a client pushes**: when it cannot reach the server for about five minutes; when the server rejects the device (sync stopped); when the client protocol version is too old for the server (sync stopped); when a folder fails to scan or pull three cycles in a row; when a folder continues to report `io`, `folder`, or `rejected` errors; or when a folder's local state database cannot be opened. Warnings (`in_use` and `skipped` files) are shown only in the Web UI and are never pushed.
-- **What the server pushes** (checked every five minutes): when conflict copies appear in a folder (reporting only the count); when device-reported errors persist; when a device has not connected for 7 days; when free space on the data disk drops below 256 MB; when the daily garbage collection cleanup fails; or when the server certificate cannot be renewed or is about to expire.
+- **What the server pushes** (checked every five minutes): when a folder has changes on hold (one message per folder, reporting only the count); when device-reported errors persist; when a device has not connected for 7 days; when free space on the data disk drops below 256 MB; when the daily garbage collection cleanup fails; or when the server certificate cannot be renewed or is about to expire.
 - **Rate limiting and recovery**: to avoid spamming you, each distinct problem is pushed once and not repeated until it clears; even if the same problem flaps on and off, it is pushed at most once per hour, and total pushes are capped at 20 messages per hour. When a previously pushed problem clears, kaze-sync sends a single `Recovered` message. If the ntfy server itself is unreachable, kaze-sync logs a single line and continues syncing normally.
 
 ## 10. Files in use and SQLite databases
@@ -470,7 +525,7 @@ tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                  
 Passing `--new-epoch` to `install` is **required** after every restore (and must never be used for ordinary upgrades). Because restoring a backup moves the server's databases back in time relative to what your clients have already synced, `--new-epoch` assigns a new history identifier that tells every connecting client to discard its cached knowledge of the server and reconcile from scratch once:
 - You do not need to touch the clients.
 - As long as `<data>/var/tls/` (and `<data>/ca/`) were restored along with `meta.db`, the admin password, enrolled devices, and folder mappings are all preserved and clients reconnect automatically.
-- Any file on a client whose content differs from the restored backup is preserved as a conflict copy (so nothing is lost); any file created on a client after the backup was taken is uploaded again; and any file deleted on a client after the backup was taken is downloaded again from the backup. Without `--new-epoch`, clients would notice only some of the rolled-back changes and could silently remain out of sync with the server.
+- Any file on a client whose content differs from the restored backup is put on hold for your decision (section 8; nothing is lost); any file created on a client after the backup was taken is uploaded again; and any file deleted on a client after the backup was taken is downloaded again from the backup. Without `--new-epoch`, clients would notice only some of the rolled-back changes and could silently remain out of sync with the server.
 
 For a step-by-step restore walkthrough using OpenWrt commands, see "备份与还原" in [`docs/operations.md`](../operations.md).
 
@@ -598,6 +653,9 @@ By default, the client log records only startup events, warnings, and errors. Wh
 | A folder shows an error and the bell lists a `folder` entry | Either the local directory or `.syncroot` is missing (for example, an unmounted drive), or the directory is non-empty and you have not ticked **Allow adopting a non-empty directory** on the device page (section 5) |
 | Changes appear after a few seconds, not instantly | This is normal: the client batches local file events for 2 seconds (up to 10 seconds when files keep changing continuously), waits until a modified file is at least 5 seconds old, uploads it, and notifies other devices via long polling. Total end-to-end delay is normally 5 to 10 seconds |
 | The first sync takes long | On the initial scan, the client must read and hash every file once. As a reference, a test folder with 19,000 files (1.6 GiB) took about 4.5 minutes |
+| A folder or directory stopped syncing on one device, and the bell shows "changes waiting for your decision" | The device is frozen there because of a simultaneous or stale write, or a write against an exclusive setting. Open the decision dialog (section 8). If it happens often for unrelated files, set the folder's root to any writer (section 5.1) |
+| The bell shows a held change but I did not edit anything | A program on that device rewrote a file: for exclusive and single-writer directories even `git status` rewrites `.git/index`. Run `git` only on the writer, or choose any writer |
+| A decision is stuck on "Waiting for ..." | The device is offline or its agent is stopped. The decision is carried out when it is back, but it is lost if the server restarts first; press the button again |
 | A file does not arrive | Check the folder page in the Web UI for a grey **Not synced** row and check the notification bell: common causes are a symbolic link that cannot be created on that device (Windows without Developer Mode), a Windows-illegal filename, a case collision, a locked file (`in_use`), or an exclusion rule |
 | The server data grows quickly | Files that change every few seconds create a new version on every write. Add an exclusion rule for them (section 7) or shorten the version retention period |
 

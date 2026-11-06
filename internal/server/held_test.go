@@ -190,3 +190,45 @@ func TestMigrationsDropConflictAddAck(t *testing.T) {
 		t.Fatal("no wc_ack")
 	}
 }
+
+// manyHeld is n held changes, all in one scope.
+func manyHeld(it proto.HeldItem, n int) []proto.HeldItem {
+	out := make([]proto.HeldItem, n)
+	for i := range out {
+		out[i] = it
+		out[i].Path = "d/f" + strconv.Itoa(i)
+	}
+	return out
+}
+
+// A device cannot make the server keep more than maxHeldItems held changes for a folder: the rest is dropped.
+func TestHeldListIsCapped(t *testing.T) {
+	l, it := heldEnv(t)
+	l.heldReport(l.tb, l.f, manyHeld(it, maxHeldItems+5)...)
+	l.s.mu.Lock()
+	n := len(l.s.reports[l.b].held[l.f])
+	l.s.mu.Unlock()
+	if n != maxHeldItems {
+		t.Fatalf("%d held changes kept, want %d", n, maxHeldItems)
+	}
+}
+
+// The decision dialog draws at most maxHeldRows rows of a scope and says how many there are in all.
+func TestHeldDialogDrawsAtMostMaxRows(t *testing.T) {
+	l, it := heldEnv(t)
+	l.heldReport(l.tb, l.f, manyHeld(it, maxHeldRows+30)...)
+	v, err := l.s.heldView(l.f, l.b)
+	if err != nil || v == nil || len(v.Groups) != 1 {
+		t.Fatalf("view: %v %+v", err, v)
+	}
+	if g := v.Groups[0]; len(g.Rows) != maxHeldRows || g.Total != maxHeldRows+30 {
+		t.Fatalf("rows %d total %d", len(g.Rows), g.Total)
+	}
+	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
+	if n := strings.Count(page, `name="r"`); n != maxHeldRows {
+		t.Errorf("the page has %d row fields, want %d", n, maxHeldRows)
+	}
+	if !strings.Contains(page, "2030") { // the note under the rows names the total
+		t.Error("the page does not name the total")
+	}
+}

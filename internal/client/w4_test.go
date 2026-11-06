@@ -209,3 +209,44 @@ func (e *cenv) get(path string) (int, string) {
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, string(b)
 }
+
+// The server keeps the held lists in memory only. After a restart (a new boot id in the poll answer) a real agent
+// sends its list again, so the Web UI shows the held change without anyone touching the file.
+func TestAgentSendsHeldListAgainAfterServerRestart(t *testing.T) {
+	e := newCEnv(t)
+	e.srv.PollTimeout = 300 * time.Millisecond // a poll hanging on the old server ends soon
+	f := e.newFolder("One")
+	devA, apiA := e.newDevice()
+	devB, apiB := e.newDevice()
+	roots := [2]string{filepath.Join(t.TempDir(), "one"), filepath.Join(t.TempDir(), "one")}
+	e.mapFolder(devA, f, roots[0], true)
+	e.mapFolder(devB, f, roots[1], true)
+	if st := e.setRule(f, simRule{Mode: proto.ModeExclusive, Owner: 0}, []int64{devA.DeviceID}); st != 303 {
+		t.Fatalf("rule: %d", st)
+	}
+	for _, d := range []struct {
+		dev Device
+		api *API
+	}{{devA, apiA}, {devB, apiB}} {
+		a := &Agent{Dir: t.TempDir(), API: d.api, NewFS: cfs.OS, OS: runtime.GOOS, DeviceName: d.dev.Name, Stable: 0,
+			ScanInterval: time.Hour, RetryAfter: 50 * time.Millisecond, Debounce: 50 * time.Millisecond}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- a.Run(ctx) }()
+		t.Cleanup(func() { cancel(); <-done })
+	}
+	eventually(t, "both roots", func() bool {
+		_, e1 := os.Stat(filepath.Join(roots[0], markerName))
+		_, e2 := os.Stat(filepath.Join(roots[1], markerName))
+		return e1 == nil && e2 == nil
+	})
+	url := "/folders/" + strconv.FormatInt(f, 10) + "?held=" + strconv.FormatInt(devB.DeviceID, 10)
+	listed := func() bool { _, page := e.get(url); return strings.Contains(page, "mine.txt") }
+	writeFile(t, filepath.Join(roots[1], "mine.txt"), "not allowed")
+	eventually(t, "the held change on the page", listed)
+	e.restart()
+	if listed() {
+		t.Fatal("the restarted server still knows the held list; nothing was lost, so nothing is tested")
+	}
+	eventually(t, "the held change on the page again", listed)
+}

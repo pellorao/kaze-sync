@@ -41,6 +41,27 @@ type cenv struct {
 	fp      string
 	folders int64
 	devices int
+	now     func() time.Time
+	handler atomic.Pointer[http.Handler]
+}
+
+// restart stops the server and starts another on the same data and address, as a process restart does: what the
+// server keeps in memory (held lists, decisions, the boot id, web sessions) is gone.
+func (e *cenv) restart() {
+	e.t.Helper()
+	poll := e.srv.PollTimeout
+	e.srv.Close()
+	s, err := server.New(e.data, e.now)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	s.PollTimeout = poll
+	e.srv = s
+	h := s.Handler()
+	e.handler.Store(&h)
+	if st, _ := e.post("/login", url.Values{"password": {"PW"}}); st != 303 {
+		e.t.Fatalf("admin login after restart: %d", st)
+	}
 }
 
 func newCEnv(t *testing.T) *cenv { return newCEnvAt(t, nil) }
@@ -62,14 +83,17 @@ func newCEnvAt(t *testing.T, now func() time.Time) *cenv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewTLSServer(s.Handler())
+	e := &cenv{t: t, data: data, srv: s, now: now}
+	h := s.Handler()
+	e.handler.Store(&h)
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*e.handler.Load()).ServeHTTP(w, r) }))
 	jar, _ := cookiejar.New(nil)
 	admin := ts.Client()
 	admin.Jar = jar
 	admin.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	sum := sha256.Sum256(ts.Certificate().Raw)
-	e := &cenv{t: t, data: data, srv: s, ts: ts, admin: admin, fp: "sha256:" + hex.EncodeToString(sum[:])}
-	t.Cleanup(func() { ts.Close(); s.Close() })
+	e.ts, e.admin, e.fp = ts, admin, "sha256:"+hex.EncodeToString(sum[:])
+	t.Cleanup(func() { ts.Close(); e.srv.Close() })
 	if st, _ := e.post("/login", url.Values{"password": {"PW"}}); st != 303 {
 		t.Fatalf("admin login: %d", st)
 	}
