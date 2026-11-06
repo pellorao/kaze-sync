@@ -96,9 +96,9 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	if err != nil {
 		return nil, err
 	}
-	var locks []lockRow
-	if devID != 0 { // the Web UI and the rule deletions (devID 0) are the administrator: not bound by a lock
-		if locks, err = folderLocks(s.db, folder); err != nil {
+	var rules []lockRow
+	if devID != 0 { // the Web UI and the rule deletions (devID 0) are the administrator: not bound by write control
+		if rules, err = folderWC(s.db, folder); err != nil {
 			return nil, err
 		}
 	}
@@ -109,13 +109,19 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	defer tx.Rollback()
 	now := s.now().Unix()
 	res := make([]proto.Result, len(ops))
+	var owner []*proto.OwnerInfo
+	if devID != 0 {
+		if owner, err = s.ownerChecks(tx, rules, devID, device, ops, noStage, now); err != nil {
+			return nil, err
+		}
+	}
 	for i := range ops {
 		if noStage[i] {
 			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonNoStage}
 			continue
 		}
-		if lockedBy(locks, devID, pp.Key(ops[i].Path)) != nil {
-			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonLocked}
+		if owner != nil && owner[i] != nil {
+			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonOwner, Owner: owner[i]}
 			continue
 		}
 		if res[i], err = s.commitOp(tx, device, &ops[i], now); err != nil {
@@ -137,6 +143,53 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 		}
 	}
 	return res, nil
+}
+
+// ownerChecks runs the ownership check once for every scope the batch touches, before any op is applied (design
+// 2.8.3). The result has an entry per op: nil lets it through. A batch that is all decisions (Resolve) is not checked.
+func (s *Server) ownerChecks(tx *sql.Tx, rules []lockRow, devID int64, device string, ops []proto.Op, skip map[int]bool, now int64) ([]*proto.OwnerInfo, error) {
+	type group struct {
+		sc      wcScope
+		ops     []int
+		since   int64
+		resolve bool
+	}
+	groups := map[string]*group{}
+	var order []*group
+	for i := range ops {
+		if skip[i] {
+			continue
+		}
+		sc := scopeOf(rules, ops[i].Path)
+		g := groups[sc.id]
+		if g == nil {
+			g = &group{sc: sc, since: ops[i].Since, resolve: true}
+			groups[sc.id], order = g, append(order, g)
+		}
+		g.ops, g.since = append(g.ops, i), min(g.since, ops[i].Since)
+		g.resolve = g.resolve && ops[i].Resolve
+	}
+	window := metaInt(s.db, "write_window")
+	var out []*proto.OwnerInfo
+	for _, g := range order {
+		if g.resolve {
+			continue
+		}
+		info, err := ownerCheck(tx, rules, g.sc, devID, device, g.since, window, now, ops[g.ops[0]].Path)
+		if err != nil {
+			return nil, err
+		}
+		if info == nil {
+			continue
+		}
+		if out == nil {
+			out = make([]*proto.OwnerInfo, len(ops))
+		}
+		for _, i := range g.ops {
+			out[i] = info
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (proto.Result, error) {

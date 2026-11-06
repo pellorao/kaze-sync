@@ -75,7 +75,13 @@ type Folder struct {
 	epoch          string               // the epoch the local state belongs to
 	watched        map[string]bool      // the root's directories a scan has entered, so that a watcher has them
 	savedTS        string               // the time directory in .syncsaved of the running scan or pull
-	linkProbe      int                  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
+	wc             []wcRule             // the write-control settings, the root first (design 2.8.2)
+	frozen         map[string]int64     // the frozen scopes and the cursor their pulls stop at (design 2.8.5)
+	heldDirty      bool                 // the held list may differ from what the server has
+	heldSig        string
+	heldSent       string
+	unsent         bool // a scan found changes it could not send, and no whole scan has found everything sent since
+	linkProbe      int  // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
 type rejection struct {
@@ -104,12 +110,20 @@ func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFo
 			db.setMeta("rules", rules)
 		}
 	}
-	return &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{}}
+	f := &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{},
+		wc: buildWC(fc.Writectl), frozen: db.metaPrefix("frozen:")}
+	f.unsent = len(db.metaPrefix("dirty:")) > 0
+	f.Requeue() // a change of the settings while the agent was off: the refused writes go again under the new ones
+	return f
 }
 
 // Reset forgets the server seqs this folder knows: the next Pull reads everything again (design 5.5).
 func (f *Folder) Reset() error {
 	f.seen = -1
+	for id := range f.DB.metaPrefix("dirty:") { // the seqs mean something else now: no scope has an old since (design 2.8.6)
+		f.DB.delMeta("dirty:" + id)
+	}
+	f.DB.setMeta("scanc", 0)
 	return f.DB.forgetSeqs()
 }
 
@@ -140,6 +154,7 @@ type Report struct {
 	Retry       bool // something was postponed (also files too fresh to upload, see Folder.Unstable): run again soon
 	Slow        bool // files are in use or locked: retry on the slow schedule (design 5.7)
 	Committed   int  // commits the server accepted as changes
+	Held        int  // changes waiting for the user's decision (design 2.8.6)
 }
 
 func (f *Folder) note(p, kind, msg string) {
@@ -211,6 +226,9 @@ func (f *Folder) finish(rep *Report) {
 		}
 	}
 	f.errSince = since
+	if rep.Held = f.DB.heldCount(); rep.Held > 0 {
+		rep.State = "error"
+	}
 	if rep.State == "" {
 		rep.State = "idle"
 	}
@@ -453,6 +471,11 @@ type item struct {
 	done bool
 	// own is set once a conflict with the device's own earlier commit has been committed on top of; a second one is a real conflict.
 	own bool
+	// reason is why the item is held, when it is: "conflict", "type" or "reset" (design 2.8.6); decided marks the
+	// commit of a decision, which is not held again.
+	reason  string
+	decided bool
+	reset   bool // the base was forgotten by an epoch reset
 	// stage is the id of this item's block list on the server when it has more than MaxCommitBlocks blocks (design 2.4).
 	stage string
 }
@@ -502,6 +525,8 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	var items []*item
 	var puts []localRow
 	var drop []string
+	reverted := map[string]bool{} // files whose content is the base again
+	whole := len(dirs) == 0 && !rootOnly
 	now := f.Now().UnixNano()
 
 	paths := make([]string, 0, len(files))
@@ -556,10 +581,11 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		if have && bytes.Equal(row.Hash, r.Hash) && row.Link == r.Link {
 			r.Seq = row.Seq
 			puts = append(puts, r) // only the stat fields changed
+			reverted[p] = true
 			continue
 		}
 		wh := h.whole
-		items = append(items, &item{path: p, row: r, op: proto.Op{
+		items = append(items, &item{path: p, row: r, reset: have && row.Seq == 0, op: proto.Op{
 			Path: p, BaseSeq: row.Seq, Hash: &wh, Blocks: h.blocks, Size: h.size, MtimeNs: e.MtimeNs, Exec: exec, Link: e.IsLink}})
 	}
 
@@ -579,7 +605,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		if underFailed(failed, p) {
 			continue
 		}
-		items = append(items, &item{path: p, del: true, op: proto.Op{Path: p, BaseSeq: local[p].Seq}})
+		items = append(items, &item{path: p, del: true, reset: local[p].Seq == 0, op: proto.Op{Path: p, BaseSeq: local[p].Seq}})
 	}
 	if err := f.DB.apply(puts, drop); err != nil {
 		// Only stat fields and forgotten rows: the next scan finds them again. Failing here would stop the commit
@@ -587,12 +613,38 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		slog.Warn("cannot store the scan's state rows", "folder", f.ID, "err", err)
 		f.note("", proto.KindFolder, "cannot write the state database: "+err.Error())
 	}
-	err = f.commitAll(ctx, items, rep)
+	f.cleanHeld(files, local, reverted, failed)
+	// A frozen scope sends nothing: its changes join the held ones (design 2.8.5).
+	var live, frozen []*item
 	for _, it := range items {
-		if !it.done {
+		if f.frozenPath(it.path) {
+			frozen = append(frozen, it)
+		} else {
+			live = append(live, it)
+		}
+	}
+	if err := f.hold(frozen, "owner"); err != nil {
+		return err
+	}
+	f.setSince(live)
+	err = f.commitAll(ctx, live, rep)
+	var refused []*item // the scopes frozen by this commit: the rest of their changes wait too
+	for _, it := range live {
+		switch {
+		case it.done:
+		case f.frozenPath(it.path):
+			refused = append(refused, it)
+		default:
 			f.pendingUp++
 		}
 	}
+	if herr := f.hold(refused, "owner"); herr != nil && err == nil {
+		err = herr
+	}
+	for sc := range f.frozen { // frozen by a rejection whose change has gone since: nothing to wait for
+		f.thaw(sc, false)
+	}
+	f.endScan(items, whole, err)
 	return err
 }
 

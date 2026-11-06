@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -191,6 +192,17 @@ func TestSymbolicLinkOutsideTheFolderIsNeverFollowed(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(outside, "secret")); string(b) != "do not sync" {
 		t.Fatalf("outside file changed: %q", b)
+	}
+	// The link where the server has a directory is held (design 6.6); discarding it makes room for the directory.
+	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Path != "out" || rows[0].Reason != "type" {
+		t.Fatalf("held: %+v", rows)
+	}
+	if err := g2.f.Resolve(context.Background(), "out", ActDiscard, false); err != nil {
+		t.Fatal(err)
+	}
+	g2.sync()
+	if entries, _ := os.ReadDir(outside); len(entries) != 1 || entries[0].Name() != "secret" {
+		t.Fatalf("something was written outside the folder: %v", entries)
 	}
 	if b, err := os.ReadFile(filepath.Join(root, "out", "x")); err != nil || string(b) != "from the server" {
 		t.Fatalf("out/x = %q %v", b, err)

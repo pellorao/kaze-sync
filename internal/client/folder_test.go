@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"testing"
@@ -17,6 +18,7 @@ func setup(t *testing.T) (*cenv, int64, *API, *engine) {
 	t.Helper()
 	e := newCEnv(t)
 	f := e.newFolder("Docs")
+	e.setRule(f, simRule{Mode: proto.ModeFree}, nil) // these tests are not about write control: each file is its own scope
 	dev, api := e.newDevice()
 	e.mapFolder(dev, f, "/data/docs", true)
 	return e, f, api, e.engine(api, f, []string{"*.tmp"}, true)
@@ -333,7 +335,9 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 		t.Fatalf("lost row: %+v", rep)
 	}
 
-	// Modification beats deletion.
+	// Two devices wrote the path, one of them by deleting: the later one is held for the user (design 6.1, D3), and
+	// overwriting makes it the server's version.
+	ctx := context.Background()
 	g1.put("doc.txt", []byte("v1"))
 	g1.scan()
 	g2.put("doc.txt", []byte("v1")) // g2 adopts the same content
@@ -341,27 +345,34 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 	g2.fs.Remove("doc.txt")
 	g2.scan()
 	g1.put("doc.txt", []byte("v2 by dev1"))
-	if rep := g1.scan(); rep.PendingUp != 0 || len(rep.Errors) != 0 {
+	if rep := g1.scan(); rep.Held != 1 || rep.State != "error" {
 		t.Fatalf("modify vs delete: %+v", rep)
+	}
+	if got, ok := e.serverFile(f, "doc.txt"); ok {
+		t.Fatalf("a held change reached the server: %q", got)
+	}
+	if err := g1.f.Resolve(ctx, "doc.txt", ActOverwrite, false); err != nil {
+		t.Fatal(err)
 	}
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "v2 by dev1" {
 		t.Fatalf("doc.txt = %q", got)
 	}
 
-	// Different content on both sides: the server version stays, the local one becomes a conflict copy (design 6.1).
+	// A new file against an existing one with other content: the server version stays, the local one is held, no
+	// conflict copy is made.
 	g2.put("doc.txt", []byte("v3 by dev2"))
 	rep := g2.scan()
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "v2 by dev1" {
 		t.Fatalf("a stale writer overwrote the server: %q", got)
 	}
-	if len(rep.Errors) != 0 || !rep.Retry {
-		t.Fatalf("conflict scan: %+v", rep)
+	if rep.Held != 1 || len(treeOf(g2.fs)) != 2 { // doc.txt and same.txt
+		t.Fatalf("conflict scan: %+v %v", rep, treeOf(g2.fs))
 	}
-	if rep := g2.scan(); rep.Committed != 1 || rep.PendingUp != 0 { // the copy is uploaded by the retry
-		t.Fatalf("conflict copy scan: %+v", rep)
+	if err := g2.f.Resolve(ctx, "doc.txt", ActDiscard, false); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := g2.fs.Stat("doc.txt"); err != nil {
-		t.Fatalf("server version not downloaded: %v", err)
+	if got, _ := g2.read("doc.txt"); got != "v2 by dev1" {
+		t.Fatalf("server version not downloaded: %q", got)
 	}
 }
 

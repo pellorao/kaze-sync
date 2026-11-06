@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/proto"
@@ -42,7 +43,10 @@ type cenv struct {
 	devices int
 }
 
-func newCEnv(t *testing.T) *cenv {
+func newCEnv(t *testing.T) *cenv { return newCEnvAt(t, nil) }
+
+// newCEnvAt is newCEnv with a clock for the server.
+func newCEnvAt(t *testing.T, now func() time.Time) *cenv {
 	t.Helper()
 	data := t.TempDir()
 	os.MkdirAll(filepath.Join(data, server.VarDir), 0o755)
@@ -52,8 +56,9 @@ func newCEnv(t *testing.T) *cenv {
 	}
 	pw := sha256.Sum256([]byte("PW")) // passwords are compared upper-cased
 	server.SetMeta(db, "admin_password_hash", hex.EncodeToString(pw[:]))
+	server.SetMeta(db, "write_window", 0) // most tests are not about write control: no concurrent-write window
 	db.Close()
-	s, err := server.New(data, nil)
+	s, err := server.New(data, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +209,9 @@ func (g *engine) restart(api *API, fc proto.FolderConfig, fsys cfs.FS) {
 		g.t.Fatal(err)
 	}
 	g.t.Cleanup(func() { db.Close() })
+	if fc.Writectl == nil { // the same as the free root that setup and pair give the server
+		fc.Writectl = []proto.WCRule{{Mode: proto.ModeFree}}
+	}
 	g.f = NewFolder(fc, fsys, db, api, false)
 	g.f.Stable = 0
 }

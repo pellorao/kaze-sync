@@ -13,7 +13,6 @@ import (
 	"sort"
 	"sync"
 
-	"kaze-sync/internal/client/place"
 	"kaze-sync/internal/proto"
 	pp "kaze-sync/internal/proto/path"
 )
@@ -157,6 +156,9 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 	for round := 0; round < maxRounds && len(items) > 0; round++ {
 		var staged []*item
 		for _, it := range items {
+			if !it.decided && f.frozenPath(it.path) {
+				continue // frozen by an earlier answer of this commit
+			}
 			if len(it.op.Blocks) <= maxCommitBlocks || it.stage != "" {
 				staged = append(staged, it)
 				continue
@@ -205,13 +207,12 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 					need[h] = true
 				}
 			case proto.StatusConflict:
-				out, err := f.resolve(ctx, it, r.Current)
-				if err != nil {
-					return err
-				}
-				switch out {
-				case handled:
-					it.done = true
+				switch out := f.resolve(it, r.Current); out {
+				case held:
+					id, _ := f.scopeOf(it.path)
+					if err := f.freeze(id); err != nil {
+						return err
+					}
 				case resolved:
 					it.done = true
 					if it.del {
@@ -223,6 +224,16 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 					next = append(next, it)
 				}
 			default:
+				if r.Reason == proto.ReasonOwner || r.Reason == proto.ReasonTypeConflict && !it.decided { // the scope waits for the user
+					if r.Reason == proto.ReasonTypeConflict {
+						it.reason = "type"
+					}
+					id, _ := f.scopeOf(it.path)
+					if err := f.freeze(id); err != nil {
+						return err
+					}
+					continue
+				}
 				if r.Reason == proto.ReasonNoStage { // expired or lost: send the list again
 					it.stage = ""
 					next = append(next, it)
@@ -234,7 +245,7 @@ func (f *Folder) commitChunk(ctx context.Context, items []*item, rep *Report) er
 				}
 				f.rejected[it.path] = rejection{it.op.Size, it.op.MtimeNs, r.Reason}
 				if r.Reason == proto.ReasonTypeConflict { // the blocking entry may be behind the cursor: read everything again
-					if err := f.DB.setMeta("cursor", 0); err != nil {
+					if err := f.lowerCursor(0); err != nil {
 						return err
 					}
 				}
@@ -263,7 +274,7 @@ const (
 	refused  outcome = iota
 	resolved         // the local row to store is it.row
 	resubmit
-	handled // resolve already updated the local state
+	held // the change waits for the user: its scope is frozen
 )
 
 // ownCommit reports whether the conflict is with an entry this device itself committed after the base of the op. The
@@ -274,58 +285,33 @@ func (f *Folder) ownCommit(it *item, cur *proto.Entry) bool {
 		it.op.BaseSeq > 0 && cur.Seq > it.op.BaseSeq && (it.del || it.op.Hash == nil || *cur.Hash != *it.op.Hash || cur.Link != it.op.Link)
 }
 
-// resolve handles a conflict result (design 6.1). Same content is adopted, a
-// modification beats a deletion, a deletion of a deleted file is done, a
-// deletion yields to a newer version, and two different versions leave the
-// local one as a conflict copy and take the server's.
-func (f *Folder) resolve(ctx context.Context, it *item, cur *proto.Entry) (outcome, error) {
-	var src *blockSrc
+// resolve handles a conflict result (design 6.1, 2.8.9). Same content is adopted and a deletion of a deleted file
+// is done; any other difference is two devices having written the path, which the user decides: the change is held.
+func (f *Folder) resolve(it *item, cur *proto.Entry) outcome {
 	if f.ownCommit(it, cur) { // the server's entry is this device's own commit whose local row was lost (design 6.1)
 		slog.Info("conflict with this device's own commit: committing on top of it", "folder", f.ID, "path", it.path, "old_base", it.op.BaseSeq, "new_base", cur.Seq)
 		it.own, it.op.BaseSeq = true, cur.Seq
-		return resubmit, nil
+		return resubmit
 	}
 	switch {
 	case it.del && (cur == nil || cur.Hash == nil):
-		return resolved, nil
+		return resolved
 	case it.del:
 	case cur == nil:
 		it.op.BaseSeq = 0
-		return resubmit, nil
-	case cur.Hash == nil:
-		it.op.BaseSeq = cur.Seq
-		return resubmit, nil
-	case *cur.Hash == *it.op.Hash && cur.Link == it.op.Link:
+		return resubmit
+	case cur.Hash != nil && *cur.Hash == *it.op.Hash && cur.Link == it.op.Link:
 		it.row.Seq = cur.Seq
-		return resolved, nil
-	default:
-		q, err := f.renameAway(it.path)
-		if err != nil {
-			f.note(it.path, proto.KindIO, err.Error())
-			return refused, nil
-		}
-		f.retry = true // the copy is a new file: scan again to upload it
-		src = &blockSrc{path: q, blocks: it.op.Blocks, size: it.op.Size}
+		return resolved
 	}
-	if st, err := f.FS.Stat(it.path); err == nil && st.IsDir { // a deletion of a file whose place a directory took
-		if wait, err := f.clearDir(it.path); err != nil {
-			f.note(it.path, proto.KindIO, err.Error())
-			return refused, nil
-		} else if wait {
-			f.retry = true // the directory still holds synced files: try again after the server's deletions
-			return refused, nil
-		}
+	if it.decided {
+		return refused
 	}
-	err := f.fetch(ctx, cur, src, place.Expect{})
-	switch {
-	case err == nil:
-		return handled, nil
-	case isRemote(err) || ctx.Err() != nil:
-		return refused, err
+	it.reason = "conflict"
+	if it.reset {
+		it.reason = "reset"
 	}
-	f.note(it.path, proto.KindIO, err.Error())
-	f.retry = true
-	return refused, nil
+	return held
 }
 
 // upload sends the needed blocks of the items, reading them from the files and

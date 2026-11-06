@@ -54,7 +54,7 @@ photothumb.db
 
 // migrations[i] upgrades the global database (meta.db) from version i to i+1. Version 2 makes folder ids
 // never reused (AUTOINCREMENT) and adds the epoch (design 2.4): the folder ids and seqs the clients know belong to it.
-// Version 3 adds the exclusive-write locks (design 2.8).
+// Version 3 adds the exclusive-write locks; version 4 turns them into the write-control settings and adds the time window (design 2.8).
 var migrations = []string{`
 CREATE TABLE folders(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, rules TEXT NOT NULL);
 CREATE TABLE devices(
@@ -75,6 +75,10 @@ INSERT OR IGNORE INTO meta VALUES('epoch', lower(hex(randomblob(8))));
 CREATE TABLE locks(
   folder_id INTEGER NOT NULL, path TEXT NOT NULL, key TEXT NOT NULL, device_id INTEGER NOT NULL, created_at INTEGER NOT NULL,
   PRIMARY KEY(folder_id, key));
+`, `
+ALTER TABLE locks RENAME TO writectl;
+ALTER TABLE writectl ADD COLUMN mode TEXT NOT NULL DEFAULT 'exclusive';
+INSERT OR IGNORE INTO meta VALUES('write_window', 60);
 `}
 
 // folderMigrations[i] upgrades a folder database (folders/<id>.db) from version i to i+1.

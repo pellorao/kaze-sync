@@ -39,6 +39,7 @@ func pair(t *testing.T) (e *cenv, f int64, g1, g2 *engine, gets *getCounter) {
 	t.Helper()
 	e = newCEnv(t)
 	f = e.newFolder("Docs")
+	e.setRule(f, simRule{Mode: proto.ModeFree}, nil) // these tests are not about write control: each file is its own scope
 	var engines [2]*engine
 	for i := range engines {
 		dev, api := e.newDevice()
@@ -211,68 +212,79 @@ func TestPullDownloadsOnlyChangedBlocks(t *testing.T) {
 	}
 }
 
-func TestConflictCopyOnBothSides(t *testing.T) {
+// Two devices change a file from the same base: the first commit wins, the other change is held and no conflict copy
+// is made (design 6.1, D3). The user's decision then ends it: discarding takes the server's version.
+func TestConflictIsHeldNotCopied(t *testing.T) {
 	e, f, g1, g2, _ := pair(t)
 	g1.put("doc.txt", []byte("base"))
 	g1.scan()
 	g2.sync()
 	g1.put("doc.txt", []byte("from one"))
 	g2.put("doc.txt", []byte("from two"))
-	g1.sync() // the server-first rule: dev1 commits first and wins
+	g1.sync() // dev1 commits first and wins
 	g2.sync()
 	g1.sync()
-	var copies []string
-	for p := range treeOf(g2.fs) {
-		if strings.Contains(p, ".conflict-") {
-			copies = append(copies, p)
-		}
+	if n := len(treeOf(g2.fs)); n != 1 {
+		t.Fatalf("files on dev2: %v", treeOf(g2.fs))
 	}
-	if len(copies) != 1 {
-		t.Fatalf("conflict copies on dev2: %v", copies)
+	if got, _ := g2.read("doc.txt"); got != "from two" {
+		t.Fatalf("a held file was changed on dev2: %q", got)
 	}
+	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "from one" {
+		t.Fatalf("server doc.txt = %q", got)
+	}
+	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Reason != "conflict" {
+		t.Fatalf("held on dev2: %+v", rows)
+	}
+	if err := g2.f.Resolve(context.Background(), "doc.txt", ActDiscard, true); err != nil {
+		t.Fatal(err)
+	}
+	g2.sync()
 	if got, _ := g2.read("doc.txt"); got != "from one" {
-		t.Fatalf("doc.txt on dev2 = %q", got)
+		t.Fatalf("doc.txt on dev2 after the discard = %q", got)
 	}
-	if got, _ := g2.read(copies[0]); got != "from two" {
-		t.Fatalf("copy = %q", got)
+	if got, ok := g2.read(".syncsaved/doc.txt"); ok && got != "from two" {
+		t.Fatalf("saved copy = %q", got)
 	}
-	if got, ok := g1.read(copies[0]); !ok || got != "from two" {
-		t.Fatalf("copy on dev1 = %q %v", got, ok)
-	}
-	if n := e.count(f, `SELECT count(*) FROM files WHERE conflict`); n != 1 {
-		t.Fatalf("server conflict rows: %d", n)
-	}
-	// Deleting the copy on one side removes it everywhere and clears the notice.
-	g1.fs.Remove(copies[0])
-	g1.sync()
-	g2.sync()
-	if _, ok := g2.read(copies[0]); ok {
-		t.Fatal("deleted copy still on dev2")
-	}
-	if n := e.count(f, `SELECT count(*) FROM files WHERE conflict AND hash IS NOT NULL`); n != 0 {
-		t.Fatalf("live conflict rows: %d", n)
+	if rows, _ := g2.f.DB.held(""); len(rows) != 0 {
+		t.Fatalf("still held: %+v", rows)
 	}
 }
 
+// A modification against a deletion is a conflict like any other: the later writer is held, and overwriting keeps
+// the modification.
 func TestDeleteAgainstModify(t *testing.T) {
-	_, _, g1, g2, _ := pair(t)
+	e, f, g1, g2, _ := pair(t)
+	ctx := context.Background()
 	g1.put("a.txt", []byte("base"))
 	g1.put("b.txt", []byte("base"))
 	g1.scan()
 	g2.sync()
-	// dev2 deletes a.txt while dev1 modifies it first: the modification wins.
+	// dev2 deletes a.txt after dev1 modified it: the deletion is held, the file stays on both.
 	g1.put("a.txt", []byte("edited"))
 	g1.scan()
 	g2.fs.Remove("a.txt")
 	g2.sync()
+	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Kind != "delete" {
+		t.Fatalf("held on dev2: %+v", rows)
+	}
+	if got, _ := e.serverFile(f, "a.txt"); string(got) != "edited" {
+		t.Fatalf("server a.txt = %q", got)
+	}
+	if err := g2.f.Resolve(ctx, "a.txt", ActDiscard, false); err != nil {
+		t.Fatal(err)
+	}
 	if got, _ := g2.read("a.txt"); got != "edited" {
 		t.Fatalf("modify vs delete on the deleting side: %q", got)
 	}
-	// dev1 deletes b.txt, dev2 modifies it: the modification wins as well.
+	// dev1 deletes b.txt, dev2 modifies it: the modification is held; overwriting brings the file back.
 	g1.fs.Remove("b.txt")
 	g1.scan()
 	g2.put("b.txt", []byte("kept"))
 	g2.sync()
+	if err := g2.f.Resolve(ctx, "b.txt", ActOverwrite, false); err != nil {
+		t.Fatal(err)
+	}
 	g1.sync()
 	if got, _ := g1.read("b.txt"); got != "kept" {
 		t.Fatalf("delete vs modify: %q", got)

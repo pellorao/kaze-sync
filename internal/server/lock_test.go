@@ -59,7 +59,7 @@ func TestLockRejectsOtherDevicesWrites(t *testing.T) {
 	}
 	// B: add, modify, delete under the lock and the locked path itself are refused; names compare by key.
 	for _, p := range []string{"repo/.git/HEAD", "REPO/.GIT/index", "repo/.git"} {
-		if r := l.apiCommit(l.tb, l.f, l.op(p, 0, "x")); r[0].Status != proto.StatusRejected || r[0].Reason != proto.ReasonLocked {
+		if r := l.apiCommit(l.tb, l.f, l.op(p, 0, "x")); r[0].Status != proto.StatusRejected || r[0].Reason != proto.ReasonOwner {
 			t.Fatalf("B %s: %+v", p, r[0])
 		}
 	}
@@ -70,7 +70,7 @@ func TestLockRejectsOtherDevicesWrites(t *testing.T) {
 	if r := l.apiCommit(l.ta, l.f, l.op("repo/.git/HEAD", 0, "ref")); r[0].Status != proto.StatusOK {
 		t.Fatalf("A: %+v", r[0])
 	}
-	if r := l.apiCommit(l.tb, l.f, l.op("repo/.git/HEAD", 99, "mine"), proto.Op{Path: "repo/.git/HEAD", BaseSeq: 1}); r[0].Reason != proto.ReasonLocked || r[1].Reason != proto.ReasonLocked {
+	if r := l.apiCommit(l.tb, l.f, l.op("repo/.git/HEAD", 99, "mine"), proto.Op{Path: "repo/.git/HEAD", BaseSeq: 1}); r[0].Reason != proto.ReasonOwner || r[1].Reason != proto.ReasonOwner {
 		t.Fatalf("B on A's file: %+v", r)
 	}
 	// Outside the lock, and a sibling whose name only starts the same, B writes freely.
@@ -84,7 +84,7 @@ func TestLockRejectsOtherDevicesWrites(t *testing.T) {
 func TestLockWholeFolder(t *testing.T) {
 	l := newLockEnv(t)
 	l.lock("", l.a)
-	if r := l.apiCommit(l.tb, l.f, l.op("any/file", 0, "x")); r[0].Reason != proto.ReasonLocked {
+	if r := l.apiCommit(l.tb, l.f, l.op("any/file", 0, "x")); r[0].Reason != proto.ReasonOwner {
 		t.Fatalf("whole-folder lock: %+v", r[0])
 	}
 	if r := l.apiCommit(l.ta, l.f, l.op("any/file", 0, "x")); r[0].Status != proto.StatusOK {
@@ -116,12 +116,12 @@ func TestLockRules(t *testing.T) {
 	if st, _ := l.lock("a/b", l.b); st != 303 {
 		t.Fatalf("transfer: %d", st)
 	}
-	if l.count(`SELECT count(*) FROM locks WHERE key=? AND device_id=?`, pp.Key("a/b"), l.b) != 1 {
+	if l.count(`SELECT count(*) FROM writectl WHERE key=? AND device_id=?`, pp.Key("a/b"), l.b) != 1 {
 		t.Fatal("not transferred")
 	}
 	// Remove.
 	before := metaInt(l.s.db, "config_version")
-	if st, _ := l.lock("a/b", 0); st != 303 || l.count(`SELECT count(*) FROM locks`) != 1 || metaInt(l.s.db, "config_version") != before+1 {
+	if st, _ := l.lock("a/b", 0); st != 303 || l.count(`SELECT count(*) FROM writectl`) != 1 || metaInt(l.s.db, "config_version") != before+1 {
 		t.Fatal("not removed")
 	}
 	if r := l.apiCommit(l.ta, l.f, l.op("a/b/x", 0, "x")); r[0].Status != proto.StatusOK {
@@ -136,12 +136,12 @@ func TestLockGoesWithTheDeviceOrItsMapping(t *testing.T) {
 	v := metaInt(l.s.db, "config_version")
 	// Deleting A's mapping frees x.
 	st, _ := l.post(l.web, "/devices/"+itoa(l.a)+"/mapping", url.Values{"folder": {itoa(l.f)}, "action": {"delete"}})
-	if st != 303 || l.count(`SELECT count(*) FROM locks WHERE device_id=?`, l.a) != 0 || metaInt(l.s.db, "config_version") <= v {
+	if st != 303 || l.count(`SELECT count(*) FROM writectl WHERE device_id=?`, l.a) != 0 || metaInt(l.s.db, "config_version") <= v {
 		t.Fatalf("mapping delete: %d", st)
 	}
 	// Revoking B frees y and tells the others.
 	v = metaInt(l.s.db, "config_version")
-	if st, _ := l.post(l.web, "/devices/"+itoa(l.b)+"/revoke", url.Values{}); st != 303 || l.count(`SELECT count(*) FROM locks`) != 0 || metaInt(l.s.db, "config_version") <= v {
+	if st, _ := l.post(l.web, "/devices/"+itoa(l.b)+"/revoke", url.Values{}); st != 303 || l.count(`SELECT count(*) FROM writectl WHERE mode='exclusive'`) != 0 || metaInt(l.s.db, "config_version") <= v {
 		t.Fatalf("revoke: %d", st)
 	}
 }
@@ -167,7 +167,7 @@ func TestWebRestoreIgnoresLocks(t *testing.T) {
 
 func TestMigrateToLocksSchema(t *testing.T) {
 	e := newEnv(t)
-	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='locks'`) != 1 || SchemaVersion != 3 {
+	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='writectl'`) != 1 || SchemaVersion != 4 {
 		t.Fatal("no locks table")
 	}
 }

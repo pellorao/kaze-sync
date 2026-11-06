@@ -38,10 +38,16 @@ const unlinkedSchema = `
 CREATE TABLE IF NOT EXISTS unlinked(path TEXT PRIMARY KEY, seq INTEGER NOT NULL, hash BLOB NOT NULL, size INTEGER NOT NULL,
   mtime_ns INTEGER NOT NULL, message TEXT NOT NULL) WITHOUT ROWID;`
 
+// heldSchema: the local changes that wait for the user's decision (design 2.8.6). hash is the content of the local
+// file when it was last seen, nil for a deletion.
+const heldSchema = `
+CREATE TABLE IF NOT EXISTS held(path TEXT PRIMARY KEY, scope TEXT NOT NULL, reason TEXT NOT NULL, base_seq INTEGER NOT NULL,
+  kind TEXT NOT NULL, hash BLOB, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, at INTEGER NOT NULL) WITHOUT ROWID;`
+
 // localSchemaVersion is the version of the local database this build writes; each change of the tables raises it.
-// 2: the link column. A build that finds a higher version in a database stops with errNewerDB instead of failing
+// 2: the link column. 3: the held table and the frozen:, dirty: and scanc meta values (design 2.8.6). A build that finds a higher version in a database stops with errNewerDB instead of failing
 // on every scan.
-const localSchemaVersion = 2
+const localSchemaVersion = 3
 
 // errNewerDB: the local database was written by a newer kaze-syncc.
 var errNewerDB = errors.New("the state database was made by a newer kaze-syncc; upgrade this client, or restore the database backup together with the older binary")
@@ -55,7 +61,7 @@ func openLocal(path string) (*localDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(localSchema + unlinkedSchema); err != nil {
+	if _, err := db.Exec(localSchema + unlinkedSchema + heldSchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -257,4 +263,89 @@ func (l *localDB) unlinked() ([]unlinkedRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// heldRow is a change that waits for a decision.
+type heldRow struct {
+	Path, Scope, Reason, Kind string
+	BaseSeq                   int64
+	Hash                      []byte
+	Size, MtimeNs, At         int64
+}
+
+// putHeld stores a held change; a path that is held already keeps its scope, reason, base and time and only gets the
+// new snapshot of the local file.
+func (l *localDB) putHeld(rows []heldRow) error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, r := range rows {
+		if _, err := tx.Exec(`INSERT INTO held(path, scope, reason, base_seq, kind, hash, size, mtime_ns, at) VALUES(?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(path) DO UPDATE SET scope=excluded.scope, kind=excluded.kind, hash=excluded.hash, size=excluded.size, mtime_ns=excluded.mtime_ns`,
+			r.Path, r.Scope, r.Reason, r.BaseSeq, r.Kind, r.Hash, r.Size, r.MtimeNs, r.At); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (l *localDB) heldCount() (n int) {
+	l.db.QueryRow(`SELECT count(*) FROM held`).Scan(&n)
+	return n
+}
+
+func (l *localDB) dropHeld(paths ...string) error {
+	for _, p := range paths {
+		if _, err := l.db.Exec(`DELETE FROM held WHERE path=?`, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// held lists the held changes of a scope ("" for all) by path.
+func (l *localDB) held(scope string) ([]heldRow, error) {
+	q, args := `SELECT path, scope, reason, base_seq, kind, hash, size, mtime_ns, at FROM held`, []any(nil)
+	if scope != "" {
+		q, args = q+` WHERE scope=?`, []any{scope}
+	}
+	rows, err := l.db.Query(q+` ORDER BY path`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []heldRow
+	for rows.Next() {
+		var r heldRow
+		if err := rows.Scan(&r.Path, &r.Scope, &r.Reason, &r.BaseSeq, &r.Kind, &r.Hash, &r.Size, &r.MtimeNs, &r.At); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// metaPrefix returns the meta values whose key starts with prefix, by the rest of the key.
+func (l *localDB) metaPrefix(prefix string) map[string]int64 {
+	out := map[string]int64{}
+	rows, err := l.db.Query(`SELECT substr(key, ?), value FROM meta WHERE key LIKE ? ESCAPE '\'`, len(prefix)+1, prefix+"%")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var v int64
+		if rows.Scan(&k, &v) == nil {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (l *localDB) delMeta(key string) error {
+	_, err := l.db.Exec(`DELETE FROM meta WHERE key=?`, key)
+	return err
 }

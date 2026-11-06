@@ -5,10 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"path"
-	"strings"
-	"time"
 
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/client/place"
@@ -63,12 +60,10 @@ func (f *Folder) fetch(ctx context.Context, e *proto.Entry, src *blockSrc, expec
 	if err != nil && !errors.Is(err, place.ErrTargetChanged) && !errors.Is(err, place.ErrHashMismatch) &&
 		!errors.Is(err, cfs.ErrLocked) && !isRemote(err) && ctx.Err() == nil {
 		// Perhaps a file sits where a directory is needed.
-		if renamed, wait, cerr := f.clearAncestors(e.Path); cerr != nil {
+		if wait, cerr := f.clearAncestors(e.Path); cerr != nil {
 			return cerr
 		} else if wait {
 			return errWait
-		} else if renamed {
-			err = f.placeEntry(ctx, e, src, expect)
 		}
 	}
 	return err
@@ -111,42 +106,12 @@ func (f *Folder) placedRow(e *proto.Entry) (localRow, error) {
 		Size: st.Size, MtimeNs: st.MtimeNs, Exec: e.Exec && !e.Link, Link: e.Link}, nil
 }
 
-// maxConflictNames is how many names (one per second) conflictName tries before it gives up.
-const maxConflictNames = 1000
+// errHeld: a local file or directory is in the way of a server entry and waits for the user's decision (design 6.6);
+// its scope is frozen, so nothing more happens to the entry now.
+var errHeld = errors.New("a local change is held")
 
-// conflictName returns a free name for the conflict copy of p (design 6.1).
-func (f *Folder) conflictName(p string) (string, error) {
-	dir, base := path.Split(p)
-	ext := path.Ext(base)
-	dev := f.DeviceName
-	if dev == "" {
-		dev = "device"
-	}
-	t := f.Now()
-	for range maxConflictNames {
-		q := dir + strings.TrimSuffix(base, ext) + ".conflict-" + dev + "-" + t.Format("20060102-150405") + ext
-		if _, err := f.FS.Stat(q); errors.Is(err, fs.ErrNotExist) {
-			return q, nil
-		} else if err != nil {
-			return "", err
-		}
-		t = t.Add(time.Second)
-	}
-	return "", fmt.Errorf("no free conflict copy name for %s: %d are taken", p, maxConflictNames)
-}
-
-// renameAway moves the file or directory p to its conflict copy name.
-func (f *Folder) renameAway(p string) (string, error) {
-	q, err := f.conflictName(p)
-	if err == nil {
-		err = f.FS.Rename(p, q)
-	}
-	return q, err
-}
-
-// clearDir makes room for a file where the directory p is. A directory whose
-// files are all still the synced ones waits for the server's deletions;
-// anything else is moved to a conflict copy name (design 6.6).
+// clearDir makes room for a file where the directory p is. A directory whose files are all still the synced ones
+// waits for the server's deletions; any other is held (errHeld).
 func (f *Folder) clearDir(p string) (wait bool, err error) {
 	if ents, err := f.FS.ReadDir(p); err == nil && len(ents) == 0 {
 		return false, f.FS.Remove(p)
@@ -164,28 +129,47 @@ func (f *Folder) clearDir(p string) (wait bool, err error) {
 	if synced {
 		return true, nil
 	}
-	f.retry = true
-	_, err = f.renameAway(p)
-	return false, err
+	n, err := f.holdTree(p)
+	if err != nil {
+		return false, err
+	}
+	if n == 0 { // only empty directories: nothing to hold, they just make room
+		return false, f.removeEmptyTree(p)
+	}
+	return false, errHeld
+}
+
+// removeEmptyTree removes the directory p and the empty directories below it.
+func (f *Folder) removeEmptyTree(p string) error {
+	ents, _ := f.FS.ReadDir(p)
+	for _, e := range ents {
+		if e.IsDir {
+			if err := f.removeEmptyTree(p + "/" + e.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return f.FS.Remove(p)
 }
 
 // clearAncestors handles a file where a parent directory of p is needed, like clearDir.
-func (f *Folder) clearAncestors(p string) (renamed, wait bool, err error) {
+func (f *Folder) clearAncestors(p string) (wait bool, err error) {
 	for a := path.Dir(p); a != "." && a != "/"; a = path.Dir(a) {
 		st, err := f.FS.Stat(a)
 		if err != nil || st.IsDir {
 			continue
 		}
 		if r, ok, err := f.DB.get(a); err != nil {
-			return false, false, err
+			return false, err
 		} else if ok && consistent(r, st) {
-			return false, true, nil
+			return true, nil
 		}
-		f.retry = true
-		_, err = f.renameAway(a)
-		return err == nil, false, err
+		if _, err := f.holdTree(a); err != nil {
+			return false, err
+		}
+		return false, errHeld
 	}
-	return false, false, nil
+	return false, nil
 }
 
 // blockReader supplies the content of entry e from block start on, block by block.

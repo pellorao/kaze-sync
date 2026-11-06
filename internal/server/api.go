@@ -30,6 +30,7 @@ func (s *Server) deviceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/commit", s.auth(s.commitHandler))
 	mux.HandleFunc("GET /api/v1/changes", s.auth(s.changes))
 	mux.HandleFunc("POST /api/v1/stage", s.auth(s.stageHandler))
+	mux.HandleFunc("POST /api/v1/held", s.auth(s.heldHandler))
 	mux.HandleFunc("POST /api/v1/blocks", s.auth(s.blocks))
 	mux.HandleFunc("POST /api/v1/blocks/get", s.auth(s.blocksGet))
 }
@@ -154,6 +155,20 @@ func (s *Server) effectiveConfig(deviceID int64) (proto.Config, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return cfg, err
+	}
+	for i := range cfg.Folders {
+		wc, err := folderWC(s.db, cfg.Folders[i].ID)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Folders[i].Writectl = []proto.WCRule{{Mode: proto.ModeSingle}} // the root first, single unless it has a setting
+		for _, l := range wc {
+			if l.key == "" {
+				cfg.Folders[i].Writectl[0].Mode = l.Mode
+			} else {
+				cfg.Folders[i].Writectl = append(cfg.Folders[i].Writectl, proto.WCRule{Path: l.Path, Mode: l.Mode})
+			}
+		}
 	}
 	return cfg, nil
 }
@@ -456,4 +471,36 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 			go read(i + par)
 		}
 	}
+}
+
+// maxHeldItems bounds the list of held changes the server keeps per folder and device (design 2.8.10).
+const maxHeldItems = 20000
+
+// heldHandler stores the list of held changes a device reports for a folder; it lives in memory only and the device
+// sends it again when it changes.
+func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
+	var req proto.HeldReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !s.mapped(d.id, req.Folder) {
+		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
+		return
+	}
+	if len(req.Items) > maxHeldItems {
+		req.Items = req.Items[:maxHeldItems]
+	}
+	s.mu.Lock()
+	rep := s.reports[d.id]
+	if rep == nil {
+		rep = &report{}
+		s.reports[d.id] = rep
+	}
+	if rep.held == nil {
+		rep.held = map[int64][]proto.HeldItem{}
+	}
+	rep.held[req.Folder] = req.Items
+	s.bumpLocked()
+	s.mu.Unlock()
+	writeJSON(w, map[string]int{"held": len(req.Items)})
 }

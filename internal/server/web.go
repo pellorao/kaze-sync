@@ -254,6 +254,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"POST /folders/{id}/restore-dir":    s.restoreDir,
 		"POST /folders/{id}/delete":         s.deleteFolder,
 		"POST /folders/{id}/lock":           s.lockHandler,
+		"POST /folders/{id}/writectl":       s.writectlHandler,
 		"POST /folders/{id}/rules":          s.saveFolderRules,
 	} {
 		mux.HandleFunc(pattern, s.web(h))
@@ -1002,7 +1003,7 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	if err == nil {
 		type lc struct{ folder, n int64 }
 		cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
-			`SELECT folder_id, count(*) FROM locks WHERE device_id=? GROUP BY folder_id`, d.ID)
+			`SELECT folder_id, count(*) FROM writectl WHERE mode='exclusive' AND device_id=? GROUP BY folder_id`, d.ID)
 		if lerr != nil {
 			return lerr
 		}
@@ -1108,7 +1109,7 @@ func (s *Server) saveMapping(w http.ResponseWriter, r *http.Request) error {
 	}
 	err = s.configChange(func(tx *sql.Tx) (bool, error) {
 		if r.FormValue("action") == "delete" {
-			if _, err := tx.Exec(`DELETE FROM locks WHERE device_id=? AND folder_id=?`, d.ID, folder); err != nil { // a lock of a device that no longer maps the folder would freeze it
+			if _, err := releaseExclusive(tx, d.ID, folder); err != nil { // an exclusive setting of a device that no longer maps the folder would freeze it
 				return false, err
 			}
 			res, err := tx.Exec(`DELETE FROM mappings WHERE device_id=? AND folder_id=?`, d.ID, folder)
@@ -1171,11 +1172,10 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`DELETE FROM locks WHERE device_id=?`, d.ID) // a revoked device would leave its range frozen
+	freed, err := releaseExclusive(tx, d.ID, 0) // a revoked device would leave its range frozen
 	if err != nil {
 		return err
 	}
-	freed, _ := res.RowsAffected()
 	if freed > 0 { // the configuration of the other devices changes
 		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
 			return err

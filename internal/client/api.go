@@ -180,6 +180,12 @@ func (a *API) Commit(ctx context.Context, folder int64, ops []proto.Op) ([]proto
 	return r.Results, nil
 }
 
+// Held sends the whole list of held changes of a folder (design 2.8.10).
+func (a *API) Held(ctx context.Context, req proto.HeldReq) error {
+	var r map[string]any
+	return a.json(ctx, "held", req, &r)
+}
+
 // Stage sends one segment of the block list of a big file (design 2.4).
 func (a *API) Stage(ctx context.Context, req proto.StageReq) (proto.StageResp, error) {
 	var r proto.StageResp

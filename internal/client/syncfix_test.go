@@ -61,13 +61,13 @@ func TestOwnCommitIsNotAConflict(t *testing.T) {
 	}
 }
 
-// Another device name, or none: a real conflict.
+// Another device name, or none: a real conflict, which is held.
 func TestForeignCommitStaysAConflict(t *testing.T) {
 	for _, name := range []string{"somebody-else", ""} {
 		_, _, g := lostRow(t, name)
 		g.scan()
-		if n := conflictCopies(g); n != 1 {
-			t.Fatalf("name %q: %d conflict copies", name, n)
+		if n := g.f.DB.heldCount(); n != 1 || conflictCopies(g) != 0 {
+			t.Fatalf("name %q: %d held, %d conflict copies", name, n, conflictCopies(g))
 		}
 	}
 }

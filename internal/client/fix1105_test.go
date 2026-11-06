@@ -16,25 +16,6 @@ import (
 	"kaze-sync/internal/proto"
 )
 
-// conflictName gives up with an error instead of probing names without end.
-func TestConflictNameGivesUp(t *testing.T) {
-	_, _, _, g := setup(t)
-	g.f.DeviceName = "pc"
-	at := time.Unix(1_700_000_000, 0)
-	g.f.Now = func() time.Time { return at }
-	g.put("a.txt", []byte("x"))
-	q, err := g.f.conflictName("a.txt")
-	if err != nil || q != "a.conflict-pc-"+at.Format("20060102-150405")+".txt" {
-		t.Fatalf("first name %q %v", q, err)
-	}
-	for i := 0; i < maxConflictNames; i++ {
-		g.put("a.conflict-pc-"+at.Add(time.Duration(i)*time.Second).Format("20060102-150405")+".txt", []byte("x"))
-	}
-	if q, err := g.f.conflictName("a.txt"); err == nil {
-		t.Fatalf("a free name %q although %d are taken", q, maxConflictNames)
-	}
-}
-
 // A block taken from a batch response must have the length the entry says.
 func TestPrefetchedBlockWithTheWrongLengthIsRefused(t *testing.T) {
 	e := &proto.Entry{Path: "f", Size: 4, Blocks: []proto.Hash{{1}}}

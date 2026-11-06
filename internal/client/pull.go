@@ -65,6 +65,14 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		f.seen = since
 		err = f.retryUnlinked(ctx)
 	}
+	if err == nil && held == 0 && !f.unsent && len(f.frozen) == 0 {
+		// Nothing unsent is known and the cursor is whole: what is on disk was either sent or came with this Pull, so a
+		// change made after now began at this cursor. (A change in the moments of the Pull itself is the one the
+		// base check, not the since, still catches.) Without this the first edit after a Pull would carry an old since.
+		if c := f.DB.metaInt("cursor"); c != f.DB.metaInt("scanc") {
+			f.DB.setMeta("scanc", c)
+		}
+	}
 	waiting := 0 // entries held for files in use wait for the slow schedule, not the quick retry
 	for _, e := range f.pullErrs {
 		if e.Kind == proto.KindInUse {
@@ -81,6 +89,9 @@ func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, fals
 func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64) error {
 	var adds, dels []proto.Entry
 	for _, e := range entries {
+		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
+			continue
+		}
 		if e.Hash == nil {
 			dels = append(dels, e)
 		} else {
@@ -250,14 +261,16 @@ func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// Usually a file where a parent directory belongs (ENOTDIR): make room like fetch does.
-		renamed, pending, cerr := f.clearAncestors(e.Path)
+		pending, cerr := f.clearAncestors(e.Path)
 		switch {
+		case errors.Is(cerr, errHeld):
+			return done, nil, nil
 		case cerr != nil:
 			f.note(e.Path, proto.KindIO, cerr.Error())
 			return hold, nil, nil
 		case pending:
 			return later, nil, nil
-		case !renamed:
+		default:
 			f.note(e.Path, proto.KindIO, err.Error())
 			return hold, nil, nil
 		}
@@ -265,6 +278,8 @@ func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 	if exists && st.IsDir {
 		pending, err := f.clearDir(e.Path)
 		switch {
+		case errors.Is(err, errHeld):
+			return done, nil, nil
 		case pending:
 			return later, nil, nil
 		case err != nil:
@@ -305,6 +320,8 @@ func (f *Folder) finishLive(ctx context.Context, e proto.Entry, err error) (appl
 		return done, nil
 	case errors.Is(err, errWait):
 		return later, nil
+	case errors.Is(err, errHeld):
+		return done, nil
 	case isRemote(err) || ctx.Err() != nil:
 		return hold, err
 	case errors.Is(err, cfs.ErrLocked):

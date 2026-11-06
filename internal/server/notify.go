@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"kaze-sync/internal/proto"
-	pp "kaze-sync/internal/proto/path"
 )
 
 // offlineAfter is how long a device may be silent before it raises a notice (design 4.3).
@@ -61,10 +60,6 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	locks, err := folderLocks(s.db, folder)
-	if err != nil {
-		return nil, err
-	}
 	now := s.now()
 	var out []notice
 	s.mu.Lock()
@@ -84,13 +79,6 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 			for _, e := range fs.Errors {
 				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale,
 					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped}
-				if e.Kind == proto.KindRejected {
-					if e.Message == proto.ReasonLocked { // the refusal of one path
-						if l := lockedBy(locks, d.id, pp.Key(e.Path)); l != nil {
-							n.Owner = l.Device
-						}
-					}
-				}
 				if e.Kind == proto.KindFolder {
 					n.Link = "/devices/" + strconv.FormatInt(d.id, 10)
 				} else {

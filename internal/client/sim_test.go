@@ -7,7 +7,13 @@ package client
 //   - convergence: after enough sync rounds every client tree equals the
 //     server's current state of its folders;
 //   - no data loss: the content of every file a clean Scan saw on disk is
-//     still held by the server (current or version) or by some client.
+//     still held by the server (current or version), by some client (also in
+//     .syncsaved), or was given up by a user's discard.
+// Write control (design 2.8, 2.8.12): every folder gets random settings (free,
+// single, exclusive) that change during the run, the server a fake clock that
+// jumps, clients go offline, write groups and web restores happen, and the
+// user's decisions on held changes are random. A log of every commit the
+// server accepted is checked against the ownership rules (sim_wc_test.go).
 // Crashes are injected at FS and HTTP calls: randomly in every seed, and at
 // every single call (before and after it) in the sweep test.
 
@@ -20,6 +26,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +37,8 @@ import (
 
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/proto"
+	pp "kaze-sync/internal/proto/path"
+	"kaze-sync/internal/server"
 )
 
 // simCrash is the panic value of an injected crash.
@@ -117,14 +126,23 @@ func (w crashFS) Symlink(t, p string) error {
 // simTransport hands requests to the server's handler in the process; with crash set, the request is
 // processed and the response lost ("after") or the request never sent ("before").
 type simTransport struct {
-	h http.Handler
-	c *crasher
+	h   http.Handler
+	c   *crasher
+	s   *sim
+	who string // the client, for the log of accepted commits
 }
 
 func (t simTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	resp, err := call(t.c, func() (*http.Response, error) {
+		var body []byte
+		if strings.HasSuffix(r.URL.Path, "/commit") {
+			body = bodyOf(r)
+		}
 		rec := httptest.NewRecorder()
 		t.h.ServeHTTP(rec, r)
+		if body != nil { // logged whether or not the client gets the answer
+			t.s.logCommit(t.who, body, rec.Body.Bytes())
+		}
 		return rec.Result(), nil
 	})
 	return resp, err
@@ -136,13 +154,19 @@ type simFolder struct {
 	dbPath string
 	f      *Folder
 	synced bool // a clean Scan has run since the last crash or restart
+	rules  []simRule
+	cfgVer int   // the version of the rules the engine was built with
+	hw     int64 // the highest cursor seen: a re-read lowers the cursor, not what the device has applied
 }
 
 type simClient struct {
 	name    string
+	idx     int
 	devID   int64
 	api     *API
 	folders []*simFolder
+	off     int           // steps this client stays offline
+	skew    time.Duration // its clock against the simulation's
 }
 
 type sim struct {
@@ -155,6 +179,20 @@ type sim struct {
 	keep    map[string]bool // content hashes a clean Scan saw on disk
 	where   map[string]string
 	crashes int
+
+	skew    time.Duration // the server's clock against the simulation's
+	window  int64         // write_window, seconds
+	devIDs  []int64
+	rules   map[int64][]simRule
+	cfgVer  map[int64]int
+	hist    map[int64][]acc
+	maxSeq  map[int64]int64
+	edit    map[string]int64 // see noteEdit
+	waived  map[string]bool  // contents a user gave up by discarding them without saving
+	viol    []string         // broken invariants
+	steps   []string         // the last steps, for the failure report
+	decided int
+	frozens int
 }
 
 const (
@@ -162,31 +200,102 @@ const (
 	simClients = 3
 )
 
+func (s *sim) srvNow() time.Time { return s.now.Add(s.skew) }
+
 func newSim(t *testing.T, seed int64) *sim {
 	oldIO, oldHash := ioWorkers, hashWorkers
 	ioWorkers, hashWorkers = 1, 1 // the crash points are numbered in the order of the calls: keep it deterministic
 	t.Cleanup(func() { ioWorkers, hashWorkers = oldIO, oldHash })
-	e := newCEnv(t)
-	s := &sim{t: t, e: e, rng: rand.New(rand.NewSource(seed)), crash: &crasher{}, now: time.Unix(1_700_000_000, 0), keep: map[string]bool{}, where: map[string]string{}}
+	s := &sim{t: t, rng: rand.New(rand.NewSource(seed)), crash: &crasher{}, now: time.Now().Truncate(time.Hour), keep: map[string]bool{}, where: map[string]string{},
+		rules: map[int64][]simRule{}, cfgVer: map[int64]int{}, hist: map[int64][]acc{}, maxSeq: map[int64]int64{}, edit: map[string]int64{}, waived: map[string]bool{}}
+	e := newCEnvAt(t, s.srvNow)
+	s.e = e
+	s.window = []int64{0, 60, 600}[s.rng.Intn(3)]
+	s.setWindow(s.window)
 	var fids []int64
 	for i := 0; i < simFolders; i++ {
 		fids = append(fids, e.newFolder("f"+strconv.Itoa(i)))
 	}
+	devs := make([]Device, simClients)
 	for ci := 0; ci < simClients; ci++ {
 		dev, api := e.newDevice()
-		api.HC = &http.Client{Transport: simTransport{h: e.srv.Handler(), c: s.crash}}
-		c := &simClient{name: dev.Name, devID: dev.DeviceID, api: api}
+		devs[ci] = dev
+		s.devIDs = append(s.devIDs, dev.DeviceID)
+		api.HC = &http.Client{Transport: simTransport{h: e.srv.Handler(), c: s.crash, s: s, who: dev.Name}}
+		c := &simClient{name: dev.Name, idx: ci, devID: dev.DeviceID, api: api}
 		for k := 0; k < 2; k++ { // client ci holds folders ci and ci+1 (mod 3)
 			fid := fids[(ci+k)%simFolders]
 			e.mapFolder(dev, fid, "/sim/"+strconv.Itoa(ci)+"/"+strconv.Itoa(k), true)
 			sf := &simFolder{id: fid, dbPath: filepath.Join(t.TempDir(), "folder.db"),
 				mem: cfs.NewMem(cfs.MemOptions{Clock: 1_000_000_000_000 + int64(ci*2+k)*1_000_000_000})}
 			c.folders = append(c.folders, sf)
-			s.open(c, sf)
 		}
 		s.clients = append(s.clients, c)
 	}
+	for _, fid := range fids {
+		s.reconfigure(fid, true)
+	}
+	for _, c := range s.clients {
+		for _, sf := range c.folders {
+			s.open(c, sf)
+		}
+	}
 	return s
+}
+
+// setWindow stores the server's write window.
+func (s *sim) setWindow(sec int64) {
+	db, err := server.OpenDB(filepath.Join(s.e.data, server.VarDir, "meta.db"), false)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	defer db.Close()
+	if err := server.SetMeta(db, "write_window", sec); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// owners are the clients that map a folder.
+func (s *sim) owners(fid int64) []int {
+	var out []int
+	for _, c := range s.clients {
+		for _, sf := range c.folders {
+			if sf.id == fid {
+				out = append(out, c.idx)
+			}
+		}
+	}
+	return out
+}
+
+// reconfigure gives a folder new random settings and applies the difference on the server; the clients take them at
+// their next sync, like a poll would bring them.
+func (s *sim) reconfigure(fid int64, first bool) {
+	old := s.rules[fid]
+	rules := s.randRules(s.owners(fid))
+	in := func(rs []simRule, p string) (simRule, bool) {
+		for _, r := range rs {
+			if r.Path == p {
+				return r, true
+			}
+		}
+		return simRule{}, false
+	}
+	for _, r := range old {
+		if _, ok := in(rules, r.Path); !ok && r.Path != "" {
+			s.e.setRule(fid, simRule{Path: r.Path, Mode: "inherit"}, s.devIDs)
+		}
+	}
+	for _, r := range rules {
+		if o, ok := in(old, r.Path); !ok || o != r {
+			if st := s.e.setRule(fid, r, s.devIDs); st != 303 && st != 404 {
+				s.t.Fatalf("set rule %+v of folder %d: %d", r, fid, st)
+			}
+		}
+	}
+	s.rules[fid] = rules
+	s.cfgVer[fid]++
+	_ = first
 }
 
 // open (re)builds a folder engine over the same file system and state file, like a process restart.
@@ -199,9 +308,10 @@ func (s *sim) open(c *simClient, sf *simFolder) {
 		s.t.Fatal(err)
 	}
 	s.t.Cleanup(func() { db.Close() })
-	f := NewFolder(proto.FolderConfig{ID: sf.id, Adopt: true}, crashFS{sf.mem, s.crash}, db, c.api, false)
+	sf.rules, sf.cfgVer = s.rules[sf.id], s.cfgVer[sf.id]
+	f := NewFolder(simConfig(sf.id, sf.rules), crashFS{sf.mem, s.crash}, db, c.api, false)
 	f.Stable, f.DeviceName = 0, c.name
-	f.Now = func() time.Time { return s.now }
+	f.Now = func() time.Time { return s.now.Add(c.skew) }
 	sf.f, sf.synced = f, false
 }
 
@@ -219,15 +329,34 @@ func (s *sim) sync(c *simClient, sf *simFolder) (rep Report, crashed bool) {
 	}()
 	ctx := context.Background()
 	var err error
+	if sf.cfgVer != s.cfgVer[sf.id] { // the poll brought new settings: the engine starts again with them
+		s.open(c, sf)
+	}
 	if rep, err = sf.f.Scan(ctx); err != nil {
 		s.t.Fatalf("scan: %v", err)
 	}
-	if !rep.Retry && rep.PendingUp == 0 {
-		s.record(sf) // nothing was postponed: every file on disk is on the server
+	if !rep.Retry && rep.PendingUp == 0 && rep.Held == 0 {
+		s.record(sf) // nothing was postponed or held: every file on disk is on the server
 	}
 	if sf.f.Ready() {
+		frozen, before := sf.frozenIDs(), treeOf(sf.mem)
 		if rep, err = sf.f.Pull(ctx); err != nil {
 			s.t.Fatalf("pull: %v", err)
+		}
+		if len(frozen) > 0 { // (4) a pull does not touch a scope that was frozen when it began
+			after := treeOf(sf.mem)
+			for p, h := range before {
+				if id, _, _ := simScope(sf.rules, p); frozen[id] && after[p] != h {
+					s.fail("pull changed %s of frozen scope %s on %s folder %d", p, id, c.name, sf.id)
+				}
+			}
+			for p := range after {
+				if _, ok := before[p]; !ok {
+					if id, _, _ := simScope(sf.rules, p); frozen[id] {
+						s.fail("pull added %s to frozen scope %s on %s folder %d", p, id, c.name, sf.id)
+					}
+				}
+			}
 		}
 	}
 	return rep, false
@@ -366,14 +495,117 @@ func (s *sim) pick() (*simClient, *simFolder) {
 	return c, c.folders[s.rng.Intn(len(c.folders))]
 }
 
+// edit applies one random local change, or a group of them (a "git commit": several files at once), and notes the
+// cursor the change began at.
+func (s *sim) edit_(c *simClient, sf *simFolder) {
+	for n := 1 + s.rng.Intn(2)*s.rng.Intn(5); n > 0; n-- {
+		s.op(sf)
+	}
+}
+
+// tick advances the clocks: the simulation's by a second, the server's and a client's now and then by a jump, the
+// server's sometimes back; a client may go offline.
+func (s *sim) tick() {
+	s.now = s.now.Add(time.Second)
+	switch x := s.rng.Intn(200); {
+	case x < 4:
+		s.skew += time.Duration(1+s.rng.Intn(300)) * time.Second
+	case x == 4:
+		s.skew -= time.Duration(1+s.rng.Intn(120)) * time.Second
+	case x < 8:
+		s.clients[s.rng.Intn(len(s.clients))].skew += time.Duration(s.rng.Intn(3000)-1500) * time.Second
+	case x < 11:
+		s.clients[s.rng.Intn(len(s.clients))].off = 3 + s.rng.Intn(60)
+	}
+	for _, c := range s.clients {
+		c.off = max(c.off-1, 0)
+	}
+}
+
+// decide takes a random user decision on a random held change of a client's folder.
+func (s *sim) decide(c *simClient, sf *simFolder) {
+	defer func() { // a crash in the middle of carrying a decision out: the process starts again
+		if r := recover(); r != nil {
+			if _, ok := r.(simCrash); !ok {
+				panic(r)
+			}
+			s.crashes++
+			s.open(c, sf)
+		}
+	}()
+	list := sf.heldList()
+	if len(list) == 0 {
+		return
+	}
+	h := list[s.rng.Intn(len(list))]
+	action, save := simActions[s.rng.Intn(len(simActions))], s.rng.Intn(3) > 0
+	if h.Reason == "type" {
+		action = ActDiscard // a file against a directory is decided by taking the server's
+	}
+	var hash string
+	if r, err := sf.mem.Open(h.Path); err == nil {
+		b, _ := io.ReadAll(r)
+		r.Close()
+		sum := sha256.Sum256(b)
+		hash = hex.EncodeToString(sum[:])
+	}
+	rerr := sf.resolve(context.Background(), h.Path, action, save)
+	if rerr != nil && os.Getenv("SIM_DEBUG") != "" {
+		fmt.Printf("RESOLVE %s f%d %s %s save=%v: %v\n", c.name, sf.id, h.Path, action, save, rerr)
+	}
+	if rerr == nil {
+		s.decided++
+		if action == ActDiscard && !save && hash != "" {
+			s.waived[hash] = true
+		}
+	}
+}
+
+// restore makes the Web UI restore a random old version, a write by "web" (design 2.8.3).
+func (s *sim) restore() {
+	fid := int64(1 + s.rng.Intn(simFolders))
+	db := s.e.folderDB(fid)
+	rows, err := db.Query(`SELECT id FROM versions ORDER BY id`)
+	var ids []int64
+	for err == nil && rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	if rows != nil {
+		rows.Close()
+	}
+	db.Close()
+	if len(ids) == 0 {
+		return
+	}
+	s.e.post("/folders/"+strconv.FormatInt(fid, 10)+"/restore", url.Values{"version": {strconv.FormatInt(ids[s.rng.Intn(len(ids))], 10)}})
+	s.noteWeb(fid)
+}
+
 // run does n random steps; with randomCrash, a share of the syncs crash at a random call.
 func (s *sim) run(n int, randomCrash bool) {
 	calls := 40
 	for i := 0; i < n; i++ {
-		s.now = s.now.Add(time.Second)
+		s.tick()
 		c, sf := s.pick()
-		if s.rng.Intn(100) < 60 {
-			s.op(sf)
+		switch x := s.rng.Intn(100); {
+		case x < 42:
+			s.edit_(c, sf)
+			s.observe(c, sf, true)
+			continue
+		case x < 48:
+			s.decide(c, sf)
+			s.observe(c, sf, false)
+			continue
+		case x < 50:
+			s.reconfigure(sf.id, false)
+			continue
+		case x < 52:
+			s.restore()
+			continue
+		}
+		if c.off > 0 {
 			continue
 		}
 		if randomCrash && s.rng.Intn(100) < 12 {
@@ -381,6 +613,7 @@ func (s *sim) run(n int, randomCrash bool) {
 		}
 		before := s.crash.n
 		_, crashed := s.sync(c, sf)
+		s.observe(c, sf, false)
 		if randomCrash {
 			s.crash.at = 0
 		}
@@ -390,25 +623,55 @@ func (s *sim) run(n int, randomCrash bool) {
 	}
 }
 
-// settle syncs everything until all trees equal the server, and checks both invariants.
+// pending is how many held changes the clients have.
+func (s *sim) pending() int {
+	n := 0
+	for _, c := range s.clients {
+		for _, sf := range c.folders {
+			n += len(sf.heldList())
+		}
+	}
+	return n
+}
+
+// settle brings every client online, decides all held changes and syncs until all trees equal the server, then
+// checks the invariants.
 func (s *sim) settle() {
 	t := s.t
 	s.crash.at = 0
+	for _, c := range s.clients {
+		c.off = 0
+	}
 	ok := false
 	var diff string
-	for round := 0; round < 40 && !ok; round++ {
-		s.now = s.now.Add(time.Second)
+	for round := 0; round < 60 && !(ok && s.pending() == 0); round++ {
+		s.now = s.now.Add(11 * time.Minute) // every window has passed
 		for _, c := range s.clients {
 			for _, sf := range c.folders {
-				if rep, _ := s.sync(c, sf); len(rep.Errors) > 0 && round >= 39 {
+				if rep, _ := s.sync(c, sf); len(rep.Errors) > 0 && round >= 59 {
 					t.Errorf("client %s folder %d: errors %+v", c.name, sf.id, rep.Errors)
+				}
+				for k := len(sf.heldList()); k > 0; k-- { // decide one by one: a decision can release the others
+					s.decide(c, sf)
 				}
 			}
 		}
 		ok, diff = s.converged()
 	}
-	if !ok {
-		t.Fatalf("not converged after 40 rounds:\n%s", diff)
+	if len(s.viol) > 0 {
+		t.Fatalf("invariants broken (decisions %d, crashes %d):\n%s", s.decided, s.crashes, strings.Join(s.viol, "\n"))
+	}
+	if !ok || s.pending() > 0 {
+		for _, c := range s.clients {
+			for _, sf := range c.folders {
+				rr, _ := sf.f.DB.all()
+				for p, r := range rr {
+					t.Logf("ROW %s f%d %s seq=%d hash=%x", c.name, sf.id, p, r.Seq, r.Hash)
+				}
+				t.Logf("DBG %s f%d held=%+v frozen=%v rules=%+v meta=%v", c.name, sf.id, sf.heldList(), sf.frozenIDs(), sf.rules, sf.f.DB.metaPrefix(""))
+			}
+		}
+		t.Fatalf("not converged after 60 rounds (held %d):\n%s", s.pending(), diff)
 	}
 	for _, c := range s.clients { // one more round must change nothing
 		for _, sf := range c.folders {
@@ -418,6 +681,9 @@ func (s *sim) settle() {
 				t.Fatalf("tree of %s folder %d still changing after convergence", c.name, sf.id)
 			}
 		}
+	}
+	if len(s.viol) > 0 {
+		t.Fatalf("invariants broken:\n%s", strings.Join(s.viol, "\n"))
 	}
 	// No data loss.
 	held := map[string]bool{}
@@ -437,15 +703,22 @@ func (s *sim) settle() {
 		}
 		db.Close()
 	}
+	conflictNames := 0
 	for _, c := range s.clients {
 		for _, sf := range c.folders {
-			for _, h := range treeOf(sf.mem) {
+			for p, h := range treeOf(sf.mem) {
 				held[h] = true
+				if pp.IsConflictName(p) {
+					conflictNames++
+				}
 			}
-			for _, h := range savedTree(sf.mem) { // refused changes wait in .syncsaved
+			for _, h := range savedTree(sf.mem) { // changes set aside by a discard wait in .syncsaved
 				held[h] = true
 			}
 		}
+	}
+	for h := range s.waived {
+		held[h] = true
 	}
 	lost := 0
 	for h := range s.keep {
@@ -456,6 +729,9 @@ func (s *sim) settle() {
 	}
 	if lost > 0 {
 		t.Fatalf("%d of %d file contents that were on disk at a clean scan are lost", lost, len(s.keep))
+	}
+	if conflictNames > 0 {
+		t.Fatalf("%d conflict copies: write control holds the changes instead", conflictNames)
 	}
 }
 

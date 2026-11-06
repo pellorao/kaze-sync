@@ -63,9 +63,9 @@ const (
 	// AgentVersion is the protocol version of this client, bumped on every change of the device API; clients send it in
 	// the VersionHeader of every request and in poll requests. MinAgentVersion is the oldest the server still serves; it is
 	// raised only by a change that old clients cannot work with, and the rest of the time stays behind AgentVersion
-	// (design 9.3). Version 5 (symbolic links, design 6.7) stays open for more fields until the next release. A request without the header comes from a client older than the header: version 1.
-	AgentVersion    = 5
-	MinAgentVersion = 5
+	// (design 9.3). Version 6 (write control, design 2.8) stays open for more fields until the next release. A request without the header comes from a client older than the header: version 1.
+	AgentVersion    = 6
+	MinAgentVersion = 6
 	VersionHeader   = "Kaze-Agent-Version"
 )
 
@@ -88,6 +88,22 @@ type FolderConfig struct {
 	Path  string   `json:"path"`
 	Adopt bool     `json:"adopt"`
 	Rules []string `json:"rules"`
+	// Writectl lists the write-control settings of the folder, the root first, which always has one (design 2.8.10). The
+	// client only uses it to cut the folder into scopes.
+	Writectl []WCRule `json:"writectl"`
+}
+
+// Write-control modes (design 2.8.2).
+const (
+	ModeFree      = "free"
+	ModeSingle    = "single"
+	ModeExclusive = "exclusive"
+)
+
+// WCRule is one write-control setting: the path it is set on ("" is the root) and its mode.
+type WCRule struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"`
 }
 
 type Config struct {
@@ -117,6 +133,7 @@ type FolderState struct {
 	LastSyncedAt int64       `json:"last_synced_at"`
 	PendingUp    int         `json:"pending_up"`
 	PendingDown  int         `json:"pending_down"`
+	Held         int         `json:"held,omitempty"`   // changes waiting for the user's decision (design 2.8.6)
 	Errors       []FileError `json:"errors,omitempty"` // at most 100
 }
 
@@ -146,6 +163,10 @@ type Op struct {
 	Exec    bool   `json:"exec"`
 	// Link marks a symbolic link: the content is the link's target, verbatim, in one block (design 6.7).
 	Link bool `json:"link,omitempty"`
+	// Since is the folder cursor the device had applied when it began changing the single-writer scope the op is in;
+	// Resolve marks the commit of a decision on a held change, which the ownership check lets through (design 2.8.3).
+	Since   int64 `json:"since,omitempty"`
+	Resolve bool  `json:"resolve,omitempty"`
 	// Stage names a staged block list (POST /stage) that stands for Blocks when the file has more than
 	// MaxCommitBlocks blocks (design 2.4).
 	Stage string `json:"stage,omitempty"`
@@ -188,7 +209,7 @@ const (
 	ReasonTypeConflict  = "type_conflict"
 	ReasonInvalidLink   = "invalid_link" // a link target that is empty or longer than MaxLinkTarget
 	ReasonNoStage       = "no_stage"     // commit: the staged block list is missing, expired, another device's or incomplete
-	ReasonLocked        = "locked"       // the path is held exclusively by another device (design 2.8)
+	ReasonOwner         = "owner"        // a concurrent write, or a write to a scope another device owns (design 2.8.3)
 	// Reasons of a refused /stage segment.
 	ReasonNoSpace       = "no_space"        // the blocks the file still needs would not fit on the disk
 	ReasonTooLarge      = "too_large"       // more than MaxFileBlocks blocks
@@ -221,6 +242,37 @@ type Result struct {
 	Need    []Hash `json:"need,omitempty"`    // need
 	Current *Entry `json:"current,omitempty"` // conflict; nil when the path does not exist
 	Reason  string `json:"reason,omitempty"`  // rejected
+	// Owner says why a write was refused with ReasonOwner.
+	Owner *OwnerInfo `json:"owner,omitempty"`
+}
+
+// OwnerInfo is the detail of an owner refusal: the scope path, its mode, the other device, and the condition that
+// held: "stale" (Ref is the seq of the other write), "window" (Ref is the unix time the ownership ends) or "exclusive".
+type OwnerInfo struct {
+	Scope  string `json:"scope"`
+	Mode   string `json:"mode"`
+	Device string `json:"device,omitempty"`
+	Cond   string `json:"cond"`
+	Ref    int64  `json:"ref,omitempty"`
+}
+
+// HeldItem is one change that waits for the user's decision on a device (design 2.8.6). Kind is "modify", "add" or
+// "delete"; Reason is "owner", "conflict", "type" or "reset".
+type HeldItem struct {
+	Path    string `json:"path"`
+	Scope   string `json:"scope"`
+	Reason  string `json:"reason"`
+	BaseSeq int64  `json:"base_seq"`
+	Kind    string `json:"kind"`
+	Size    int64  `json:"size"`
+	MtimeNs int64  `json:"mtime_ns"`
+	At      int64  `json:"at"`
+}
+
+// HeldReq is POST /api/v1/held: the whole list of one folder, sent when it changes.
+type HeldReq struct {
+	Folder int64      `json:"folder"`
+	Items  []HeldItem `json:"items"`
 }
 
 type CommitResp struct {

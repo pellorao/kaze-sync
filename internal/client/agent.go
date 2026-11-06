@@ -86,6 +86,8 @@ type runner struct {
 	done   chan struct{}
 
 	// Guarded by Agent.mu.
+	cfgVer     int64 // the configuration version the runner last saw
+	requeue    bool  // the configuration changed: held refused writes go again (design 2.8.6)
 	report     Report
 	lastSynced int64
 	scanned    bool
@@ -145,7 +147,7 @@ func (a *Agent) states() []proto.FolderState {
 	for id, r := range a.runners {
 		st := proto.FolderState{ID: id, State: "idle", LastSyncedAt: r.lastSynced}
 		if r.scanned {
-			st.State, st.PendingUp, st.PendingDown, st.Errors = r.report.State, r.report.PendingUp, r.report.PendingDown, r.report.Errors
+			st.State, st.PendingUp, st.PendingDown, st.Errors, st.Held = r.report.State, r.report.PendingUp, r.report.PendingDown, r.report.Errors, r.report.Held
 		}
 		if r.busy && time.Since(r.busyAt) >= syncingAfter {
 			st.State = "syncing"
@@ -223,6 +225,15 @@ func (a *Agent) work(ctx context.Context, t task) {
 	r, f := t.r, t.r.f
 	var rep Report
 	var err error
+	a.mu.Lock()
+	requeue := r.requeue
+	r.requeue = false
+	a.mu.Unlock()
+	if requeue {
+		if err = f.Requeue(); err != nil {
+			slog.Warn("cannot send the held changes again", "folder", r.cfg.ID, "err", err)
+		}
+	}
 	if t.reset {
 		if err = f.Reset(); err != nil {
 			slog.Warn("cannot reset the folder state", "folder", r.cfg.ID, "err", err)
@@ -262,6 +273,13 @@ func (a *Agent) work(ctx context.Context, t task) {
 	if r.w == nil && f.Ready() && err == nil {
 		a.startWatch(r) // the first scan has created the root; scan again so that every directory gets watched
 		t.full = true
+	}
+	if items, changed := f.HeldItems(); changed && ctx.Err() == nil { // the list for the Web UI, only when it differs
+		if herr := a.API.Held(ctx, proto.HeldReq{Folder: r.cfg.ID, Items: items}); herr != nil {
+			slog.Warn("cannot report the held changes", "folder", r.cfg.ID, "err", herr)
+		} else {
+			f.HeldSent()
+		}
 	}
 	now := time.Now()
 	a.mu.Lock()
@@ -372,6 +390,11 @@ func (a *Agent) applyConfig() {
 	}
 	for id, r := range a.runners {
 		if fc, ok := want[id]; ok && reflect.DeepEqual(fc, r.cfg) {
+			a.mu.Lock()
+			if r.cfgVer != cfg.Version { // an exclusive may have moved without the client's view changing
+				r.cfgVer, r.requeue, r.s.full, r.s.pull = cfg.Version, true, true, true
+			}
+			a.mu.Unlock()
 			continue
 		}
 		a.mu.Lock()
@@ -419,7 +442,7 @@ func (a *Agent) applyConfig() {
 		a.Notify.Ok("open-"+itoa(id), "Opened the state of folder "+itoa(id)+" again")
 		f := NewFolder(fc, a.NewFS(fc.Path), db, a.API, a.OS == "windows")
 		f.OS, f.Stable, f.DeviceName = a.OS, a.Stable, a.DeviceName
-		r := &runner{cfg: fc, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
+		r := &runner{cfg: fc, cfgVer: cfg.Version, f: f, dbPath: dbPath, events: make(chan string, 1000), done: make(chan struct{}),
 			seen: -1, acked: -1, s: schedule{full: true, pull: true, nextFull: time.Now().Add(a.ScanInterval)}}
 		a.mu.Lock()
 		a.runners[id] = r
@@ -485,6 +508,13 @@ func (a *Agent) notifyFolder(r *runner, rep Report, err error, scanned bool) {
 		a.Notify.Fail("sync-"+id, "Sync of folder "+name+" keeps failing", failuresBeforePush)
 	} else {
 		a.Notify.Ok("sync-"+id, "Sync of folder "+name+" works again")
+	}
+	if scanned {
+		if rep.Held > 0 {
+			a.Notify.Fail("held-"+id, itoa(int64(rep.Held))+" changes of folder "+name+" are on hold for your decision (open the Web UI)", 1)
+		} else {
+			a.Notify.Ok("held-"+id, "Folder "+name+" has no more changes on hold")
+		}
 	}
 	n := 0
 	for _, e := range rep.Errors {
