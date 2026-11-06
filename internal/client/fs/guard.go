@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"log/slog"
 	"path"
 	"strings"
 	"sync"
@@ -100,11 +99,7 @@ func (g *Guard) unlockIf(anywhere bool, paths ...string) func() {
 			continue
 		}
 		if st.ReadOnly {
-			if err := g.FS.SetWritable(p, true); err != nil {
-				// The operation then fails with the real permission error; nothing is held, so nothing is restored.
-				slog.Warn("cannot unlock", "path", p, "err", err)
-				continue
-			}
+			g.FS.SetWritable(p, true)
 		}
 		g.held[p] = &hold{n: 1, restore: st.ReadOnly}
 		taken = append(taken, p)
@@ -120,9 +115,7 @@ func (g *Guard) unlockIf(anywhere bool, paths ...string) func() {
 			}
 			delete(g.held, p)
 			if h.restore {
-				if err := g.FS.SetWritable(p, false); err != nil && !errors.Is(err, fs.ErrNotExist) { // gone: nothing to put back
-					slog.Warn("cannot restore read-only", "path", p, "err", err) // the next full scan protects it again
-				}
+				g.FS.SetWritable(p, false) // gone: nothing to put back
 			}
 		}
 	}

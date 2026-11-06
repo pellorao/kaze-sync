@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"log/slog"
 	"path"
 	"slices"
 	"strconv"
@@ -59,27 +58,12 @@ func (f *Folder) saveAway(p string) error {
 	if dir == "." {
 		dir = ""
 	}
-	if st, serr := in.Stat(dir); serr == nil && st.ReadOnly {
-		if err := in.SetWritable(dir, true); err != nil {
-			return err
-		}
-		defer func() {
-			if err := in.SetWritable(dir, false); err != nil {
-				slog.Warn("cannot restore read-only", "path", dir, "err", err) // the next full scan protects it again
-			}
-		}()
+	if st, err := in.Stat(dir); err == nil && st.ReadOnly {
+		in.SetWritable(dir, true)
+		defer in.SetWritable(dir, false)
 	}
-	wasRO := false
-	if st, serr := in.Stat(p); serr == nil {
-		wasRO = st.ReadOnly
-	}
-	if err := in.SetWritable(p, true); err != nil {
-		return err
-	}
+	in.SetWritable(p, true)
 	if err := in.Rename(p, dst); err != nil {
-		if wasRO {
-			in.SetWritable(p, false) // refused: the file stays where it was, and read-only
-		}
 		return err
 	}
 	if r, ok := f.rangeOf(p); ok {
