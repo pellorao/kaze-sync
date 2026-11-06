@@ -22,6 +22,8 @@
 
 Web UI 的全部操作由唯一的管理员完成, 凭一个随机密码登录.
 
+**文件放在哪里.** 系统或平台已有默认位置的, 就用默认位置, 不强行改动: Linux 客户端状态 `~/.local/state/kaze-sync/` (XDG), systemd 用户单元目录 `~/.config/systemd/user/`, 用户程序目录 `~/.local/bin/`, Windows 的 `%LOCALAPPDATA%\kaze-sync\` 和注册表 `Run` 项, Linux 上 root 安装的数据目录 `/var/lib/kaze-sync`, OpenWrt 上的数据盘. 其余由你自己选位置的内容 (例如以普通用户运行的服务端的 `--data`, 或保存的管理员密码这类私有文件) 统一放在 `~/.kaze-sync/` 一个目录下 (例如 `--data ~/.kaze-sync/server` 和 `~/.kaze-sync/config/`), 不要散落在家目录各处.
+
 ## 2. 安装服务端
 
 ### 2.1 构建二进制

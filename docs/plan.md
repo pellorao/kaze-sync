@@ -67,7 +67,7 @@
 
 ### 端到端驱动
 
-位于新项目的 `e2e/` (Go, `go run ./e2e -config <path>`), 借鉴 ARW `scripts/release-vm.mjs` 的做法 (还原快照, 启动, 固定主机密钥的 SSH, 结束时硬关机并还原), 在新项目中独立实现, 不共享代码. 配置是仓库外的 JSON:
+位于新项目的 `e2e/` (Go, `go run ./e2e -config <path>`, 默认 `~/.kaze-sync/config/e2e.json`), 借鉴 ARW `scripts/release-vm.mjs` 的做法 (还原快照, 启动, 固定主机密钥的 SSH, 结束时硬关机并还原), 在新项目中独立实现, 不共享代码. 配置是仓库外的 JSON:
 
 ```json
 {

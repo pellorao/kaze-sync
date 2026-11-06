@@ -3,7 +3,7 @@
 // server with procd, drives it through the Web UI and syncs with real
 // clients, then powers the VM off hard and restores the snapshot.
 //
-// Usage: go run ./e2e -config ~/.config/kaze-sync-e2e/config.json
+// Usage: go run ./e2e -config ~/.kaze-sync/config/e2e.json
 package main
 
 import (
@@ -50,7 +50,7 @@ type driver struct {
 }
 
 func main() {
-	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".config/kaze-sync-e2e/config.json"), "e2e config file")
+	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".kaze-sync/config/e2e.json"), "e2e config file")
 	logs := flag.String("logs", "", "directory for collected logs (default: a new temp directory)")
 	only := flag.String("only", "", "stop after a stage while debugging: setup (up to the admin login), sync (before security, sysupgrade and the certificate), m4 (only the M4 and M5 scenarios), m5 (only the M5 scenarios), m6, m7 (the M7 scenarios, then the backup restore), upgrade (only the upgrade phase)")
 	flag.Parse()

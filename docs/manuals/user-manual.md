@@ -22,6 +22,8 @@ Deployment details that are the same for everyone (partitioning the only disk of
 
 All Web UI actions are done by a single administrator with one random password.
 
+**Where files live.** Locations the system or platform already defines are used as they are: the Linux client state `~/.local/state/kaze-sync/` (XDG), the systemd user unit `~/.config/systemd/user/`, the user program directory `~/.local/bin/`, Windows `%LOCALAPPDATA%\kaze-sync\` and the `Run` registry key, the `/var/lib/kaze-sync` data directory of a root install on Linux, and the data disk on OpenWrt. For everything else you choose the place yourself (for example `--data` of a server you run as an ordinary user, or private files such as a saved admin password); put those under one directory, `~/.kaze-sync/` (for example `--data ~/.kaze-sync/server` and `~/.kaze-sync/config/`), so that nothing is scattered over your home directory.
+
 ## 2. Installing the server
 
 ### 2.1 Build the binaries

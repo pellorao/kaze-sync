@@ -4,7 +4,7 @@
 // the e2e config. Everything large is built in the cache directory, which
 // should be a tmpfs (/dev/shm), so that only the final disks reach the SSD.
 //
-// Usage: go run ./e2e/vm -config ~/.config/kaze-sync-e2e/config.json
+// Usage: go run ./e2e/vm -config ~/.kaze-sync/config/e2e.json
 package main
 
 import (
@@ -30,7 +30,7 @@ const (
 )
 
 func main() {
-	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".config/kaze-sync-e2e/config.json"), "e2e config file")
+	cfgPath := flag.String("config", filepath.Join(os.Getenv("HOME"), ".kaze-sync/config/e2e.json"), "e2e config file")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 	if err := build(*cfgPath); err != nil {
