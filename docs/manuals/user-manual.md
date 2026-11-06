@@ -2,33 +2,47 @@
 
 [English](user-manual.md) | [简体中文](user-manual.zh-CN.md)
 
-This manual describes every operation a kaze-sync user performs: installing the server and the clients, enrolling devices, mapping folders, writing exclusion rules, dealing with conflicts, restoring old versions, backing up, upgrading, uninstalling and fixing problems. It assumes you can use a terminal, `ssh` and `scp`. For a first working setup in a few commands, start with the [README](../../README.md); this manual is for looking things up afterwards.
+With kaze-sync, you can keep folders in sync across your Linux and Windows computers through your own server, and recover old or deleted files whenever you make a mistake. This manual is your complete reference for running kaze-sync: installing the server and clients, enrolling devices, mapping folders, writing exclusion rules, resolving conflicts, restoring old versions, backing up, upgrading, uninstalling, and troubleshooting.
 
-Two conventions:
+It assumes you are comfortable using a terminal, `ssh`, and `scp`. If you just want to get your first setup running in a few commands, start with the [README](../../README.md) and come back here when you need to look up a specific operation.
 
-- The Web UI comes in Simplified Chinese, Traditional Chinese, English, Japanese and Korean (see Settings, section 4). Wherever this manual names a button, menu item or message, it gives the English text and, in code font, the exact text of the Simplified Chinese interface, for example **Add device** (`添加设备`).
-- Commands run on the server are marked `# server`, commands run on a client are marked `# client`. Replace `<...>` with your own value.
+Throughout this manual, we follow two conventions:
 
-Deployment details that are the same for everyone (partitioning the only disk of an OpenWrt box, systemd hardening, the exact memory budget) live in [`docs/operations.md`](../operations.md), which is written in Chinese. This manual points to its sections instead of copying them.
+- The Web UI comes in Simplified Chinese, Traditional Chinese, English, Japanese, and Korean (see Settings, section 4). Wherever this manual names a button, menu item, or message, it gives the English text followed by the exact Simplified Chinese interface text in code font—for example, **Add device** (`添加设备`).
+- Commands that you run on the server are marked `# server`, and commands that you run on a client computer are marked `# client`. Replace placeholders like `<...>` with your own values.
+
+System-level deployment details that are the same for every installation—such as partitioning the single disk of an OpenWrt router, systemd hardening, and the exact memory budget—live in [`docs/operations.md`](../operations.md) (written in Chinese). This manual points to the relevant sections there instead of repeating them.
 
 ## 1. How the pieces fit
 
-- **Server** (`kaze-syncd`): one process that keeps all files and their old versions, and serves the Web UI. It runs on OpenWrt, or on x86-64 Linux with systemd or OpenRC (a VPS, a home server).
-- **Client** (`kaze-syncc`): a background agent on each Linux or Windows computer. It watches local folders, uploads changes and downloads other devices' changes. Clients only ever connect to the server; they need no open port, so they work behind NAT.
-- **Device**: a computer you enrolled. Each device has a name.
-- **Folder**: a named set of files on the server. A folder is the same on every device that uses it.
-- **Mapping**: the link between a folder and a local directory on one device, for example folder `Docs` is `D:\Docs` on the Windows laptop and `/home/me/Docs` on the Linux desktop. All configuration (folders, mappings, rules, retention) is done in the Web UI of the server and pushed to the clients, usually within a second.
-- **Versions**: every overwrite or delete keeps the old content on the server for a number of days (30 by default), so you can restore it.
+Before installing anything, it helps to see how the parts of kaze-sync fit together so that every command and screen in the rest of this manual makes sense:
 
-All Web UI actions are done by a single administrator with one random password.
+- **Server** (`kaze-syncd`): a single process that stores all synced files and their historical versions, and serves the Web UI. It runs on OpenWrt, or on x86-64 Linux with systemd or OpenRC (such as a VPS or a home server).
+- **Client** (`kaze-syncc`): a background agent that runs on each of your Linux or Windows computers. It watches your local folders, uploads local changes, and downloads changes from your other devices. Because clients only make outbound connections to the server and need no open incoming ports, they work behind NAT without any router setup.
+- **Device**: a computer that you have enrolled with the server. Each device has a unique name.
+- **Folder**: a named set of files stored on the server. A folder holds the same content across every device that syncs it.
+- **Mapping**: the link between a server folder and a local directory path on one specific device—for example, the folder `Docs` might map to `D:\Docs` on your Windows laptop and `/home/me/Docs` on your Linux desktop. You configure all folders, mappings, exclusion rules, and retention settings in the server's Web UI, and the server pushes changes to online clients, usually within a second.
+- **Versions**: whenever a file is overwritten or deleted, the server keeps the old content for a configurable number of days (30 by default) so you can restore it later.
 
-**Where files live.** Locations the system or platform already defines are used as they are: the Linux client state `~/.local/state/kaze-sync/` (XDG), the systemd user unit `~/.config/systemd/user/`, the user program directory `~/.local/bin/`, Windows `%LOCALAPPDATA%\kaze-sync\` and the `Run` registry key, the `/var/lib/kaze-sync` data directory of a root install on Linux, and the data disk on OpenWrt. For everything else you choose the place yourself (for example `--data` of a server you run as an ordinary user, or private files such as a saved admin password); put those under one directory, `~/.kaze-sync/` (for example `--data ~/.kaze-sync/server` and `~/.kaze-sync/config/`), so that nothing is scattered over your home directory.
+A single administrator manages the entire Web UI using one randomly generated password.
+
+**Where files live.** Knowing where kaze-sync puts its files on disk makes upgrades, backups, and troubleshooting straightforward. Wherever the operating system or platform already defines a standard location, kaze-sync uses it as is:
+- Linux client state: `~/.local/state/kaze-sync/` (XDG)
+- Linux systemd user unit: `~/.config/systemd/user/`
+- Linux user program directory: `~/.local/bin/`
+- Windows client state and autostart: `%LOCALAPPDATA%\kaze-sync\` and the `Run` registry key
+- Linux root server installation: `/var/lib/kaze-sync`
+- OpenWrt server installation: your mounted data disk
+
+For anything else where you choose the path yourself—such as the `--data` directory of a server you run as an ordinary user, or private files like a saved admin password—keep everything together under a single `~/.kaze-sync/` directory (for example, `--data ~/.kaze-sync/server` and `~/.kaze-sync/config/`) so files are never scattered across your home directory.
 
 ## 2. Installing the server
 
+Because clients connect to the server to enroll and receive their configuration, you always start by building the binaries and setting up the server.
+
 ### 2.1 Build the binaries
 
-There are no release downloads; you build from source on any machine that has Go (the version named in `go.mod`, currently 1.27.3). The results are static and have no dependencies.
+There are no prebuilt release downloads; instead, you build the binaries from source on any machine with Go installed (use the version specified in `go.mod`, currently 1.27.3). The resulting binaries are statically linked and have no external dependencies, so you can build them on your workstation and copy them to your server and clients:
 
 ```bash
 CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
@@ -37,194 +51,236 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-sy
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
 ```
 
-The last line builds the same program without a console window; Windows autostart uses it. Keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. The server is supported only on x86-64.
+The fourth command compiles the exact same Windows client without a console window so that Windows can run it silently at sign-in. Always keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. Note that the server (`kaze-syncd`) is supported only on x86-64.
 
 ### 2.2 OpenWrt
 
-Prerequisite: a data disk that is mounted and is not the root file system (overlay). `install` refuses a data directory on the root file system, because the router's small flash would fill up and a system upgrade would erase it. If the router has only one disk, first create a data partition on it: see the section "OpenWrt 只有一块盘: 新建数据分区" in [`docs/operations.md`](../operations.md).
+If your server is an OpenWrt router, you must store data on a mounted data disk rather than on the root file system (overlay). `install` refuses a data directory on the root file system because synced files would quickly fill the router's small flash storage and a system upgrade would erase them. If your router has only a single disk, create a dedicated data partition on it first; see "OpenWrt 只有一块盘: 新建数据分区" in [`docs/operations.md`](../operations.md).
 
-Copy `kaze-syncd` to the router, then as root:
+Once your data disk is mounted, copy `kaze-syncd` to the router and run these commands as root:
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync        # server
 /mnt/data/kaze-sync/kaze-syncd admin-password          # server: shows the admin password once
 ```
 
-What `install` does: copies itself to `<data>/kaze-syncd`; creates the system user `kaze-sync`; creates and migrates the databases; generates a self-signed certificate (or, with `--ca`, a local CA and a certificate it signs); picks a random TCP port between 20000 and 59999 (kept on later runs); writes and enables the `procd` service `/etc/init.d/kaze-sync` and starts it; adds the service files to `/etc/sysupgrade.conf` so that `sysupgrade` keeps them. It prints the port and the certificate fingerprint (`sha256:...`). Write both down; you need them to enroll clients.
+Running `install` performs the entire server setup in one step:
+- It copies the binary to `<data>/kaze-syncd` and creates the system user `kaze-sync`.
+- It creates and migrates the databases.
+- It generates a self-signed TLS certificate (or, if you pass `--ca`, a local CA and a server certificate signed by it).
+- It picks a random TCP port between 20000 and 59999 (and remembers that port on later runs).
+- It writes, enables, and starts the `procd` service `/etc/init.d/kaze-sync`, and adds the service files to `/etc/sysupgrade.conf` so that OpenWrt's `sysupgrade` preserves them across firmware upgrades.
 
-Options:
+At the end, `install` prints the listening port and the certificate fingerprint (`sha256:...`). Write both down—you will need them to sign in and to enroll clients.
+
+You can customize the installation with these options:
 
 | Option | Meaning |
 |---|---|
-| `--data DIR` | Required. Absolute path made of letters, digits and `. _ - /` |
-| `--listen :PORT` | Listen address instead of the random port; remembered for later runs |
+| `--data DIR` | Required. Absolute path made of letters, digits, and `. _ - /` |
+| `--listen :PORT` | Listen address to use instead of the random port; remembered for later runs |
 | `--cert FILE --key FILE` | Use your own certificate instead of the self-signed one (section 2.4) |
 | `--ca [--san NAMES]` | Use a local CA and a certificate signed by it, which browsers can trust (section 2.4) |
-| `--wan` | OpenWrt only: add a firewall rule named `kaze-sync` that accepts the port from the WAN zone. Without `--wan`, a rule left over from an earlier run is removed |
-| `--new-epoch` | Only after restoring a backup (section 14) |
+| `--wan` | OpenWrt only: add a firewall rule named `kaze-sync` that accepts the port from the WAN zone. Without `--wan`, any rule left over from an earlier run is removed |
+| `--new-epoch` | Used only after restoring a server backup (section 14) |
 
 ### 2.3 Plain Linux (systemd or OpenRC)
 
-As root, with any data directory you like (it may be on the root file system):
+On a standard x86-64 Linux server, the root file system has plenty of space and persists across upgrades, so you can place the data directory anywhere you like (including on the root file system). Run as root:
 
 ```bash
 ./kaze-syncd install --data /var/lib/kaze-sync         # server
 /var/lib/kaze-sync/kaze-syncd admin-password           # server
 ```
 
-`install` detects the service manager itself (OpenWrt, then systemd, then OpenRC; anything else is refused). It creates the user `kaze-sync` (with `useradd`, or busybox `adduser` on Alpine), writes the service (systemd: `/etc/systemd/system/kaze-sync.service`; OpenRC: `/etc/init.d/kaze-sync`), enables it at boot and starts it. It does **not** touch any firewall and does not accept `--wan`: open the printed TCP port in your cloud provider's security group or in the local firewall (for example `ufw allow <port>/tcp` or `firewall-cmd --add-port=<port>/tcp --permanent`).
+`install` automatically detects your service manager (checking for OpenWrt first, then systemd, then OpenRC, and refusing anything else). It creates the system user `kaze-sync` (using `useradd`, or busybox `adduser` on Alpine), writes the service file (`/etc/systemd/system/kaze-sync.service` on systemd, `/etc/init.d/kaze-sync` on OpenRC), enables it at boot, and starts it.
 
-Day-to-day control:
+Unlike on OpenWrt, `install` on plain Linux does **not** touch your firewall and does not accept `--wan`. Open the printed TCP port yourself in your cloud provider's security group or local firewall (for example, `ufw allow <port>/tcp` or `firewall-cmd --add-port=<port>/tcp --permanent`).
+
+Use your platform's service manager for day-to-day control and logs:
 
 | | systemd | OpenRC | OpenWrt |
 |---|---|---|---|
 | start, stop, restart, status | `systemctl start\|stop\|restart\|status kaze-sync` | `rc-service kaze-sync start\|stop\|restart\|status` | `/etc/init.d/kaze-sync start\|stop\|restart` |
 | log | `journalctl -u kaze-sync` | syslog, tag `kaze-sync` (Alpine: `/var/log/messages`) | `logread` |
 
-A crashed server restarts after 5 seconds. If the data disk is not mounted at boot, the service fails to start instead of creating an empty database.
+If the server process crashes, the service manager restarts it after 5 seconds. If your data disk is not mounted when the machine boots, the service fails to start rather than silently creating an empty database on the underlying mount point.
 
-The systemd unit is hardened (the service may only write below `<data>/var`). Add your own changes with a drop-in (`systemctl edit kaze-sync`), not by editing the unit, because the next `install` rewrites the unit. Details and the systemd version requirements are in [`docs/operations.md`](../operations.md), section "普通 Linux (systemd 或 OpenRC)".
+On systemd, the generated unit is hardened so the service may only write below `<data>/var`. If you need to customize the unit, use a drop-in (`systemctl edit kaze-sync`) rather than editing the unit file directly, because the next `install` run will overwrite the unit file. See "普通 Linux (systemd 或 OpenRC)" in [`docs/operations.md`](../operations.md) for hardening details and systemd version requirements.
 
-`install` needs root and there is no supported way to run the server without it.
+Note that `install` requires root privileges, and there is no supported way to run the server without root.
 
 ### 2.4 Port, certificate and firewall
 
-- **Self-signed certificate (default).** Works for the internet and for a LAN alike. Valid for 100 years. Clients pin the certificate by its fingerprint, so the address and host name do not matter. Your browser will warn about the certificate once; compare the fingerprint it shows with the one `install` printed, then accept the exception.
-- **Your own certificate.** `--cert /path/fullchain.pem --key /path/key.pem` (absolute paths, checked at install time). Browsers and clients then validate it against the system roots and clients enroll without `--fingerprint`. The service runs as user `kaze-sync` and reads these files itself at start, so that user must be able to read both files and to enter every directory above them. `install` itself runs as root and does not check this: if the service user cannot read them, `install` succeeds, but the service exits at every start with `permission denied` in its log (the service manager may still report it as started for a moment). Fix it with, for example, `chgrp kaze-sync key.pem && chmod 640 key.pem` (and `chgrp kaze-sync <dir> && chmod 750 <dir>` for a directory that is closed to others), then restart the service. The server does not watch the files: after each renewal restart the service (for acme.sh, put the restart command in `--reloadcmd`). Later `install` runs keep certificate mode; there is no switch back to self-signed. Switching between the modes needs every client to be enrolled again.
-- **Local CA (browsers trust it, with saved passwords).** `--ca` makes the server create its own certificate authority (CA) and a server certificate signed by it. Browsers show a warning for a self-signed certificate and, for that reason, do not offer to fill in saved passwords; once the CA is trusted on your computer, the page counts as secure and Chrome, Edge and Firefox fill in the password again. The certificate names are `localhost`, `127.0.0.1`, `::1`, the host name of the server and the host of `--listen`; add the address or name you type in the browser with `--san` (comma separated, for example `--san 192.168.1.1,nas.example.org`; repeat `install` to change the list). Open the Web UI only by one of these names, otherwise the browser warns again. The CA lives in `<data>/ca/`, readable by root only; the service cannot read the CA key. Clients pin the CA fingerprint (the one `install` prints; the enrollment dialog shows it as well), so the client machines do not need to trust anything. To trust the CA in your browser, export its certificate (it contains no secret) and import it on each computer where you use the Web UI:
+Because the Web UI and the client protocol share a single HTTPS port, every connection to the server is encrypted. By default, `install` picks a random port so port scanners do not easily find it, or you can fix a port with `--listen :PORT`.
+
+For TLS certificates, you can choose among three modes depending on how you use the Web UI and whether you already own a domain certificate:
+
+- **Self-signed certificate (default).** Works out of the box on both the internet and a LAN, and is valid for 100 years. Clients pin the certificate by its SHA-256 fingerprint, so the IP address or hostname you connect to does not matter. When you open the Web UI for the first time, your browser will warn about the untrusted certificate; compare the fingerprint shown by the browser with the one `install` printed, then accept the exception once.
+- **Your own certificate.** If you have a certificate from a public CA (such as Let's Encrypt), pass `--cert /path/fullchain.pem --key /path/key.pem` (both must be absolute paths, which `install` checks at install time). Browsers and clients then validate the server against system root certificates, and clients enroll without `--fingerprint`.
+  Because the service runs as the unprivileged user `kaze-sync` and reads these files itself at startup, `kaze-sync` must have permission to read both files and traverse every parent directory above them. Keep in mind that `install` runs as root and does not check the service user's permissions: if `kaze-sync` cannot read the certificate or key, `install` succeeds, but the service immediately exits on every start with `permission denied` in the log (even if the service manager briefly reports it as started). Grant access with `chgrp kaze-sync key.pem && chmod 640 key.pem` (and `chgrp kaze-sync <dir> && chmod 750 <dir>` on any restricted parent directory), then restart the service.
+  The server does not watch certificate files for changes, so restart the service after each renewal (for `acme.sh`, put the restart command in `--reloadcmd`). Later `install` runs preserve certificate mode, and there is no flag to switch back to self-signed.
+- **Local CA (browsers trust it, with saved passwords).** Because browsers treat self-signed certificates as insecure, they refuse to autofill saved passwords on a self-signed Web UI. Passing `--ca` solves this without needing a public domain: the server generates its own private Certificate Authority (CA) and a server certificate signed by that CA. Once you import the CA certificate on your computer, Chrome, Edge, and Firefox treat the Web UI as secure and autofill your saved admin password.
+  The signed server certificate covers `localhost`, `127.0.0.1`, `::1`, the server's hostname, and any host given in `--listen`. To include the IP address or domain name you actually type into your browser, pass `--san` (comma-separated, for example `--san 192.168.1.1,nas.example.org`; re-run `install` anytime you want to change the list). Always open the Web UI using one of those covered names, or the browser will warn again.
+  The CA files live in `<data>/ca/` and are readable only by root, so the running service cannot read the CA private key. Clients simply pin the CA fingerprint (printed by `install` and included in the Web UI's enrollment command), so client machines do not need the CA installed in their system trust store.
+  To make your browser trust the CA on the computers where you use the Web UI, export the public CA certificate (which contains no secret) on the server and import it into your browser or OS:
 
   ```bash
   /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # on the server
   ```
 
-  - **Windows (Chrome and Edge)**: `certutil -user -addstore Root ca.pem`. Windows asks once to confirm the installation of the root certificate; answer **Yes**. It goes into the current user's store, no administrator is needed. Restart the browser.
-  - **Linux, system store**: `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Chrome and Chromium use their own store: `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (package `libnss3-tools`).
-  - **Firefox**: Settings, Privacy & Security, Certificates, View Certificates, Authorities, Import, and tick "Trust this CA to identify websites". (Firefox on Windows can also read the Windows store: set `security.enterprise_roots.enabled` to true in `about:config`.)
+  - **Windows (Chrome and Edge)**: Run `certutil -user -addstore Root ca.pem`. Windows asks once to confirm installing the root certificate; click **Yes**. Because it goes into the current user's certificate store, no administrator privileges are needed. Restart the browser afterward.
+  - **Linux, system store**: Run `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Chrome and Chromium on Linux use their own NSS store instead: run `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (from package `libnss3-tools`).
+  - **Firefox**: Open Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import, select `ca.pem`, and tick "Trust this CA to identify websites". (On Windows, Firefox can also read the Windows trust store if you set `security.enterprise_roots.enabled` to `true` in `about:config`.)
 
-  Whoever has `ca-key.pem` can make certificates your computers trust, so keep `<data>/ca/` private and in the backup (section 14). The server certificate is valid for two years and is renewed when fewer than 90 days remain: by `install`, by `kaze-syncd ca --data <data>` (as root), or by the service itself when it runs as the owner of the CA key. The running service picks up a renewed certificate within a minute, without a restart. With the default root-owned CA, run `kaze-syncd ca --data <data>` from a monthly cron job (`0 4 1 * * /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync`); if you forget, the service logs a warning during the last 30 days. Later `install` runs keep CA mode. From self-signed or certificate-file mode, switch with `install --ca`; as with the other switches, every client must enroll again (or, for a client you can edit, put the CA fingerprint into the `fingerprint` field of its `device.json` and restart it).
-- **Port.** Random by default so that it is not found by scanning; `--listen :PORT` sets it. It is always HTTPS, and the Web UI and the client protocol share it.
-- If you forget the port or the fingerprint, run `install` again with the same `--data` (it is safe to repeat; it prints both), or look for the line `listening` in the server log.
+  Anyone who obtains `ca-key.pem` can issue certificates that your computers will trust, so keep `<data>/ca/` private and include it in your server backups (section 14). The server certificate signed by the local CA is valid for two years and is renewed automatically when fewer than 90 days remain—either when you run `install`, when you run `kaze-syncd ca --data <data>` as root, or by the service itself if it runs as the owner of the CA key. The running server detects and loads a renewed certificate within a minute without a restart. With the default root-owned CA, add a monthly cron job to handle renewal (`0 4 1 * * /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync`); if you forget, the server logs a warning during the final 30 days before expiration. Later `install` runs preserve CA mode. You can switch from self-signed or certificate-file mode to CA mode by running `install --ca`.
+
+Whenever you switch between certificate modes, every client must enroll again (or, if you can edit a client's files directly when switching to `--ca`, you can put the CA fingerprint into the `fingerprint` field of its `device.json` and restart the client).
+
+If you ever forget the server's listening port or certificate fingerprint, either run `install` again with the same `--data` directory (which is safe to repeat and prints both values) or check the `listening` line in the server log.
 
 ### 2.5 First login and the admin password
 
-Open `https://<server>:<port>/` in a browser (Chrome or Edge 114+, Firefox 125+, Safari 17+) and sign in with the password that `admin-password` printed. The sign-in lasts 7 days.
+With the server running and the port open, open `https://<server>:<port>/` in a supported browser (Chrome or Edge 114+, Firefox 125+, Safari 17+) and sign in with the password that `admin-password` printed. Your sign-in session lasts 7 days.
 
-`admin-password` can be run at any time. It sets a new random password, shows it once, and restarts the service, which signs out every session and clears every lockout. You cannot choose the password yourself. Run it as `<data>/kaze-syncd admin-password`, or with `--data DIR` from another copy of the binary.
+You can run `admin-password` again at any time—for example, if you forget the password or get locked out. Each run generates a new random password (you cannot choose a custom password), prints it once, and restarts the service, which immediately signs out all active browser sessions and clears all failed-login lockouts. Run it as `<data>/kaze-syncd admin-password`, or run another copy of the binary with `--data DIR`.
 
-Resources: the server uses about 24 MB of memory in normal operation; garbage collection (section 13) adds a bounded amount. A machine with 512 MB of memory handles data up to about 512 GB with one collection pass; larger data only makes the collection scan more often, never use more memory.
+**Resource usage.** In normal operation, the server uses about 24 MB of memory, and daily garbage collection (section 13) adds a bounded amount on top. A machine with 512 MB of RAM can garbage-collect up to about 512 GB of stored data in a single pass; if you store more than that, garbage collection simply scans in multiple passes rather than using more memory.
 
 ## 3. Installing and enrolling clients
 
-A client needs the enrollment command from the Web UI. In the overview page, press **Add device** (`添加设备`), type a name (letters, digits, `-` and `_`, at most 32 characters, unique; it appears in conflict copy file names), and press **Generate enrollment code** (`生成注册码`). A dialog shows a one-time code that is valid for 15 minutes, with ready-to-copy commands for Linux and Windows, including the fingerprint when the server uses a self-signed certificate:
+Once you can sign in to the Web UI, the next step is to connect your computers to the server.
+
+To enroll a computer, first generate an enrollment command in the Web UI. On the overview page, press **Add device** (`添加设备`), enter a device name (up to 32 characters using letters, digits, `-`, and `_`; the name must be unique and appears in conflict copy filenames), and press **Generate enrollment code** (`生成注册码`). The dialog displays a single-use code valid for 15 minutes along with ready-to-copy enrollment commands for Linux and Windows (including `--fingerprint` when the server uses a self-signed certificate or local CA):
 
 ```text
 kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sha256:...
 ```
 
-The server address is whatever name or IP your clients can reach, with the port; it must be `https://`.
+Make sure the server URL in the command uses whatever hostname or IP address your client computer can actually reach, including the port, and starts with `https://`.
 
 ### 3.1 Linux client
 
-Copy `kaze-syncc` to a **permanent** location, for example `~/.local/bin/`, because the autostart entry records the path it was run from. Then run the command from the dialog:
+On Linux, copy `kaze-syncc` to a **permanent** directory first—such as `~/.local/bin/`—because the autostart service records the exact path from which you run `enroll`. Then run the command from the Web UI dialog:
 
 ```bash
 kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HEX>    # client
 ```
 
-It saves the device token in `~/.local/state/kaze-sync/`, writes the systemd user unit `~/.config/systemd/user/kaze-sync.service`, enables it and starts the agent. Check with `systemctl --user status kaze-sync`. Linux clients need a systemd user session; other init systems are not supported. For the agent to run while you are not logged in, enable lingering with `loginctl enable-linger`. `--no-autostart` only enrolls and does not set up or start the service; then `kaze-syncc run` runs the agent in the foreground.
+`enroll` saves the device token in `~/.local/state/kaze-sync/`, writes the systemd user unit `~/.config/systemd/user/kaze-sync.service`, enables it, and starts the background agent. You can verify that it is running with `systemctl --user status kaze-sync`.
+
+Linux clients require a systemd user session; other init systems are not supported on the client. By default, a systemd user session runs only while you are logged in; if you want the agent to keep syncing when you are logged out, enable lingering with `loginctl enable-linger`. If you pass `--no-autostart`, `enroll` only registers the device without creating or starting the systemd service, and you can run the agent in the foreground whenever you want with `kaze-syncc run`.
 
 ### 3.2 Windows client
 
-Put `kaze-syncc.exe` and `kaze-syncc-agent.exe` together in a permanent directory, open a terminal there and run the command from the dialog (`kaze-syncc.exe enroll ...`). It saves the token in `%LOCALAPPDATA%\kaze-sync\`, registers the windowless agent in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` under the name `kaze-sync` (no administrator rights needed) and starts it. The agent then starts at every sign-in.
+On Windows, place both `kaze-syncc.exe` and `kaze-syncc-agent.exe` together in a permanent directory, open a terminal in that directory, and run the enrollment command from the dialog (`kaze-syncc.exe enroll ...`).
+
+`enroll` saves the device token in `%LOCALAPPDATA%\kaze-sync\`, registers the windowless `kaze-syncc-agent.exe` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with the value name `kaze-sync` (which requires no administrator privileges), and starts the agent immediately. From then on, the agent starts automatically whenever you sign in to Windows.
 
 ### 3.3 After enrolling
 
-The device appears in the device table of the overview page, with a green dot when it is online. It does not sync anything until you map a folder to it (section 5). To enroll a computer again (for example after reinstalling it), revoke the old device first or add a new device under another name, because device names are unique; then run the new command.
+As soon as enrollment finishes, your computer appears in the device table on the Web UI overview page with a green dot showing it is online. A newly enrolled device does not sync any files yet—you will link folders to it in section 5.
+
+If you ever need to enroll the same computer again (for instance, after reinstalling its operating system), either revoke the old device entry first or enroll under a new device name, because device names must be unique; then generate and run a fresh enrollment command.
 
 ## 4. The Web UI
 
-Every page has a top bar: the **kaze-sync** logo (back to the overview), the notification bell (section 9), the gear (settings) and sign-out. Page titles show where you are as a path (`Overview / Docs / projects`).
+Now that your server and first client are connected, you will do all configuration and monitoring in the Web UI.
+
+Every page shares the same top navigation bar: the **kaze-sync** logo (which takes you back to the overview), the notification bell (section 9), the gear icon (Settings), and the sign-out button. Below the bar, the page title shows your current location as a breadcrumb path (such as `Overview / Docs / projects`).
 
 | Page | Address | What it is for |
 |---|---|---|
-| Sign-in | `/login` | Admin password |
-| Overview (`总览`) | `/` | Folder table and device table. Buttons: **New folder** (`新建文件夹`), **Add device** (`添加设备`) |
-| Folder | `/folders/<id>` | Browse files, restore, exclusion rules, delete the folder |
-| Device | `/devices/<id>` | The device's mappings, revoke the device |
-| Settings (`设置`) | `/settings` | Time zone, language, version retention, global exclusion rules |
+| Sign-in | `/login` | Enter the admin password |
+| Overview (`总览`) | `/` | View the folder table and device table; **New folder** (`新建文件夹`) and **Add device** (`添加设备`) buttons |
+| Folder | `/folders/<id>` | Browse files, restore old versions, edit folder exclusion rules, or delete the folder |
+| Device | `/devices/<id>` | Add, edit, or delete the device's folder mappings, or revoke the device |
+| Settings (`设置`) | `/settings` | Configure time zone, language, version retention, and global exclusion rules |
 
-The overview folder table shows for each folder its state (Synced `已同步`, Syncing `同步中` with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, Device offline `设备离线`), the devices that map it, the number of files and the total size, and the number of errors and warnings. The device table shows the system, the last connection time, each folder's state on that device, the client protocol version (shown in red as "N, `过旧`" when it is too old, section 15) and whether the device has the latest configuration.
+On the **Overview** page, the two tables give you the status of your entire setup at a glance:
+- The **folder table** shows each folder's current state (Synced `已同步`, Syncing `同步中` along with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, or Device offline `设备离线`), which devices map it, its total file count and size, and its count of errors and warnings.
+- The **device table** shows each device's operating system, last connection time, the state of each folder mapped on that device, the client protocol version (highlighted in red as "N, `过旧`" when a client is too old; see section 15), and whether the device has received the latest configuration.
 
-Pages update by themselves: the notification bell and the overview tables refresh within a few seconds of a change (at most once every 5 seconds). The folder's file list does not refresh itself, so that a big sync does not keep re-reading it; it shows **Content changed, refresh** (`内容有更新, 刷新`) instead, and only when something changed directly in the directory you are looking at (a file there, or a subdirectory that appeared or disappeared), not for changes deep in a subdirectory. The state **Syncing** appears only for work that takes more than about 3 seconds; a quick rescan after a file was rewritten does not flip the folder to Syncing.
+**How pages update.** Status indicators update automatically: within a few seconds of any change (at most once every 5 seconds), the notification bell and the overview tables refresh themselves. The file list on a folder page, however, does not auto-refresh, so a large ongoing sync will not constantly reload the table while you are browsing it. Instead, when something changes directly inside the directory you are viewing (a file in that directory, or a subdirectory appearing or disappearing—not changes deep inside a subdirectory), a prompt appears saying **Content changed, refresh** (`内容有更新, 刷新`). Similarly, to avoid visual flicker during brief rescans after a file rewrite, a folder flips to **Syncing** only when sync work takes longer than about 3 seconds.
 
-In the file list a directory row shows the total size of all files below it and the time of the most recent modification among them (deleted files are not counted; a directory with nothing but deleted files shows neither). The numbers are added up while the list is read, so they cost nothing extra.
+When you browse a folder's file list, each directory row displays the combined size of all files underneath it and the most recent modification time among them (deleted files are excluded; a directory containing only deleted files shows neither). The server sums these values while reading the list, so displaying them adds no extra overhead.
 
-Times are shown as `2026-11-03 22:48:27` in the browser's time zone by default; hover for the zone name. The pages need JavaScript for the menus, dialogs and live updates, and they are usable at phone width.
+All timestamps use the format `2026-11-03 22:48:27` in your browser's local time zone by default; hover over any timestamp to see the zone name. The Web UI requires JavaScript for menus, dialogs, and live updates, and its layout works on phone-width screens as well as desktops.
 
-**Settings.** **Time zone** (`时区`): follow the browser, or fix an IANA zone for every browser (the list shows each zone with its current UTC offset, such as `+09:00`, summer time included, sorted by that offset from `-12:00` up to `+14:00` and by name within the same offset); it only affects what the Web UI shows and what you type into it. **Language** (`语言`): follow the browser's language list (the default; English when none of its languages is available) or fix one of the five languages; the choice is kept in this browser only, so a phone and a computer can differ, and times keep the `2026-11-03 22:48:27` format in every language. **Version retention** (`版本保留`): days to keep old versions, 1 to 3650, default 30. **Global exclusion rules** (`全局排除规则`): section 7.
+**Settings.** Click the gear icon in the top bar to adjust global preferences:
+- **Time zone** (`时区`): follow each browser's local time zone, or lock a specific IANA time zone across all browsers. The dropdown lists every zone with its current UTC offset (such as `+09:00`, including daylight saving time), sorted from `-12:00` to `+14:00` and alphabetically by name within the same offset. This setting only affects how times are displayed and parsed in the Web UI.
+- **Language** (`语言`): follow the browser's preferred language list (the default, falling back to English if none of the five supported languages match) or lock one of the five languages. Because language preference is stored in the current browser only, your phone and desktop can use different languages. Timestamps keep the `2026-11-03 22:48:27` format regardless of language.
+- **Version retention** (`版本保留`): how many days to keep overwritten or deleted versions, from 1 to 3650 (default 30).
+- **Global exclusion rules** (`全局排除规则`): exclusion patterns applied to every folder on every device (section 7).
 
 ## 5. Folders and mappings
 
-**Create a folder.** Overview, **New folder** (`新建文件夹`), a name of at most 64 bytes (names are unique). The folder starts empty and unmapped.
+To start syncing files between computers, you create a folder on the server and map it to a local directory path on each device that should participate.
 
-**Map it to a device.** Device page, **Add mapping** (`添加映射`): choose the folder (only folders not yet mapped on this device are listed), type the local path, and decide whether to allow adopting a non-empty directory:
+**Create a folder.** On the overview page, press **New folder** (`新建文件夹`) and enter a unique name of at most 64 bytes. A new folder starts empty and unmapped.
 
-- The path must be absolute on that device: `D:\Docs` on Windows, `/home/me/Docs` on Linux. Two mappings of one device must not contain each other.
-- If the directory does not exist the client creates it. If it exists and is empty, the client starts syncing it.
-- If it exists, is not empty and was never synced, the client refuses (a `folder` error, section 9) unless **Allow adopting a non-empty directory** (`允许接管非空目录`) is ticked. This protects you from typing `C:\Users\me` by mistake and uploading everything. When adoption is allowed, the client compares its files with the server: identical files are accepted without transfer, which is how you move over from another sync tool or add a second computer that already has the files. Differing files become conflict copies (section 8).
-- The client puts a marker file `.syncroot` into the directory. If the marker later disappears (an unmounted disk, a moved directory), the client stops syncing that folder and reports an error. It never treats a missing directory as "everything deleted". Do not delete `.syncroot`.
+**Map it to a device.** Open the device page for a computer and press **Add mapping** (`添加映射`). Choose the folder (the dropdown lists only folders not yet mapped on this device), type the local directory path, and choose whether to allow adopting a non-empty directory:
 
-**Change a mapping.** On the device page, the **⋯** menu at the end of the row has **Edit mapping…** (`编辑映射…`) and **Delete mapping…** (`删除映射…`). Changing the path counts as deleting the old mapping and adding a new one: the files at the old path stay where they are, and the new path is compared with the server from scratch.
+- The local path must be an absolute path on that device—for example, `D:\Docs` on Windows or `/home/me/Docs` on Linux. On the same device, two mappings cannot be nested inside each other.
+- If the local directory does not exist yet, the client creates it; if it exists and is empty, the client starts syncing immediately.
+- If the directory already exists, is not empty, and has never been synced before, the client refuses to touch it and reports a `folder` error (section 9) unless you tick **Allow adopting a non-empty directory** (`允许接管非空目录`). This safeguard prevents you from accidentally typing `C:\Users\me` and uploading your entire home directory. When you do tick adoption, the client compares its existing local files against the server: identical files are adopted without transferring their data over the network—which is how you migrate from another sync tool or attach a second computer that already has a copy of the files—while files whose contents differ become conflict copies (section 8).
+- Once syncing begins, the client places an empty marker file named `.syncroot` at the root of the local directory. If `.syncroot` ever disappears later (because an external drive was unmounted or the directory was moved), the client immediately stops syncing that folder and reports an error rather than mistaking the missing directory for "every file was deleted". Do not delete `.syncroot`.
 
-**Delete a mapping.** The client stops syncing that folder, deletes its local state database and the marker file. Your local files stay untouched, and the folder and its history stay on the server.
+**Change a mapping.** On the device page, open the **⋯** menu at the end of a mapping's row to choose **Edit mapping…** (`编辑映射…`) or **Delete mapping…** (`删除映射…`). Changing a mapping's local path is treated as deleting the old mapping and creating a new one: the files at the old path remain untouched where they are, and the client compares the new path against the server from scratch.
 
-**Delete a folder.** Folder page, the **⋯** menu in the title row, **Delete folder…** (`删除文件夹…`). It is available only when no device maps the folder (delete the mappings first); the menu item says how many devices still do. It permanently removes the folder and all its history; its blocks are reclaimed in the next garbage collection (section 13). Files on the clients stay.
+**Delete a mapping.** Choosing **Delete mapping…** (`删除映射…`) tells the client to stop syncing that folder and remove its local state database and `.syncroot` marker file. Your local files stay untouched on the computer, and the folder and all its history remain on the server.
 
-Several folders per device work independently of each other: a long upload in one does not delay another.
+**Delete a folder.** To remove a folder from the server entirely, open the folder page, click the **⋯** menu in the title row, and choose **Delete folder…** (`删除文件夹…`). To prevent accidental data loss, this action is enabled only when no device maps the folder (the menu item shows how many devices still map it, so you can delete those mappings first). Deleting a folder permanently removes the folder and all of its version history from the server, and its data blocks are reclaimed during the next garbage collection run (section 13). Local files on your clients are not deleted.
+
+If you map several folders on the same device, they sync independently of one another, so a large upload in one folder never blocks changes in another.
 
 ### 5.1 Exclusive subfolders
 
-Some directories must be written from one machine only. A Git repository is the usual case: if two devices both commit into the same `.git`, their changes collide. Make the directory exclusive to one device and every other device only receives it.
+While most folders are edited on any computer, some subdirectories should only ever be modified on one machine at a time. A Git repository is the classic example: if two computers commit to the same `.git` directory concurrently, its internal metadata will collide. You can mark such a subdirectory as **exclusive** to one device so that only that device may write to it, while all other devices receive updates as read-only copies.
 
-- Open the folder in the Web UI, open the menu of the directory (the row's menu, or the menu at the top for the directory you are in) and choose "Make exclusive...". Pick the device that may write. The same menu offers "Move exclusive to another device..." and "Release exclusive...". Only a device that maps the folder can hold an exclusive, and exclusive ranges cannot overlap. An exclusive is a setting of the folder, not of a device; you, the administrator, can release it at any time.
-- On the other devices the files in that directory become read-only (on Linux the directories too, on Windows only the files carry the read-only attribute), so ordinary programs cannot change them; the sync service still updates them. Windows cannot stop you creating new files inside the directory.
-- If a change is made there anyway (you cleared the read-only flag, or the device had not yet heard of the exclusive), the server refuses it. The device moves the changed or new files to `.syncsaved/<time>/<original path>` in the sync root, puts the server's version back and the Web UI shows an error notice such as "3 changes to repo refused (exclusive to A), moved to .syncsaved". Nothing is uploaded and nothing is lost. Delete the contents of `.syncsaved` when you do not need them; the notice goes away by itself. `.syncsaved` is never synced.
-- Restoring old content in the Web UI still works inside an exclusive directory and is synced to every device, including the exclusive one.
-- Releasing or moving an exclusive, revoking the device, or deleting its mapping of the folder makes the files writable again on the other devices at once: a changed configuration restarts the folder with a full scan. If a client is uninstalled first, make the files writable by hand: `chmod -R u+w <directory>` on Linux, `attrib -r <directory>\* /s /d` on Windows.
-- Devices running an older client version do not make files read-only; the server still refuses their changes and shows the refusal on the Web UI until they are upgraded.
+- **Set or change an exclusive.** Open the folder in the Web UI, open the menu for the subdirectory (either from the row's menu or from the title bar menu when you are viewing that directory), and choose "Make exclusive...". Select the device that is allowed to write. The same menu also lets you choose "Move exclusive to another device..." or "Release exclusive...". Only a device that currently maps the folder can hold an exclusive, and exclusive directory ranges cannot overlap one another. Because an exclusive belongs to the folder configuration rather than to a client, you as the administrator can move or release it in the Web UI at any time.
+- **How other devices enforce it.** On every non-exclusive device, the client marks the files in that directory read-only (on Linux, directories lose write permission as well; on Windows, only files carry the read-only attribute), preventing ordinary programs from modifying them while allowing the sync service itself to keep updating them. Note that Windows file attributes cannot stop a user or program from creating new files inside the directory.
+- **What happens if a read-only device edits anyway.** If a local change still occurs on a non-exclusive device (for example, because you manually cleared the read-only attribute, created a new file on Windows, or edited before the device learned about the exclusive), the server refuses the upload. To make sure you never lose work, the client moves the modified or new local files aside to `.syncsaved/<time>/<original path>` at the sync root, restores the server's version at the original path, and posts an error notice in the Web UI such as "3 changes to repo refused (exclusive to A), moved to .syncsaved". Nothing is uploaded and nothing is lost. Once you no longer need the saved files, delete the contents of `.syncsaved` and the error notice disappears automatically. `.syncsaved` itself is never synced.
+- **Restoring inside an exclusive directory.** Restoring old content from the Web UI (section 11) still works inside an exclusive directory and syncs the restored files out to every device, including the exclusive writer.
+- **Making files writable again.** Whenever you release or move an exclusive, revoke the holding device, or delete its mapping for the folder, the other devices automatically make their local files writable again as soon as they receive the updated configuration (which restarts the folder with a full scan). If you uninstalled the client before releasing the exclusive, clear the read-only flags manually: run `chmod -R u+w <directory>` on Linux, or `attrib -r <directory>\* /s /d` on Windows.
+- **Older clients.** Devices running an older client version do not mark exclusive files read-only on disk, but the server still refuses their uploads and shows the refusal in the Web UI until you upgrade those clients.
 
 ## 6. Devices
 
-**Add**: section 3. **Online** means the device has an open long-poll request, or had one end in the last 90 seconds. A device that has not connected for 7 days raises a warning (section 9).
+Once your devices are enrolled (section 3) and syncing folders, you can monitor their connection status or retire them from the Web UI.
 
-**Revoke.** Device page, the **⋯** menu in the title row, **Revoke device…** (`吊销设备…`). The device's token stops working at once and all its mappings are deleted. Its local files stay. The revoked client logs `sync is stopped, the server does not accept this device` and tries again only every ten minutes or so. To clean the computer, follow section 16.1.
+In the device table, a device is shown as **Online** whenever it has an active long-poll request open to the server, or had one end within the last 90 seconds. If an enrolled device does not connect for 7 days, the server raises a warning notification (section 9) so you notice if a background agent has stopped running.
+
+**Revoke a device.** If a computer is lost, retired, or being reinstalled, open its device page, click the **⋯** menu in the title row, and choose **Revoke device…** (`吊销设备…`). The device's authentication token stops working immediately and all of its folder mappings are deleted on the server, while its local files stay untouched on disk. If the revoked client agent is still running, it logs `sync is stopped, the server does not accept this device` and slows its retry attempts to about once every ten minutes. To remove the client software from the computer afterward, follow section 16.1.
 
 ## 7. Exclusion rules
 
-Rules decide which paths are not synchronized. There are two levels, neither belongs to a device:
+Not every file in a synced folder belongs on the server—temporary editor files, build outputs, and local caches waste bandwidth and version history. Exclusion rules let you tell kaze-sync which paths to ignore.
 
-1. **Global rules**: Settings page, **Global exclusion rules**. Apply to every folder on every device. They start with a default list (below).
-2. **Folder rules**: folder page, top level only, the **Exclusion rules** (`排除规则`) button (it shows the rule count). They are appended after the global rules.
+Rules live on the server in two layers (there are no per-device rules):
 
-The syntax is that of `.gitignore`, one rule per line, matched against the path relative to the folder root with `/` as separator:
+1. **Global rules**: configured on the Settings page under **Global exclusion rules** (`全局排除规则`). These apply to every folder on every device and start with a sensible default list (described below).
+2. **Folder rules**: configured on each folder's top-level page via the **Exclusion rules** (`排除规则`) button (which shows the active rule count). Folder rules are appended after the global rules.
 
-- Blank lines are ignored. `#` starts a comment. `!` negates. A trailing `/` matches directories only. A pattern with `/` at the beginning or in the middle is anchored at the folder root; otherwise it matches at any depth.
-- `*` and `?` do not match `/`; `[a-z]`, `[!a-z]` and `[[:alpha:]]` are character classes; `**/x`, `x/**` and `a/**/b` match across directories.
-- The last matching rule wins. If a directory is excluded, nothing below it can be re-included; to keep one file below an excluded directory, re-include the directory first, exclude its content, then re-include the file.
-- Matching is case-insensitive on Windows devices and case-sensitive on Linux devices.
-- No `{a,b}`, and no per-directory `.gitignore` files.
+**Rule syntax.** Rules use `.gitignore` syntax, one pattern per line, matched against paths relative to the folder root using `/` as the directory separator:
+
+- Blank lines are ignored, `#` starts a comment, and `!` negates an earlier exclusion. A trailing `/` matches directories only. A pattern containing `/` at the beginning or in the middle is anchored to the folder root; a pattern without `/` (other than a trailing `/`) matches at any depth.
+- `*` and `?` match any characters except `/`; `[a-z]`, `[!a-z]`, and `[[:alpha:]]` match character classes; `**/x`, `x/**`, and `a/**/b` match across directory levels.
+- The last matching rule wins. However, if a rule excludes a directory, clients do not descend into it, so no rule can re-include a file inside an excluded directory directly. To keep a single file inside an excluded directory, first re-include the directory itself, then exclude everything inside it, and finally re-include the specific file.
+- Pattern matching is case-insensitive on Windows devices and case-sensitive on Linux devices.
+- Brace expansion (`{a,b}`) and per-directory `.gitignore` files inside synced folders are not supported.
 
 Examples:
 
 | Rule | Meaning |
 |---|---|
-| `node_modules/` | Any directory called `node_modules`, at any depth |
+| `node_modules/` | Any directory named `node_modules`, at any depth |
 | `/Videos/` | Only the `Videos` directory at the folder root |
-| `*.iso` | Every `.iso` file |
-| `Projects/**/bin/` | Any `bin` directory below `Projects` |
-| `/*` then `!/Docs/` | Only the `Docs` directory at the root |
+| `*.iso` | Every `.iso` file at any depth |
+| `Projects/**/bin/` | Any `bin` directory underneath `Projects` |
+| `/*` then `!/Docs/` | Exclude everything at the root except the `Docs` directory |
 
-A folder rule cannot delete a global rule, but because the last match wins it can undo one with `!`. For example, with the global rule `build/`, this keeps only `build/keep.txt` in one folder:
+Because folder rules are evaluated after global rules and the last match wins, a folder rule can override a global exclusion using `!`. For example, if the global rules exclude `build/`, adding these three lines to a folder's rules syncs only `build/keep.txt` in that folder:
 
 ```text
 !/build/
@@ -232,118 +288,165 @@ A folder rule cannot delete a global rule, but because the last match wins it ca
 !/build/keep.txt
 ```
 
-The rule boxes colour comments grey and invalid lines red; hover over a red line to see the message, and the errors are listed under the box. Saving is refused while a line is invalid, and nothing is changed.
+As you type in the rule editor, comments are coloured grey and invalid lines are highlighted in red. Hover over a red line to see what is wrong, or check the error list below the text box. To prevent broken rules from taking effect, the Web UI refuses to save while any line is invalid.
 
-**Built-in exclusions** always apply and cannot be overridden: `.syncroot`, temporary download parts `.syncpart-*` (a part untouched for more than a day is deleted by the next scan), and the side files `-wal`, `-shm`, `-journal` of SQLite databases (section 10).
+**Built-in and default exclusions.** Three kinds of internal files are always excluded automatically and cannot be overridden by your rules: the `.syncroot` marker file, temporary download files named `.syncpart-*` (any `.syncpart-*` left untouched for more than a day is cleaned up on the next scan), and SQLite database side files ending in `-wal`, `-shm`, or `-journal` (section 10).
 
-**Default global rules** cover: Office and Windows leftovers (`~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `$RECYCLE.BIN/`, `System Volume Information/` and a few more), editor and lock files (`*~`, `.~lock.*`, `.*.sw?`, `*.kate-swp`), partial downloads (`*.part`, `*.filepart`, `*.crdownload`), macOS metadata (`.DS_Store`, `._*`, `.Trashes/`, and others), Linux leftovers (`.Trash-*/`, `.directory`, `.fuse_hidden*`, `.nfs*`), and metadata of other sync tools (`.stfolder/`, `.stversions/`, `.stignore`, ...). Open the settings page for the full list. The defaults are written once at installation; afterwards the text in the settings page is the truth.
+In addition, `install` populates the **Global exclusion rules** once with defaults covering common OS and application clutter:
+- Office and Windows leftovers (`~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`, `$RECYCLE.BIN/`, `System Volume Information/`, and a few more)
+- Editor backup and lock files (`*~`, `.~lock.*`, `.*.sw?`, `*.kate-swp`)
+- Partial browser downloads (`*.part`, `*.filepart`, `*.crdownload`)
+- macOS metadata (`.DS_Store`, `._*`, `.Trashes/`, and others)
+- Linux desktop and filesystem leftovers (`.Trash-*/`, `.directory`, `.fuse_hidden*`, `.nfs*`)
+- Metadata from other sync tools (`.stfolder/`, `.stversions/`, `.stignore`, ...)
 
-Your own rules (`.venv/`, `node_modules/`, caches, files that change every few seconds and would fill the server with versions) are yours to add. The defaults deliberately do not include them.
+Open the Settings page to view or edit the full list; after installation, whatever text is saved on the Settings page is the single source of truth. Project-specific directories such as `.venv/`, `node_modules/`, caches, or log/telemetry files that change every few seconds (which would otherwise flood the server with versions) are deliberately left out of the defaults so you can add them as needed.
 
-**What happens when rules change.** The new rules reach online clients within a second. A path that becomes excluded is simply no longer tracked, and the local file stays; the client itself never deletes anything because of a rule (the server copy is dealt with when you save, below). When you remove an exclusion, the client compares both sides again and differences are settled like any other conflict (section 8).
+**What happens when rules change.** When you save updated rules, online clients receive them within a second:
+- When a path **becomes excluded**, clients simply stop tracking it and leave the local copy on every computer untouched—a client never deletes a local file because of an exclusion rule. Instead, the server deletes its own copy of any newly excluded files when you save the rules (moving them into version history, as explained below).
+- When you **remove an exclusion**, clients scan the previously ignored path, compare local files against the server, and resolve any differences using the normal conflict rules (section 8).
 
-**Saving rules in the Web UI deletes the covered files on the server, after a preview.** The rules dialog (and the global rules card on the settings page) has one main button. While the text differs from the saved rules and has not been previewed, the button reads **Preview** (`预览`). Pressing it lists, marked "not in effect yet" (`尚未生效`), the files that the server already holds and that the rules in the box would match (their real number and the first 50 paths; for the global rules, with the folder names; the preview has a one-line glob filter, see below), or says that no server file matches (`没有命中服务端文件`); nothing is saved. When many files match, narrow the list with the filter box: a pattern without `/` matches the file name, one with `/` the whole path, `*` stays inside a name, `**` crosses `/`, `?` is one character, and case is ignored; at most 50 filtered paths are listed, and the line under the list reads "Files on the server that match: N, M after the filter, showing only K" (`命中的服务端文件: N 个, 过滤后 M 个, 目前仅显示 K 个`). The filter only changes what is shown: saving still deletes every matching file. The button then becomes **Save** (`保存`), or the red **Save and delete N files** (`保存并删除 N 个文件`) when files match. If you edit the rules after previewing, the preview disappears and the button returns to **Preview**. Pressing **Save** saves at once, without another question. If files matching the rules came in or went away since the preview, nothing is saved: the refreshed preview is shown with "the matching files changed, please check again" (`命中文件有变化, 请再核对`) and you press the button again. Matching files are deleted on the server like any other deletion, so they enter the version history and can be restored within the retention period. Local copies on every device are kept and are no longer synced, even on a device that is offline or has not applied the rules yet. Files that start matching later are simply not synced; nothing else is deleted. Without JavaScript the save itself returns the preview first (when files match), and the red button saves. **Cancel** throws away unsaved edits and closes the dialog without asking; closing it any other way (Esc) with unsaved edits asks whether to discard them.
+**Previewing and saving rules in the Web UI.** Because saving new exclusion rules deletes any already-synced server files that match those rules, the Web UI always makes you preview the impact before saving:
+1. **Preview.** Both the folder rules dialog and the global rules card on the Settings page have a single primary action button. Whenever you edit the rules text and have not yet previewed your changes, that button reads **Preview** (`预览`). Clicking **Preview** does not save anything; instead, it checks which existing files on the server match your edited rules and displays them under the label "not in effect yet" (`尚未生效`), showing the total match count and up to the first 50 paths (including the folder name when previewing global rules), or stating that no server file matches (`没有命中服务端文件`).
+2. **Filter the preview (optional).** If many server files match, you can inspect them using the one-line glob filter box in the preview: a pattern without `/` matches the filename only, a pattern with `/` matches the whole path, `*` stays within one path segment, `**` crosses `/`, `?` matches a single character, and case is ignored. The preview shows at most 50 matching paths and summarizes the counts underneath as "Files on the server that match: N, M after the filter, showing only K" (`命中的服务端文件: N 个, 过滤后 M 个, 目前仅显示 K 个`). Filtering only narrows what you see on screen—saving still deletes all `N` matching files on the server.
+3. **Save.** Once you have previewed, the action button changes to **Save** (`保存`) if no server files match, or to a red **Save and delete N files** (`保存并删除 N 个文件`) button if `N` files match. (If you edit the rules text again after previewing, the preview closes and the button reverts to **Preview**.) Clicking **Save** applies the rules immediately without another confirmation prompt. If any matching files were uploaded or deleted on the server while you were looking at the preview, the save stops, refreshes the preview with the message "the matching files changed, please check again" (`命中文件有变化, 请再核对`), and lets you click save again once you have checked.
+
+When matching server files are deleted by saving rules, they are recorded as ordinary deletions on the server: their contents remain in version history and can be restored during the retention period, while local copies on all devices (including devices that are currently offline or have not yet pulled the new rules) stay on disk and simply stop syncing. Any local files created later that match the rules are ignored from the start.
+
+If you use the Web UI with JavaScript disabled, submitting the save form returns the preview page first whenever server files match, and clicking the red button on that page completes the save. Clicking **Cancel** discards unsaved edits and closes the dialog immediately; closing the dialog in any other way (such as pressing `Esc`) while you have unsaved edits asks whether to discard them.
 
 ## 8. Conflicts and conflict copies
 
-The first device to reach the server wins. When two devices change the same file while out of contact, the second device to sync does this:
+In normal day-to-day use, changes flow from one device to the server and out to your other devices within seconds. When two devices modify the same path while out of contact with each other, kaze-sync resolves the collision without ever losing data or relying on system clocks.
+
+The rule is simple: **the first device to upload to the server wins**, and the second device to sync resolves the difference as follows:
 
 | This device | Server now | Result |
 |---|---|---|
-| Changed | Changed to identical content | Accepted, nothing transferred |
+| Changed | Changed to identical content | Accepted with no data transfer |
 | Changed | Changed differently | The local file is renamed to a **conflict copy** and uploaded as a new file; the server's version is downloaded to the original path |
-| Changed | Deleted | The change wins and is uploaded again |
-| Deleted | Changed | The deletion gives way and the server's file is downloaded |
-| New | Exists with different content | Same as "changed differently" |
+| Changed | Deleted | The local change wins and is uploaded again |
+| Deleted | Changed | The deletion gives way and the server's changed file is downloaded |
+| New | Exists with different content | Same as "Changed / Changed differently" |
 
-Nothing is lost: the overwritten content also stays in the version history. The decision never depends on clocks.
+Even when a file is overwritten, the previous server content is preserved in version history.
 
-A conflict copy is named by inserting the device name and the local time before the extension: `report.conflict-laptop-20261101-153012.docx`. It is an ordinary file and syncs to every device. In the Web UI the copy has a red **Conflict copy** (`冲突副本`) label and the original has **Has conflict** (`有冲突`); the bell lists the conflict as an error. Compare the two files on a client, then delete the copy (or rename it to keep both); the notification disappears by itself.
+**How to resolve a conflict copy.** When a client creates a conflict copy, it inserts the device name and local timestamp before the file extension—for example, `report.conflict-laptop-20261101-153012.docx`. Because a conflict copy is an ordinary file, it syncs to every device so you can inspect it anywhere. In the Web UI folder page, the copy is badged with a red **Conflict copy** (`冲突副本`) label, the original file shows **Has conflict** (`有冲突`), and the notification bell lists the conflict as an error. To resolve it, compare the two files on any client computer and either delete the conflict copy or rename it to a normal filename if you want to keep both; as soon as the conflict copy is gone, the Web UI labels and error notification disappear automatically.
 
-Other cases:
+**Other filesystem cases and edge cases:**
 
-- **Rename or move** is a delete plus a new file with the same content; other devices copy locally instead of downloading. If one device moves a directory while another edits a file inside it, the edited file stays at the old location.
-- **Case.** The server treats names case-insensitively inside a folder. If a Linux client has both `A.txt` and `a.txt`, the one that arrives second is rejected (`被拒绝`), shown as an error; rename one of them. Renaming only the case on Windows works.
-- **Windows-illegal names** are rejected by the server on every device: characters `<>:"\|?*` or control characters, names ending in a dot or space, and the reserved names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`. Rename the file on the device that created it, or exclude it.
-- **A file and a directory with the same name** are a conflict: the side that arrives second renames its file or directory to a conflict copy name.
-- **Symbolic links** are synced as links, never followed: the target is stored as text, exactly as written (an absolute path, a relative path, a dangling link or one pointing outside the folder all sync; whether the target exists on another device is up to you). The target's content is not synced through the link. A target longer than 4096 bytes is skipped (reported as skipped, `已跳过`). Nothing is ever read or written through a link, so a link to a directory outside the folder cannot make a download write outside it. On a device where a link cannot be created, such as Windows without Developer Mode, the link stays on the server, nothing is created there, and the bell shows one folded line per device ("win: 3 个符号链接未建立 (Windows 需开启开发人员模式)") and the folder page lists the links as grey **Not synced** rows. Turn on Developer Mode (Settings, System, For developers) and the links appear by themselves; nothing needs restarting. The line changes only when the set of affected links changes. Windows junctions are not followed and not synced (reported as skipped). Empty directories, permissions other than the executable bit, owners and extended attributes are not synced. File contents are copied byte for byte, with no line-ending conversion.
+- **Rename or move.** Renaming or moving a file is synced as a deletion at the old path plus a new file with the same content hash at the new path. Because other devices already have those data blocks locally, they copy the content on disk instead of downloading it again. If one device moves a directory while another device edits a file inside it, the edited file is kept at its old path so the edit is not lost.
+- **Filename case.** Because Windows and Linux share folders, the server treats filenames case-insensitively within a folder. If a Linux client creates both `A.txt` and `a.txt` in the same directory, the first one uploaded succeeds and the second is rejected (`被拒绝`) and reported as an error; rename one of the files to clear it. On Windows, renaming a file solely to change its case (`a.txt` to `A.txt`) works as expected.
+- **Windows-illegal names.** So that every synced folder can be mapped on Windows, the server rejects filenames that Windows forbids regardless of which OS created them: names containing `<>:"\|?*` or control characters, names ending with a dot or a space, and the reserved device names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, and `LPT1`-`LPT9`. Rename the file on the device where it was created, or exclude it with a rule.
+- **File and directory with the same name.** If one device creates a file and another creates a directory at the exact same path, the second device to reach the server renames its local file or directory to a conflict copy name.
+- **Symbolic links.** Symbolic links are synced as links and are never followed: the server stores the link target as literal text (whether it is a relative path, an absolute path, a dangling link, or a path pointing outside the folder; making sure the target makes sense on other devices is up to you). The target's content is never synced through the link, and because kaze-sync never reads or writes through a symbolic link, a link pointing outside the folder can never cause downloads to write outside the sync root. A symbolic link whose target path is longer than 4096 bytes is skipped (reported as `skipped`, `已跳过`).
+  If a receiving device cannot create symbolic links—most commonly Windows when Developer Mode is turned off—the link remains safely on the server while nothing is created on that Windows machine. To avoid flooding you with alerts, the notification bell shows a single folded warning line per device (`win: 3 个符号链接未建立 (Windows 需开启开发人员模式)`), and the folder page shows those links as grey **Not synced** rows. If you turn on Windows Developer Mode (Settings -> System -> For developers), the client creates the missing links automatically without needing a restart. That notification line updates only when the set of affected links changes.
+- **What is not synced inside a folder.** Windows directory junctions are neither followed nor synced (they are reported as `skipped`). Empty directories, file permissions other than the executable bit, file ownership, and extended attributes are not synced. File contents are always copied byte for byte without line-ending conversion.
 
 ## 9. Notifications
 
-The Web UI is where kaze-sync lists what needs you; clients show nothing on screen (to be told without opening the page, see Push messages with ntfy below). Click the bell. It shows a count (red when there are errors, yellow when only warnings, `99+` above 99). The panel groups entries by folder; devices that have been offline for long are grouped under **Devices** (`设备`). Each entry has the message, the path (a link to the file in the folder page, highlighted for two seconds), the device, the start time and a hint. More than 5 entries of the same kind from one device collapse into one line that expands on click.
+Because client agents run silently in the background with no tray icon or pop-ups on your computers, the Web UI notification bell is your central place to see anything that needs attention. (If you want alerts pushed to your phone or desktop without opening the Web UI, see section 9.1.)
 
-Notifications are computed from the current state: there is nothing to dismiss, and each one disappears when its cause is gone. Entries reported by clients are kept in server memory, so after a server restart they reappear when the client reports again; conflict copies and long-offline devices do not depend on that.
+Click the bell icon in the top bar to open the notification panel. The badge on the bell shows the total number of active issues—coloured red when any error is present, yellow when there are only warnings, and capped at `99+` above 99. Inside the panel, entries are grouped by folder, while devices that have been offline for a long time are grouped under **Devices** (`设备`). Each entry shows what went wrong, the file path (which you can click to jump straight to that file in the folder page, highlighted for two seconds), the affected device, when the issue started, and a short hint on how to fix it. If a single device reports more than 5 entries of the same kind in one folder, they collapse into a single summary line that you can click to expand.
+
+Notifications are never dismissed manually; instead, they reflect the live state of your folders and devices, and each notification disappears on its own as soon as you fix the underlying cause. Client-reported issues are held in server memory, so after a server restart they reappear as soon as the client reports them again (conflict copies and long-offline devices are derived from the database and do not wait for a client report).
 
 | Source | Level | What to do |
 |---|---|---|
-| Conflict copy exists | Error | Compare on a client, delete the copy or rename it |
-| `rejected` (`被拒绝`): case collision, illegal name, file and directory with one name | Error | Rename on that client, or exclude the path |
-| `io` (`读写错误`): other read or write error | Error | Check the disk and permissions on that client, using the message |
-| `folder` (`文件夹错误`): sync root missing, or non-empty directory not allowed to be adopted | Error | Mount the disk, or fix the path or tick adoption on the device page |
-| `in_use` (`占用中`): file locked, being written, or an open SQLite database | Warning | Close the program using it (section 10) |
-| `skipped` (`已跳过`): a symbolic link this device cannot create (see the Symbolic links paragraph in section 8), a link target longer than 4096 bytes, a Windows junction, file name that is not UTF-8 | Warning | Exclude it if you do not need the message |
-| Device not connected for 7 days | Warning | Bring the device online, or revoke it |
+| Conflict copy exists | Error | Compare the files on a client, then delete or rename the conflict copy |
+| `rejected` (`被拒绝`): case collision, illegal name, or file and directory with the same name | Error | Rename the item on that client, or exclude its path |
+| `io` (`读写错误`): other local read or write error | Error | Check the disk and file permissions on that client using the error message |
+| `folder` (`文件夹错误`): sync root missing, or non-empty directory not allowed to be adopted | Error | Mount the disk, or fix the path / tick adoption on the device page |
+| `in_use` (`占用中`): file locked, being written, or an open SQLite database | Warning | Close the program using the file (section 10) |
+| `skipped` (`已跳过`): symbolic link this device cannot create (section 8), link target longer than 4096 bytes, Windows junction, or non-UTF-8 filename | Warning | Add an exclusion rule if you want to silence the warning |
+| Device not connected for 7 days | Warning | Bring the device back online, or revoke it |
 
-Items a client reports as skipped or rejected are not on the server, so the folder page lists them as grey **Not synced** rows (`未同步: ...`) inside their directory; **Details** (`详情`) in the row menu shows the message, device and start time. Folder and device pages also show a one-line summary under the title ("1 个错误, 2 个提醒") that opens the panel.
+When a client skips or gets a file rejected, that file does not exist on the server. So you can still see it while browsing the Web UI, the folder page lists skipped and rejected items in place inside their directory as grey **Not synced** rows (`未同步: ...`); open the row menu and click **Details** (`详情`) to see the error message, device, and start time. Both folder pages and device pages also display a one-line issue summary right under the page title (such as `1 个错误, 2 个提醒`) that opens the notification panel when clicked.
 
 ### 9.1 Push messages with ntfy
 
-To be told without opening the page, kaze-sync can post short messages to an [ntfy](https://ntfy.sh) server (your own, or ntfy.sh). It is off by default. To turn it on, create a file named `ntfy.json` with two keys and restart the program:
+So you do not have to open the Web UI to check whether everything is healthy, both the server and the clients can push short alert messages to an [ntfy](https://ntfy.sh) server (either your own self-hosted instance or `ntfy.sh`).
+
+Push notifications are off by default. To enable them on the server or on a client, create a JSON file named `ntfy.json` with two keys and restart that program:
 
 ```json
 {"url": "https://ntfy.example.org", "topic": "choose-a-long-random-name"}
 ```
 
-- On the server it goes in the data directory (next to `var/`); on a client in its state directory (`~/.local/state/kaze-sync` on Linux, `%LOCALAPPDATA%\kaze-sync` on Windows). Each program reads its own file, so a client can use another topic than the server. A missing file, or an empty `url` or `topic`, means off. The topic works like a password for reading your messages: pick a long random one, keep the file private and never put it in a repository.
-- A message is one short line: the folder or device name and what is wrong. It never holds file names, file contents, passwords or the admin password.
-- **Pushed by a client:** the server cannot be reached for about five minutes; the server rejects the device (sync is stopped); the client is too old for the server (sync is stopped); a folder fails to scan or pull three cycles in a row; a folder keeps reporting `io`, `folder` or `rejected` errors; the folder's state database cannot be opened. Files in use and skipped files are only warnings on the page and are not pushed.
-- **Pushed by the server** (checked every five minutes): conflict copies appeared in a folder (the number only); errors reported by devices persist; a device has not connected for 7 days; free space on the data disk is below 256 MB; the daily cleanup failed; the server certificate cannot be renewed or is about to expire.
-- **No spam:** a problem is pushed once and not again until it has cleared; the same problem is pushed at most once an hour even if it comes back and forth; at most 20 messages an hour in total. When a problem that was pushed clears you get one `Recovered` message. If the ntfy server cannot be reached, kaze-sync logs one line and carries on syncing.
+- **Where to put `ntfy.json`**: on the server, place it in the `--data` directory (next to `var/`); on a client, place it in the state directory (`~/.local/state/kaze-sync` on Linux, `%LOCALAPPDATA%\kaze-sync` on Windows). Because each program reads its own `ntfy.json`, a client can post to a different topic than the server. Removing the file or leaving `url` or `topic` empty turns push notifications off. Because anyone who knows your topic name on a public ntfy server can read your alerts, pick a long random topic name, keep `ntfy.json` private, and never commit it to a repository.
+- **Privacy**: each push message is a single short line naming the folder or device and the kind of problem. It never includes filenames, file contents, passwords, or the admin password.
+- **What a client pushes**: when it cannot reach the server for about five minutes; when the server rejects the device (sync stopped); when the client protocol version is too old for the server (sync stopped); when a folder fails to scan or pull three cycles in a row; when a folder continues to report `io`, `folder`, or `rejected` errors; or when a folder's local state database cannot be opened. Warnings (`in_use` and `skipped` files) are shown only in the Web UI and are never pushed.
+- **What the server pushes** (checked every five minutes): when conflict copies appear in a folder (reporting only the count); when device-reported errors persist; when a device has not connected for 7 days; when free space on the data disk drops below 256 MB; when the daily garbage collection cleanup fails; or when the server certificate cannot be renewed or is about to expire.
+- **Rate limiting and recovery**: to avoid spamming you, each distinct problem is pushed once and not repeated until it clears; even if the same problem flaps on and off, it is pushed at most once per hour, and total pushes are capped at 20 messages per hour. When a previously pushed problem clears, kaze-sync sends a single `Recovered` message. If the ntfy server itself is unreachable, kaze-sync logs a single line and continues syncing normally.
 
 ## 10. Files in use and SQLite databases
 
-- **Windows.** Programs such as Word or Outlook lock files. When reading, renaming or deleting a file fails because another program has it open, the client retries after 30 seconds, 2 minutes and 10 minutes, and after that at every scan, and reports the file as `in_use`. A download keeps its temporary file meanwhile. Once the program closes the file the sync completes by itself.
-- **Fresh files.** A file is uploaded only after its modification time is at least 5 seconds old and unchanged while being read, so half-written files are not uploaded.
-- **SQLite databases.** A database whose side file `<name>-wal` or `<name>-journal` exists and is not empty is treated as in use: it is neither uploaded nor overwritten by a download, and is reported as `in_use`. In WAL mode that means the database syncs only after the application closes it (or after you run `PRAGMA wal_checkpoint(TRUNCATE)`). The side files themselves are never synced. Do not use one database on two machines at once; you would get conflict copies.
-- Virtual machine disk images sync reliably only while the machine is shut down. On Linux there is no way to know whether another program has a normal file open for writing, so only the 5-second rule above protects you.
+When you work on files inside a synced folder, programs often hold files open or write to them over time. kaze-sync uses several safeguards so it does not upload half-written files or clash with open applications:
+
+- **Locked files on Windows.** Applications such as Word and Outlook lock open files against reading, renaming, or deletion. Whenever an operation on Windows fails because another program holds the file open, the client marks the file as `in_use` (a warning in the notification bell) and retries automatically after 30 seconds, 2 minutes, and 10 minutes, and then on every subsequent scan. If a download is waiting to overwrite a locked file, the client keeps the downloaded temporary file on disk so it does not have to download it again. As soon as you close the program, the sync finishes on its own.
+- **Freshly modified files.** Before uploading any modified file, the client checks that its modification time is at least 5 seconds old and does not change while the file is being read. This prevents half-written files from being uploaded while an application is still saving them.
+- **SQLite databases.** Syncing a live SQLite database while transactions are in flight would corrupt it if the main database file and its write-ahead log or rollback journal were synced separately. Therefore, the side files `<name>-wal`, `<name>-shm`, and `<name>-journal` are always excluded from sync, and whenever `<name>-wal` or `<name>-journal` exists and is non-empty, the client treats the main database file `<name>` as `in_use`: it neither uploads the database nor overwrites it with a download. In SQLite WAL mode, this means the database syncs as soon as the application closes it cleanly (or after you run `PRAGMA wal_checkpoint(TRUNCATE)`). Still, never open and write to the same SQLite database on two machines at the same time, or both sides will modify it independently and produce conflict copies.
+- **Virtual machine images and Linux files.** Virtual machine disk images sync reliably only while the virtual machine is shut down. Note that on Linux, the operating system provides no general mandatory lock check to tell whether another process has an ordinary file open for writing, so on Linux only the 5-second quiet rule above protects active files.
 
 ## 11. Restoring old content
 
-Everything that is overwritten or deleted is kept for the retention period (section 13). The Web UI only shows names and metadata and never offers a download; a restore always writes the content back as the current version, and the clients then receive it like any other change. A restore never alters or deletes history.
+Whenever a file is overwritten or deleted on any device, the server keeps the previous version for the configured retention period (section 13). For simplicity and security, the Web UI only displays filenames and metadata and never offers direct browser downloads; instead, restoring always writes the chosen historical content back to the server as the new current version, which connected clients then download just like any other change. Because a restore is recorded as a new version rather than rewriting history, every restore can itself be undone.
 
-**One file, one version.** In the folder page, open the row menu (right-click on the row, the **⋯** button at the end, a long press on a touch screen, or `Shift+F10` with the keyboard) and choose **Version history…** (`版本历史…`). The table lists time, size and the device that made each version; the first row is the current state. Press **Restore** (`恢复`) on the version you want and confirm in the row. The current content moves into the history, so the restore can itself be undone.
+Depending on what went wrong, you can restore a single file version, a deleted file, or an entire directory tree as of a point in time:
 
-**A deleted file.** Turn on **Show deleted** (`显示已删除`) at the top of the folder page. Deleted files appear in grey with a **Deleted** (`已删除`) label. The menu has **Restore last content…** (`恢复最后的内容…`), or open **Version history…** to pick an earlier version.
+**Restore one version of a single file.** On the folder page, open the file's row menu (by right-clicking the row, clicking the **⋯** button at the end of the row, long-pressing on a touch screen, or pressing `Shift+F10` with the keyboard) and choose **Version history…** (`版本历史…`). The dialog lists every version with its timestamp, size, and the device that created it, with the current state in the first row. Click **Restore** (`恢复`) on the version you want and confirm inside that row. The file's previous current content moves into version history, and the restored version becomes current.
 
-**A file, a directory or a whole folder as of a point in time.** Choose **Restore to a point in time…** (`恢复到某一时刻…`) in the row menu of a file or directory, or, for the current directory, **Restore this directory to a point in time…** (`恢复此目录到某一时刻…`) in the menu of the title row or after right-clicking empty space (at the top level of the folder the text is "Restore whole folder...", `恢复整个文件夹到某一时刻…`). In the dialog:
+**Restore a deleted file.** Turn on **Show deleted** (`显示已删除`) at the top of the folder page. Deleted files appear in the list as grey rows badged with **Deleted** (`已删除`). Open the row menu on a deleted file and choose **Restore last content…** (`恢复最后的内容…`) to bring back its final version immediately, or open **Version history…** (`版本历史…`) to pick an earlier version.
 
-1. Pick the time on the two axes, or type it as `2026-11-03 22:48:27` (seconds are optional). The dialog opens at "now" (`现在`) of today. The upper axis is the day axis: it runs from the oldest state a restore can reach on the left (the start of the retention period, or the end of the initial import described below if that is later) to "now", written outside the axis on the right, and its blue line stops only at midnight (00:00) of each day (the earliest day stops at the earliest point, the latest at today's 00:00); drag it, or click anywhere on the axis, and it jumps to the nearest of those points. The lower axis is the time-of-day axis and shows 24 hours: the day you stopped on, always from 00:00 to 24:00 (today too); the part of today after "now" is hatched and cannot be chosen. To choose the time within that day, drag its blue line or click on it (down to the minute; type the time for seconds); the two axes never move each other: dragging the lower axis does not move the line on the upper axis, and dragging the upper axis only moves by whole days. The upper axis writes only the day of the month (30, 1, 2); when the retention period is longer than 30 days it writes `MM-DD` (12-01) instead, and only as many dates as fit the width. On the lower axis midnight is a tall tick labelled 00:00, 24:00 is written at the right end, and the other ticks are hours (the wider the axis, the finer the ticks; on a narrow screen there are fewer of them). The yellow marks under the baselines are the changes in the file or directory you chose: one mark per change at its own time on the upper axis (several changes on one day are several marks; changes that fall on the same pixel share a taller mark), and the minutes with a change on the lower axis. The first day of the range is usually not a whole day: the part before the earliest point is hatched too and the line cannot go there. The time box follows the lines, and the text above it says how long ago that is. The pale blue area left of a line is the data that stays after the restore; what is right of it will be rolled back. The line does not jump to the marks, but the preview is for the state at that time, and the state only changes at a yellow mark; the line on or right of a mark includes that change. The `‹` and `›` buttons (which may cross days), or the arrow keys on the lower axis (which stay within the day), move one change at a time (`PageUp`/`PageDown` one hour, `Home` and `End` the ends of the day); on the day axis the arrow keys move one day (`PageUp`/`PageDown` seven days, `Home` to the oldest, `End` to now). Typing a time moves both lines there. While you drag, only the lines and the text move; the preview is refreshed when you let go (after a short pause for keys and buttons) and only if the state changed. When the line is at "now", or after the last change, there is nothing to compare and the preview asks you to choose the day first and then the time of day. The block below the preview names the time zone in use (change it on the settings page), the retention period and the earliest time you can restore to. A time older than the retention period warns that the content may already be purged. A time earlier than the first record of the folder is computed against the state at the end of the folder's initial import, the first moment the folder was complete (the first full upload of the first device; the server infers it as the first quiet time of 2 minutes after the first files arrived). The dialog says "The chosen time is earlier than the earliest record, computed against the state when the initial import finished: initial import finished at <time>" (`所选时间早于最早记录, 按首次导入完成时的状态计算: 首次导入完成于 <时间>`). Files created after the import did not exist then and are left alone (a restore never deletes). For a directory or file created after the import, the first record of that directory or file is used instead (`所选时间早于最早记录, 按最早记录计算: 最早记录为 <时间>`). The preview and the restore agree. If there is no history at all it says so (`这里没有任何历史记录`).
-2. The dialog previews what will be restored: a one-line glob filter (written as above; it only changes what is shown, the restore still covers everything) and at most 50 paths, each marked "deleted" (`已删除`) or "changed" (`已改变`) as of now (the two in different pale colours); the line under the list reads "Files that existed then and differ now: N, M after the filter, showing only K" (N is the real total; the other two parts appear only when a filter is set or the list is cut). The preview area keeps the same height, so the dialog does not jump while you move the line. If nothing differs, the button stays disabled.
-3. Press **Restore** (`恢复`). Afterwards a message says how many files were restored and how many failed (a name conflict, or the file was changed at the same moment).
+**Restore a file, a directory, or a whole folder to a point in time.** If a batch of files was overwritten by mistake or a whole directory was deleted, open the row menu of the affected file or directory and choose **Restore to a point in time…** (`恢复到某一时刻…`). To restore the directory you are currently viewing, open the title row menu (or right-click empty space in the file list) and choose **Restore this directory to a point in time…** (`恢复此目录到某一时刻…`)—when you are at the top level of a folder, this item reads "Restore whole folder..." (`恢复整个文件夹到某一时刻…`). Then follow the three steps in the dialog:
 
-For a path, the version that was current at that time is restored. Only content is restored: files created after that time are never deleted, and the current contents are kept in the history. This covers both "I deleted a directory" and "a batch of files was overwritten by mistake".
+1. **Choose the target time.** You can either pick the time visually on the two timeline axes or type it directly into the time box as `2026-11-03 22:48:27` (seconds are optional). When the dialog opens, it starts at "now" (`现在`) of today:
+   - **How the two axes work.** The upper axis is the **day axis**, running from the earliest restorable point on the left (either the start of the retention period or the end of the initial import described below, whichever is later) to "now" (`现在`, labelled outside the right end of the axis). Its blue vertical line snaps only to midnight (`00:00`) of each day (except on the earliest day, where it stops at the earliest restorable timestamp, and on the latest day, where it stops at today's `00:00`); drag the line or click anywhere on the upper axis to jump to the nearest day boundary. The upper axis labels days by day-of-month (`30`, `1`, `2`), or as `MM-DD` (`12-01`) when the retention period is longer than 30 days, showing as many labels as fit the screen width.
+     The lower axis is the **time-of-day axis**, which always spans the full 24 hours (`00:00` to `24:00`) of whichever day is selected on the upper axis, with a tall tick at `00:00`, `24:00` at the right end, and hour ticks in between (finer on wide screens, sparser on narrow screens). Drag its blue line or click on the lower axis to choose the exact minute within that day (to specify seconds, type them in the time box). Unreachable parts of a day—the hours after "now" on today, or the hours before the earliest restorable point on the first day of the range—are drawn hatched and the line cannot enter them. The two axes never move each other when dragged: dragging the lower axis stays within the chosen day without moving the upper line, and dragging the upper axis moves only in whole days.
+   - **Reading the yellow change marks and blue shading.** Beneath both axes, yellow tick marks show when changes actually occurred in the file or directory you selected: on the upper axis, one mark per change at its timestamp (multiple changes on the same day appear as multiple marks, and changes falling on the same pixel combine into a taller mark); on the lower axis, one mark for each minute that had a change. The pale blue region to the left of the blue line represents the history that stays after the restore, while everything to the right of the line will be rolled back. Although dragging the blue line does not snap to yellow marks, the state of your files only changes at those yellow marks: placing the line on or to the right of a yellow mark includes that change.
+   - **Stepping with buttons or keyboard.** To jump from one actual change to the next, click the `‹` and `›` buttons (which cross day boundaries automatically) or focus the lower axis and press the Left/Right arrow keys (which stay within that day; `PageUp`/`PageDown` move by one hour, `Home` and `End` jump to the ends of the day). When the upper day axis is focused, the Left/Right arrow keys move by one day (`PageUp`/`PageDown` move by seven days, `Home` jumps to the oldest point, `End` jumps to now). Typing a timestamp into the box moves both blue lines to that moment. While you drag a line, only the lines and the timestamp text update (including the note above the box showing how long ago that time is); the file preview refreshes once you release the mouse button (or after a brief pause when using the keyboard or `‹`/`›` buttons), and only if the effective state actually changed. When the line sits at "now" or after the most recent change, nothing differs from the current state, so the preview prompts you to choose the day first and then the time of day.
+   - **Time zone, retention, and earliest-record rules.** Below the preview, a summary block shows the active time zone (which you can change on the Settings page), the retention period, and the earliest restorable timestamp. If you type a time older than the retention period, the dialog warns that old versions from that time may already have been purged. If you pick a time earlier than the folder's very first recorded change, the server compares against the state at the end of the folder's **initial import**—the first moment the first device finished its initial full upload (which the server detects as the first 2-minute quiet period after the first files arrived)—and displays: "The chosen time is earlier than the earliest record, computed against the state when the initial import finished: initial import finished at <time>" (`所选时间早于最早记录, 按首次导入完成时的状态计算: 首次导入完成于 <时间>`). Files created after that initial import did not exist back then and are left untouched (because a point-in-time restore never deletes files). Similarly, if you are restoring a specific directory or file that was created after the initial import and pick a time before its creation, the server uses that directory or file's own earliest record instead (`所选时间早于最早记录, 按最早记录计算: 最早记录为 <时间>`). In every case, what the preview shows is exactly what the restore will do. If the selected target has no history at all, the dialog states `这里没有任何历史记录`.
+2. **Review the preview.** The preview lists up to 50 files whose state at the chosen time differs from now, marking each row as either "deleted" (`已删除`) or "changed" (`已改变`) as of today (highlighted in two distinct pale colours). If the list is long, use the one-line glob filter in the preview header (same syntax as in section 7; filtering only changes what is displayed, while the restore still applies to all affected files). Beneath the list, a summary line reads "Files that existed then and differ now: N, M after the filter, showing only K" (where `N` is the true total, and the filtered/truncated counts appear only when applicable). The preview box maintains a fixed height so the dialog does not jump while you scrub the timeline, and if no files differ at the chosen time, the restore button stays disabled.
+3. **Press Restore (`恢复`).** Once the restore completes, a status banner reports how many files were restored and how many failed (for example, due to a name conflict or a concurrent edit at that exact moment).
+
+For every affected path, a point-in-time restore writes back the version that was current at the chosen timestamp. Importantly, it restores **content only**: any new files created after the chosen timestamp are never deleted, and the overwritten current versions are saved into history. This design safely handles both "I accidentally deleted a directory" and "a batch of existing files was overwritten with bad data".
 
 ## 12. Export to plain files
 
-The server stores blocks and databases, not a normal directory tree. To get ordinary files out (disaster recovery, moving away), run on the server as root (the data below `var/` belongs to the service user):
+While each client computer holds an ordinary directory tree of the folders it maps, the server itself stores content as deduplicated blocks and SQLite databases rather than plain files. If you ever need to extract ordinary files directly from the server—for disaster recovery or to migrate away from kaze-sync—run `kaze-syncd export` on the server as root (since the files under `var/` belong to the `kaze-sync` service user):
 
 ```bash
 kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:00]"]     # server
 ```
 
-Without `--folder`, each folder is exported to `DIR/<folder name>`; with `--folder`, directly into `DIR`. Without `--at` the current state is written; with it, the state at that time, which is **UTC**. `--data` defaults to the directory that holds the binary. The command reads the databases and blocks directly, so it works while the service is stopped, and on a restored backup. Every file is verified by its hash after writing; a file with a missing or damaged block is reported and skipped, the others are still exported, and the command exits with a non-zero status. Contents, executable bit and modification time are restored. Plan for enough free disk space: exporting a folder writes all of it.
+- **Target directory (`DIR`) and `--folder`**: without `--folder`, the command exports every folder into its own subdirectory `DIR/<folder name>`; with `--folder NAME|ID`, it writes that single folder's files directly into `DIR`.
+- **Point-in-time export (`--at`)**: without `--at`, the current state is exported; with `--at`, it exports the state as of that timestamp, interpreted in **UTC**.
+- **`--data`**: defaults to the directory containing the `kaze-syncd` binary you invoke.
+
+Because `export` reads the databases and block files directly from disk, it works whether the server service is running or stopped, and you can run it directly against an unpacked backup directory. As it writes each file, `export` restores the file content, executable bit, and modification time, and verifies the written file against its cryptographic hash. If any file has a missing or damaged block, `export` reports that file, skips it, continues exporting all remaining files, and exits with a non-zero status code at the end. Make sure the destination disk has enough free space to hold the full uncompressed size of the folders you are exporting.
 
 ## 13. Retention and garbage collection
 
-- Every overwrite or delete keeps the old version for `keep_days` days (**Version retention** in settings; default 30; 1 to 3650). Saving a new value starts a cleanup immediately, with no restart.
-- Garbage collection runs once a day (one minute after the server starts, then once per day) and also right after you save the retention. It deletes versions older than the retention, then blocks that nothing references and that are more than an hour old, and leftovers in `var/tmp/`. It runs in the background and does not interrupt syncing. Blocks uploaded but not yet committed are protected by the one-hour grace period.
-- Disk space therefore shrinks after the next collection, not at the moment of a delete. The result is in the log, one line per run (`msg=gc`) with the number of versions and blocks removed, passes and duration; on OpenWrt, `logread | grep 'msg=gc '`.
-- The memory used by a collection is capped at 64 MB; very large data only needs more passes. The table of data size against memory is in the design document (`docs/design.md`, section 7).
-- Files that change every few seconds produce one version per change. If they are not worth keeping, exclude them (section 7).
+Keeping every overwritten or deleted file forever would eventually fill your server's disk, so kaze-sync automatically expires old history and reclaims disk space in the background:
+
+- **Retention period.** Every overwrite or delete keeps the superseded version for `keep_days` days, which you configure under **Version retention** (`版本保留`) on the Settings page (1 to 3650 days, default 30). If you lower this number to free up space, saving the setting triggers a garbage collection pass immediately without needing a service restart.
+- **When garbage collection runs.** The server runs garbage collection once a day (starting one minute after the server process boots, and every 24 hours thereafter), plus immediately whenever you save a new retention setting. A collection run first deletes version records older than `keep_days`, then deletes any data blocks that are no longer referenced by any current file or retained version and are more than one hour old, and finally cleans up stale temporary files in `var/tmp/`. The one-hour grace period protects blocks that a client has just uploaded as part of an in-progress sync but has not yet committed. Garbage collection runs in the background and does not interrupt syncing.
+- **When disk space actually shrinks.** Because unreferenced blocks are removed by garbage collection rather than at the moment you delete a file, disk usage drops only after the next collection pass finishes. Each run logs a single summary line with `msg=gc` showing how many versions and blocks were removed, how many scan passes it took, and the total duration (on OpenWrt, view it with `logread | grep 'msg=gc '`).
+- **Memory cap.** Garbage collection is capped at 64 MB of RAM; if your server holds a very large dataset, it simply performs more scan passes rather than allocating more memory (see section 7 of `docs/design.md` for the table of dataset size versus memory).
+- **Frequently changing files.** Every time a file changes, the previous content becomes a retained version. If an application rewrites a cache or status file every few seconds, it will generate thousands of versions; add an exclusion rule for such files (section 7).
 
 ## 14. Backup and restore of the server
 
-The server is not a backup: versions live on the same disk as the data (the clients, however, hold ordinary copies of every folder). To protect against disk loss, back up `<data>/var/meta.db`, `<data>/var/folders/` and `<data>/var/blobs/`, plus the small `<data>/var/tls/` and, in local CA mode, `<data>/ca/` (without them the restored server creates a new certificate or a new CA, its fingerprint changes and every client must enroll again, and the browsers must trust the new CA). `meta.db` and the folder databases must come from the same moment, so stop the service while copying them, and avoid the time garbage collection runs. The blocks never change after being written, so they can be copied while the service runs and incrementally. Keep the backup on another disk or machine. The commands (with systemd shown; use your service manager's stop and start):
+Although every client computer holds ordinary copies of the folders it syncs, the server itself is not a backup: your current metadata and all historical versions live on the same server disk. To protect your version history, device registrations, and folder setup against disk failure, back up the server's data directory to another disk or another machine.
+
+**What to back up.** A complete server backup consists of:
+- `<data>/var/meta.db` and `<data>/var/folders/` (the global database and per-folder databases)
+- `<data>/var/blobs/` (the content blocks)
+- `<data>/var/tls/` and, if you use local CA mode, `<data>/ca/` (the server certificate and CA keys; if you lose these, a restored server will generate a new certificate or CA with a new fingerprint, forcing you to re-enroll every client and re-trust the CA in your browsers)
+
+Because `meta.db` and the databases under `folders/` must come from the exact same instant, **stop the service for a few seconds** while copying them (and avoid running the backup while daily garbage collection is deleting blocks). Content blocks under `blobs/`, on the other hand, are immutable once written, so you can copy them while the service is running—including incrementally with `rsync`.
+
+Here is the complete backup procedure (shown with `systemd`; substitute your service manager's stop and start commands on OpenWrt or OpenRC):
 
 ```bash
 systemctl stop kaze-sync                                                          # server
@@ -353,7 +456,7 @@ tar cf /backup/blobs.tar blobs
 tar cf /backup/ca.tar -C /var/lib/kaze-sync ca                                     # only in local CA mode
 ```
 
-**Restore** (on a new machine, or in place to roll back), with a `kaze-syncd` of the same or a newer version:
+**Restoring a backup.** To restore onto a new server or roll back in place, use a `kaze-syncd` binary of the same or a newer version and unpack all archives together (never restore only a subset of the files):
 
 ```bash
 mkdir -p /var/lib/kaze-sync/var                                                    # server
@@ -364,19 +467,24 @@ tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                  
 ./kaze-syncd install --data /var/lib/kaze-sync --new-epoch                         # fixes owners, new history id, starts the service
 ```
 
-`--new-epoch` is **required** after any restore. A restore sends the server's history back in time; the option makes every client forget what it knew of the server and read it again once. Clients need no action. Files that differ from the backup become conflict copies on the clients (nothing is lost), files created on a client after the backup are uploaded again, and files deleted on a client after the backup come back. Without the option clients can notice only some of the rollbacks, and may silently disagree with the server. Do not use `--new-epoch` for ordinary upgrades.
+Passing `--new-epoch` to `install` is **required** after every restore (and must never be used for ordinary upgrades). Because restoring a backup moves the server's databases back in time relative to what your clients have already synced, `--new-epoch` assigns a new history identifier that tells every connecting client to discard its cached knowledge of the server and reconcile from scratch once:
+- You do not need to touch the clients.
+- As long as `<data>/var/tls/` (and `<data>/ca/`) were restored along with `meta.db`, the admin password, enrolled devices, and folder mappings are all preserved and clients reconnect automatically.
+- Any file on a client whose content differs from the restored backup is preserved as a conflict copy (so nothing is lost); any file created on a client after the backup was taken is uploaded again; and any file deleted on a client after the backup was taken is downloaded again from the backup. Without `--new-epoch`, clients would notice only some of the rolled-back changes and could silently remain out of sync with the server.
 
-The admin password, devices and mappings are inside `meta.db`: clients do not need to enroll again, as long as the certificate came back too. Never restore only some of the files.
-
-The step-by-step version with OpenWrt commands is in [`docs/operations.md`](../operations.md), section "备份与还原".
+For a step-by-step restore walkthrough using OpenWrt commands, see "备份与还原" in [`docs/operations.md`](../operations.md).
 
 ## 15. Upgrading
 
-Always upgrade the **server first**, then the clients.
+When upgrading to a newer version of kaze-sync, always upgrade the **server first**, and then upgrade your clients.
 
-1. Build the new binaries (section 2.1).
-2. **Server**: run `./kaze-syncd install --data <same directory>` with the new binary (on OpenWrt or Linux, as root). Port, certificate and password stay. It copies the new binary and restarts the service (the databases are migrated automatically, see below); with systemd it also reloads the unit definition, and it rewrites the unit file, so keep your changes in a drop-in. OpenWrt's own `sysupgrade` does not touch the data or the service.
-3. **Linux client**: stop the agent, replace the binary at the same path, start it again:
+**Why the order matters.** Some releases update the sync protocol (the current protocol version is 5, which added symbolic links and raised the server's minimum required client protocol version to 5, meaning every client must be upgraded after upgrading the server). If you upgrade a client before the server, the new client will fail on batched downloads against the older server. Conversely, when you upgrade the server first, any client older than the server's minimum protocol version is cleanly paused with HTTP 426: the client logs `client too old, sync is stopped until kaze-syncc is upgraded` about once a minute, and the Web UI device table marks its protocol version in red as "N, `过旧`". Its local data is unharmed, and as soon as you upgrade that client binary, syncing resumes automatically. (Only protocol changes that make old clients incompatible raise the minimum version, so most server upgrades do not force an immediate client upgrade.)
+
+Follow these four steps to upgrade:
+
+1. **Build the new binaries** from the updated source (section 2.1).
+2. **Upgrade the server.** Copy the new `kaze-syncd` binary to the server and run `./kaze-syncd install --data <same directory>` as root (on both OpenWrt and plain Linux). Your listening port, certificate, and admin password remain unchanged. `install` copies the new binary into `<data>/`, restarts the service, and automatically migrates the databases (see below). On systemd, `install` also reloads the daemon and rewrites `/etc/systemd/system/kaze-sync.service`, so keep any custom unit settings in a systemd drop-in. (On OpenWrt, running a system firmware upgrade via `sysupgrade` leaves both the data disk and the kaze-sync service intact.)
+3. **Upgrade each Linux client.** Stop the user agent, overwrite the binary at its existing path, and start the agent again:
 
 ```bash
 systemctl --user stop kaze-sync                    # client
@@ -384,13 +492,13 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **Windows client**: first check that the new `kaze-syncc-agent.exe` was built with `-H=windowsgui`; this prints `2` (GUI) and must not print `3` (console, which opens a visible window at every sign-in):
+4. **Upgrade each Windows client.** Before copying the new Windows binaries, verify that `kaze-syncc-agent.exe` was built with `-ldflags -H=windowsgui`. Run this check—it must print `2` (GUI subsystem) and never `3` (console subsystem, which would pop up a visible terminal window at every Windows sign-in):
 
 ```
 python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
 ```
 
-   The running agent locks its exe, so stop it (PowerShell), copy both exe files, start the agent:
+   Because Windows locks a running `.exe` file, stop the background agent in PowerShell, copy both `.exe` files over the existing ones, and start the agent again:
 
 ```powershell
 Stop-Process -Name kaze-syncc-agent
@@ -398,28 +506,29 @@ Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <install directory>
 Start-Process "<install directory>\kaze-syncc-agent.exe" -ArgumentList run
 ```
 
-**Database migration and rollback.** When the server starts (and when `install` runs) it brings its databases to the schema of the new version by itself, global database first, then each folder. If there is nothing to migrate, nothing happens. Before a database is changed, it is copied to `<data>/var/backups/` (`meta-v<old version>-<UTC time>.db`, or `folder-<id>-v<old version>-<UTC time>.db`; the newest 3 copies of each database are kept, and deleting a folder deletes its copies). The copy is as large as the database, so the disk needs that much free space during the upgrade. If a backup or migration step fails, the server does not start and the error says which database and why; that database is unchanged, so fix the cause (for example free disk space) and start again. A server set up without root (a user-level service) needs no `install`: replace the binary and restart; no manual database edit is needed. **Rolling a client back.** A client's folder state databases (`folder-*.db` in its state directory: `~/.local/state/kaze-sync` on Linux, `%LOCALAPPDATA%\kaze-sync` on Windows) change structure with some upgrades. Before replacing a client binary with an older one, stop the agent and copy these files; restore them together with the binary. A client finding a database made by a newer version stops syncing that folder and shows the reason as the folder's error instead of failing on every scan.
-
-To go back to the old version after a migration: stop the server, put the old binary back, copy the backup of every migrated database over `var/meta.db` and `var/folders/<id>.db` (newest copy from the upgrade; delete the `-wal` and `-shm` files next to each), then follow the restore steps in section 14, including `--new-epoch`. An old binary refuses to start on a database that a newer version has migrated, and says so, rather than damaging it.
-
-Why the order matters: some releases change the protocol (the current protocol version is 5; version 5 added symbolic links, and its minimum is 5, so every client must be upgraded after the server). A new client talking to an old server fails on batched downloads. A client older than the server's minimum version is refused with HTTP 426; its log then contains `client too old, sync is stopped until kaze-syncc is upgraded` about once a minute and the device table shows "N, `过旧`" in red. Upgrade that client as above; its data is not harmed and it resumes by itself. Only changes that make old clients unusable raise the minimum, so most upgrades do not force a client upgrade.
+**Automatic database migration and how to roll back.**
+- **Server databases.** Whenever the server starts (including during `install`), it automatically migrates its databases to the new schema—first the global `meta.db`, then each folder database. If the schema has not changed, startup proceeds immediately. Before modifying any database file, the server copies the untouched file to `<data>/var/backups/` as `meta-v<old version>-<UTC time>.db` or `folder-<id>-v<old version>-<UTC time>.db` (keeping the newest 3 backups per database, and removing a folder's backups if that folder is deleted). Because each backup is a full copy of the database, make sure your disk has at least that much free space before upgrading. If backing up or migrating a database fails, the server refuses to start, prints which database failed and why, and leaves that database unchanged—fix the underlying issue (such as freeing disk space) and start the service again. Note that if you run a server without root as a user-level service, you do not run `install`: simply replace the binary and restart the process, and it will migrate the databases automatically.
+  If you ever need to **roll the server back** to an older version after a migration has run, an older `kaze-syncd` binary will refuse to start against a newer database schema and tell you why rather than corrupting it. To roll back safely: stop the server, put the old `kaze-syncd` binary back, copy the newest pre-upgrade backup of each migrated database from `var/backups/` back over `var/meta.db` and `var/folders/<id>.db` (and delete any `-wal` and `-shm` files next to them), and then run the restore command from section 14 including `--new-epoch`.
+- **Client databases.** A client's per-folder state databases (`folder-*.db` inside `~/.local/state/kaze-sync` on Linux or `%LOCALAPPDATA%\kaze-sync` on Windows) also change schema in some releases. If you might want to roll a client binary back to an older version, stop the agent and back up its `folder-*.db` files before replacing the binary, and restore them alongside the old binary if you roll back. If an older client binary encounters a `folder-*.db` created by a newer client, it stops syncing that folder and reports the version mismatch as the folder's error rather than failing on every scan.
 
 ## 16. Uninstalling
 
+When you retire a computer or decommission your server, follow these steps to remove the background services cleanly.
+
 ### 16.1 Client
 
-Do the first step in the Web UI so that the server forgets the device, then clean the computer. Your synced files are kept in all cases.
+Always start in the Web UI so the server stops expecting the device, and then remove the client from the computer. Your local synced files are left untouched in all cases.
 
-1. Web UI: device page, **Revoke device…** (or just delete the mappings if you keep the device).
-2. Linux: `systemctl --user disable --now kaze-sync`, delete `~/.config/systemd/user/kaze-sync.service` (then `systemctl --user daemon-reload`), delete the state directory `~/.local/state/kaze-sync` (it contains the token, the log and the sync state), and delete the binary.
-3. Windows: end `kaze-syncc-agent.exe` (`Stop-Process -Name kaze-syncc-agent`), delete the value `kaze-sync` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, delete `%LOCALAPPDATA%\kaze-sync`, and delete the exe files.
-4. Optional: the `.syncroot` marker files in the synced directories can be deleted afterwards.
+1. **In the Web UI**: open the device page and click **Revoke device…** (`吊销设备…`) (or simply delete its folder mappings if you want to keep the device entry).
+2. **On Linux**: run `systemctl --user disable --now kaze-sync`, delete `~/.config/systemd/user/kaze-sync.service` (then run `systemctl --user daemon-reload`), delete the state directory `~/.local/state/kaze-sync` (which holds the device token, log, and local sync state), and delete the `~/.local/bin/kaze-syncc` binary.
+3. **On Windows**: stop `kaze-syncc-agent.exe` (`Stop-Process -Name kaze-syncc-agent`), delete the `kaze-sync` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, delete `%LOCALAPPDATA%\kaze-sync`, and delete `kaze-syncc.exe` and `kaze-syncc-agent.exe`.
+4. **Optional cleanup**: delete the hidden `.syncroot` marker file at the root of each formerly synced local directory.
 
 ### 16.2 Server
 
-There is no uninstall command. This deletes the server and **all synced history**; take a backup first if you are unsure. First revoke or remove the clients (section 16.1), or they will keep retrying.
+There is no automated `uninstall` command for the server. The commands below permanently delete the server and **all synced files and version history stored on it**—take a backup or run `export` first if you might need anything. Before removing the server, revoke and uninstall all clients (section 16.1) so they do not keep retrying connections in the background.
 
-systemd:
+On **systemd**:
 
 ```bash
 systemctl disable --now kaze-sync                  # server
@@ -429,7 +538,7 @@ userdel kaze-sync
 rm -r /var/lib/kaze-sync                           # the data directory you gave to --data; contains everything
 ```
 
-OpenRC (Alpine):
+On **OpenRC (Alpine)**:
 
 ```bash
 rc-service kaze-sync stop                          # server
@@ -439,7 +548,7 @@ deluser kaze-sync                                  # also removes the group
 rm -r /var/lib/kaze-sync                           # the data directory you gave to --data
 ```
 
-OpenWrt:
+On **OpenWrt**:
 
 ```bash
 /etc/init.d/kaze-sync stop                         # server
@@ -450,11 +559,13 @@ uci -q delete firewall.kaze_sync; uci commit firewall; /etc/init.d/firewall relo
 rm -r /mnt/data/kaze-sync                          # the data directory you gave to --data; contains everything
 ```
 
-The data directory is a folder on your data disk. Deleting it frees the space; the disk, its partition and its mount entry are yours and stay (to reuse the disk for something else, unmount and repartition it with your usual tools). OpenWrt has no `deluser`: the user `kaze-sync` has no login shell and may stay; to remove it anyway, run `sed -i '/^kaze-sync:/d' /etc/passwd /etc/group /etc/shadow`.
+On OpenWrt, deleting `/mnt/data/kaze-sync` simply removes that folder and frees space on your data disk; your disk, partition, and mount configuration remain untouched (if you want to repurpose the disk entirely, unmount and repartition it with your usual tools). Because OpenWrt has no `deluser` utility, the `kaze-sync` user (which has no login shell) can safely stay, or you can remove it manually with `sed -i '/^kaze-sync:/d' /etc/passwd /etc/group /etc/shadow`.
 
-Close the port in your firewall or security group if you opened it by hand.
+Finally, if you manually opened the server's TCP port in a firewall or cloud security group, close that rule.
 
 ## 17. Troubleshooting
+
+When something does not work as expected, check the notification bell in the Web UI first (section 9), and then inspect the server or client logs.
 
 **Where the logs are.**
 
@@ -466,30 +577,42 @@ Close the port in your firewall or security group if you opened it by hand.
 | Linux client | `~/.local/state/kaze-sync/kaze-syncc.log` (`$XDG_STATE_HOME/kaze-sync/` if set) |
 | Windows client | `%LOCALAPPDATA%\kaze-sync\kaze-syncc.log` |
 
-The client log records startup, warnings and errors, and is moved to `kaze-syncc.log.old` as soon as it grows past 10 MB (also while the agent runs; one old file is kept).
+By default, the client log records only startup events, warnings, and errors. Whenever `kaze-syncc.log` grows past 10 MB (even while the agent is running), the client rotates it to `kaze-syncc.log.old`, keeping one previous log file.
 
-**Debug timeline of the client.** To find out why a change is slow, create an empty file named `debug` in the client's state directory (the directory above) and restart the agent. The log then also has `level=DEBUG` lines for file events, scans, pulls and every request to the server with its duration. Delete the file and restart the agent when done.
+**Debug timeline of the client.** If you need to investigate why a change is taking longer than expected to sync, create an empty file named `debug` inside the client's state directory (shown in the table above) and restart the agent. While `debug` exists, the client also writes `level=DEBUG` lines for local file events, folder scans, pulls, and every HTTP request to the server along with its duration. Delete the `debug` file and restart the agent once you finish troubleshooting.
 
 **Common messages and problems.**
 
 | Symptom | Cause and fix |
 |---|---|
-| `enroll` says `invalid or expired code` | The code is single use and lasts 15 minutes. Create a new one; check that you copied it fully |
-| `enroll` says `too many failures` (HTTP 429), or the sign-in page answers 429 | 10 failed attempts within an hour lock that IP for one hour. Wait, or run `admin-password` on the server, which restarts the service and clears all lockouts |
-| `enroll` says `cannot register device` | A device with that name already exists. Revoke it, or add the device under another name |
-| `enroll` fails with a certificate error | The fingerprint does not match: copy the command again from the dialog (`install` prints it too, and so does the `listening` log line), or the server uses your own certificate and `--fingerprint` must be left out |
-| Browser warns about the certificate, or does not fill in saved passwords | Expected for the self-signed certificate; compare the fingerprint, accept once. To remove the warning and get password filling, use a local CA (section 2.4); with it, the warning means the CA is not trusted on this computer yet or the address in the browser is not among the certificate names (`--san`) |
-| Forgot the admin password, port or fingerprint | Section 2.5 and section 2.4 |
-| The service exits right after starting and the log says `permission denied` on the certificate or key | The service user `kaze-sync` cannot read your own certificate files or enter their directory (section 2.4) |
-| Server does not start after a reboot | The data disk was not mounted. The server then exits instead of creating an empty database; mount the disk and start the service |
-| `sync is stopped, the server does not accept this device` | The device was revoked. Enroll again as a new device (section 3.3) |
-| `client too old` | Section 15 |
-| A folder shows an error and the bell lists a `folder` entry | Section 5: the local directory is missing, the disk is not mounted, or adopting a non-empty directory is not ticked |
-| Changes appear after a few seconds, not instantly | Normal: file events are collected for 2 seconds (at most 10 seconds when files keep changing), a file must be 5 seconds old, then the other side learns it through the long poll. The usual delay is 5 to 10 seconds |
-| The first sync takes long | Every file is read and hashed once. One test with 19,000 files and 1.6 GiB took about 4.5 minutes |
-| A file does not arrive | Check the folder page for the grey **Not synced** row and the bell: symbolic link that cannot be created on that device, illegal name, case collision, a file in use, or an exclusion rule |
-| The server data grows quickly | Files that change often keep one version per change. Exclude them (section 7) or shorten the retention |
+| `enroll` says `invalid or expired code` | Enrollment codes are single-use and expire after 15 minutes. Generate a new code in the Web UI and make sure you copy the entire string |
+| `enroll` says `too many failures` (HTTP 429), or the sign-in page answers 429 | 10 failed attempts within an hour lock that client IP address for one hour. Either wait an hour, or run `admin-password` on the server, which restarts the service and clears all lockouts immediately |
+| `enroll` says `cannot register device` | A device with that name already exists on the server. Revoke the old device first, or add the device under a different name |
+| `enroll` fails with a certificate error | Either the `--fingerprint` does not match the server's certificate (copy the command fresh from the Web UI dialog, or check the fingerprint printed by `install` or the `listening` log line), or the server is using your own public CA certificate and `--fingerprint` must be omitted |
+| Browser warns about the certificate, or does not fill in saved passwords | Expected when using the default self-signed certificate: compare the fingerprint and accept the warning once. If you want no browser warning and working password autofill, switch to a local CA (section 2.4). If you already use `--ca` and still see a warning, either the CA certificate is not yet trusted on this computer or the address in the browser's URL bar is not listed in `--san` |
+| Forgot the admin password, port or fingerprint | Run `admin-password` for a new password (section 2.5), or re-run `install` / check the server log for the port and fingerprint (section 2.4) |
+| The service exits right after starting and the log says `permission denied` on the certificate or key | The service user `kaze-sync` cannot read your custom `--cert`/`--key` files or traverse their parent directories; fix the file and directory permissions (section 2.4) |
+| Server does not start after a reboot | The external data disk was not mounted at boot. The server refuses to start rather than creating an empty database; mount the data disk and start the service |
+| `sync is stopped, the server does not accept this device` | The device was revoked in the Web UI. Enroll it again as a new device (section 3.3) |
+| `client too old` | The server was upgraded to a protocol version that requires a newer client; upgrade the client binary (section 15) |
+| A folder shows an error and the bell lists a `folder` entry | Either the local directory or `.syncroot` is missing (for example, an unmounted drive), or the directory is non-empty and you have not ticked **Allow adopting a non-empty directory** on the device page (section 5) |
+| Changes appear after a few seconds, not instantly | This is normal: the client batches local file events for 2 seconds (up to 10 seconds when files keep changing continuously), waits until a modified file is at least 5 seconds old, uploads it, and notifies other devices via long polling. Total end-to-end delay is normally 5 to 10 seconds |
+| The first sync takes long | On the initial scan, the client must read and hash every file once. As a reference, a test folder with 19,000 files (1.6 GiB) took about 4.5 minutes |
+| A file does not arrive | Check the folder page in the Web UI for a grey **Not synced** row and check the notification bell: common causes are a symbolic link that cannot be created on that device (Windows without Developer Mode), a Windows-illegal filename, a case collision, a locked file (`in_use`), or an exclusion rule |
+| The server data grows quickly | Files that change every few seconds create a new version on every write. Add an exclusion rule for them (section 7) or shorten the version retention period |
 
 ## 18. What kaze-sync does not do
 
-No sharing, multiple users or collaborative editing; no file preview or download in the Web UI; no sync of empty directories, Windows junctions, permissions or owners; no end-to-end encryption, compression or bandwidth limit; no per-device rules (use a separate folder for a part you want on one device only); no two-factor sign-in; no notifications on the clients; no macOS or mobile clients; no automatic updates; no server architectures other than x86-64; a single file larger than 128 GiB is refused by the server (the block list of one file is held in the server's memory). The reasons are in `docs/design.md`.
+To stay light enough for a 512 MB router while remaining simple to operate, kaze-sync deliberately leaves out features that are not needed for personal multi-device folder sync:
+- No file sharing, multiple user accounts, or collaborative editing
+- No file preview or file download in the Web UI
+- No syncing of empty directories, Windows directory junctions, file permissions (other than the executable bit), or file owners and extended attributes
+- No end-to-end encryption, transfer compression, or bandwidth rate limiting
+- No per-device exclusion rules (if you want a subset of files only on one device, put them in a separate folder)
+- No two-factor authentication for the Web UI
+- No desktop tray icons or pop-up notifications on clients
+- No macOS or mobile clients, and no server architectures other than x86-64
+- No automatic self-updates
+- Single files larger than 128 GiB are refused by the server (because the server holds the block list of a single file in memory)
+
+For the engineering reasons behind each of these choices, see [`docs/design.md`](../design.md).
