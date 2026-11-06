@@ -391,6 +391,9 @@ func (s *Server) blocks(w http.ResponseWriter, r *http.Request, _ device) {
 	}
 }
 
+// getParallel is how many blocks one /blocks/get request reads at the same time.
+const getParallel = 16
+
 // blocksGet returns the requested blocks as a block packet.
 func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 	var req proto.BlocksGetReq
@@ -416,13 +419,22 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	buf := make([]byte, proto.BlockSize)
-	for i, h := range req.Hashes {
-		f, err := s.blobs.Open(h)
-		if err == nil {
-			var n int
-			n, err = io.ReadFull(f, buf)
-			f.Close()
+	// Read up to getParallel blocks ahead (a small request reads fewer): the disk gets a queue deeper than one,
+	// and at most getParallel blocks (4 MB) are held at a time. Blocks are still written in request order.
+	par := min(getParallel, len(req.Hashes))
+	bufs := make([][]byte, par)
+	done := make([]chan error, par) // done[i%par] gets the result of block i
+	ns := make([]int, par)
+	read := func(i int) {
+		k := i % par
+		done[k] <- func() error {
+			h := req.Hashes[i]
+			f, err := s.blobs.Open(h)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			n, err := io.ReadFull(f, bufs[k])
 			if err == io.ErrUnexpectedEOF || err == io.EOF {
 				err = nil
 			}
@@ -430,12 +442,25 @@ func (s *Server) blocksGet(w http.ResponseWriter, r *http.Request, _ device) {
 				slog.Error("block file has an unexpected size", "block", h.String(), "read", n, "size", sizes[i])
 				err = io.ErrUnexpectedEOF
 			}
-			if err == nil {
-				err = proto.WriteBlock(w, h, buf[:n])
-			}
+			ns[k] = n
+			return err
+		}()
+	}
+	for k := range bufs {
+		bufs[k], done[k] = make([]byte, proto.BlockSize), make(chan error, 1)
+		go read(k)
+	}
+	for i, h := range req.Hashes {
+		k := i % par
+		err := <-done[k]
+		if err == nil {
+			err = proto.WriteBlock(w, h, bufs[k][:ns[k]])
 		}
 		if err != nil {
 			panic(http.ErrAbortHandler) // headers are gone: break the connection so the client sees a truncated body
+		}
+		if i+par < len(req.Hashes) {
+			go read(i + par)
 		}
 	}
 }

@@ -330,3 +330,31 @@ func TestBlocksGetNeverSendsPartOfABlockFile(t *testing.T) {
 		t.Fatal("the oversized file was sent")
 	}
 }
+
+// More blocks than the read-ahead window, of different sizes, still come back in request order, byte for byte.
+func TestBlocksGetKeepsOrderBeyondTheReadWindow(t *testing.T) {
+	e := newEnv(t)
+	_, tok := e.enrollDevice("d1", "linux")
+	var hs []proto.Hash
+	var want [][]byte
+	for i := 0; i < 5*getParallel+3; i++ {
+		d := bytes.Repeat([]byte{byte(i)}, 1+i*977%proto.BlockSize)
+		hs = append(hs, e.block(d))
+		want = append(want, d)
+	}
+	st, body := e.api(tok, "blocks/get", proto.BlocksGetReq{Hashes: hs})
+	if st != 200 {
+		t.Fatalf("blocks/get: %d", st)
+	}
+	r := bytes.NewReader(body)
+	buf := make([]byte, proto.BlockSize)
+	for i := range hs {
+		got, data, err := proto.ReadBlock(r, buf)
+		if err != nil || got != hs[i] || !bytes.Equal(data, want[i]) {
+			t.Fatalf("block %d: %v %v", i, got == hs[i], err)
+		}
+	}
+	if r.Len() != 0 {
+		t.Fatalf("%d extra bytes", r.Len())
+	}
+}
