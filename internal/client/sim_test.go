@@ -306,7 +306,7 @@ func (s *sim) open(c *simClient, sf *simFolder) {
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	s.t.Cleanup(func() { db.Close() })
+	cleanupOnce(s.t, func() { db.Close() })
 	sf.rules, sf.cfgVer = s.rules[sf.id], s.cfgVer[sf.id]
 	f := NewFolder(simConfig(sf.id, sf.rules), crashFS{sf.mem, s.crash}, db, c.api, false)
 	f.Stable, f.DeviceName = 0, c.name

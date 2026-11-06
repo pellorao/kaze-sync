@@ -93,7 +93,7 @@ func newCEnvAt(t *testing.T, now func() time.Time) *cenv {
 	admin.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	sum := sha256.Sum256(ts.Certificate().Raw)
 	e.ts, e.admin, e.fp = ts, admin, "sha256:"+hex.EncodeToString(sum[:])
-	t.Cleanup(func() { ts.Close(); e.srv.Close() })
+	cleanupOnce(t, func() { ts.Close(); e.srv.Close() })
 	if st, _ := e.post("/login", url.Values{"password": {"PW"}}); st != 303 {
 		t.Fatalf("admin login: %d", st)
 	}
@@ -232,7 +232,7 @@ func (g *engine) restart(api *API, fc proto.FolderConfig, fsys cfs.FS) {
 	if err != nil {
 		g.t.Fatal(err)
 	}
-	g.t.Cleanup(func() { db.Close() })
+	cleanupOnce(g.t, func() { db.Close() })
 	if fc.Writectl == nil { // the same as the free root that setup and pair give the server
 		fc.Writectl = []proto.WCRule{{Mode: proto.ModeFree}}
 	}
@@ -295,4 +295,17 @@ func pseudoRandom(n int, seed byte) []byte {
 		b[i] = byte(x >> 24)
 	}
 	return b
+}
+
+// cleanupOnce is t.Cleanup that lets go of fn once it has run. testing keeps a finished cleanup in the backing
+// array of the test's cleanup list, so a closure over the simulation (the server clock is a method value of it)
+// would keep a whole simulation alive until the parent test ends; the parallel subtests of TestSimulation and
+// TestCrashAtEveryCall then pile up to GBs.
+func cleanupOnce(t *testing.T, fn func()) {
+	t.Helper()
+	t.Cleanup(func() {
+		f := fn
+		fn = nil
+		f()
+	})
 }
