@@ -180,6 +180,7 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 
 - 仓库布局: `cmd/kaze-syncd`, `cmd/kaze-syncc`, `internal/server` (含 `web/` 模板与静态文件), `internal/client` (引擎内核, 扫描, 拉取, agent 循环, `fs`, `place`, `watch`), `internal/ignore`, `internal/blobstore`, `internal/proto` (协议类型, 块大小, 路径规则), `e2e/` (含 `e2e/vm/`). 不预设其他层次.
 - Linux 单元测试: WSL 中 `go test ./...` (差分测试需要 `git`).
+- 全量测试的资源量 (2026-11-07 在 WSL 实测, `TMPDIR=/tmp` 即 tmpfs): `go test ./... -count=1` 对块设备共写约 34 MB (`internal/client` 约 29 MB, `internal/server` 约 2 MB, 其余各包不足 1 MB), 另有约 7 MB 换出到 swap; `t.TempDir` 在 tmpfs 上, 峰值约 0.35 GB. 内存是主要开销: `internal/client` 的 `TestSimulation` 和 `TestCrashAtEveryCall` 并行时进程内存峰值约 5 GB 以上, 主机内存紧张时可能引起宿主侧换页写盘 (不出现在来宾块设备统计里). `TMPDIR` 不放在 `/home` 下 (`TestInstallOnOtherLinux` 需要 ProtectHome 生效, 且会把 tmpfs 上的写入变成真实写盘).
 - Windows 单元测试: 在 WSL 中 `GOOS=windows go test -c -o <Windows 磁盘上的目录>/x.test.exe ./internal/...`, 再经互操作运行, 使其临时目录位于 NTFS. 可执行文件不受 PowerShell 执行策略限制.
 - 服务端二进制: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/kaze-syncd`.
 - 端到端: `go run ./e2e -config <path>`, 每个里程碑结束时运行全部已有场景.
