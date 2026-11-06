@@ -1,6 +1,8 @@
 package client
 
 import (
+	"errors"
+	cfs "kaze-sync/internal/client/fs"
 	"net/url"
 	"strconv"
 	"strings"
@@ -171,5 +173,45 @@ func TestReadonlyPullKeepsUnscannedLocalChange(t *testing.T) {
 	}
 	if s := g2.saved(); len(s) != 1 || !strings.HasSuffix(s[0], "/code/a.txt") {
 		t.Errorf("saved %v", s)
+	}
+}
+
+// failFS fails the calls named in it.
+type failFS struct {
+	cfs.FS
+	noWritable string // SetWritable(p, true) of this path fails
+	noRename   bool
+}
+
+func (x failFS) SetWritable(p string, w bool) error {
+	if w && p == x.noWritable {
+		return errors.New("injected")
+	}
+	return x.FS.SetWritable(p, w)
+}
+
+func (x failFS) Rename(a, b string) error {
+	if x.noRename {
+		return errors.New("injected")
+	}
+	return x.FS.Rename(a, b)
+}
+
+// A refused move is reported, leaves the file where it was, and read-only.
+func TestSaveAwayReportsFailures(t *testing.T) {
+	_, _, _, g2 := lockedPair(t)
+	inner := g2.f.guard.FS
+	g2.f.guard.FS = failFS{FS: inner, noWritable: "code/a.txt"}
+	if err := g2.f.saveAway("code/a.txt"); err == nil {
+		t.Fatal("a failed unlock was not reported")
+	}
+	g2.f.guard.FS = failFS{FS: inner, noRename: true}
+	if err := g2.f.saveAway("code/a.txt"); err == nil {
+		t.Fatal("a failed move was not reported")
+	}
+	g2.f.guard.FS = inner
+	g2.wantRO("code", true)
+	if n := len(g2.saved()); n != 0 {
+		t.Fatalf("%d files saved", n)
 	}
 }

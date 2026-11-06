@@ -119,13 +119,16 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 	if r.exec {
 		mode = 0o755
 	}
-	f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	// Write beside the target and rename once the hash matches: a bad export leaves an earlier file in place.
+	tmp := dst + ".export-tmp"
+	os.Remove(tmp) // never open through a leftover link
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
-			os.Remove(dst)
+			os.Remove(tmp)
 		}
 	}()
 	sum := sha256.New()
@@ -149,10 +152,13 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 	if string(sum.Sum(nil)) != string(r.hash) {
 		return fmt.Errorf("content does not match its hash")
 	}
-	if err := os.Chmod(dst, mode); err != nil {
+	if err := os.Chmod(tmp, mode); err != nil {
 		return err
 	}
-	return os.Chtimes(dst, time.Unix(0, r.mtimeNs), time.Unix(0, r.mtimeNs))
+	if err := os.Chtimes(tmp, time.Unix(0, r.mtimeNs), time.Unix(0, r.mtimeNs)); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 // noLinkOnPath fails when a directory between root (excluded) and the parent of dst is a symbolic link.

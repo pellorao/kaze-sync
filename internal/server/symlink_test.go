@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,5 +124,33 @@ func TestLinkNoticeFoldsToOneLine(t *testing.T) {
 	_, page = e.get(c, "/")
 	if !strings.Contains(page, "win: 1 个符号链接未建立") {
 		t.Fatalf("a single link is not folded:\n%s", page)
+	}
+}
+
+// A file whose content does not match its hash is not exported, and the file an earlier export left stays as it was.
+func TestExportBadHashKeepsEarlierFile(t *testing.T) {
+	e := newEnv(t)
+	h := e.block([]byte("new"))
+	root := t.TempDir()
+	dst := filepath.Join(root, "f")
+	os.WriteFile(dst, []byte("old"), 0o644)
+	bad := proto.Hash(sha256.Sum256([]byte("other")))
+	r := &fileRow{path: "f", blocks: proto.JoinHashes([]proto.Hash{h}), hash: bad[:], mtimeNs: 1}
+	if err := exportFile(e.s.blobs, root, r); err == nil {
+		t.Fatal("a bad hash was exported")
+	}
+	if b, err := os.ReadFile(dst); err != nil || string(b) != "old" {
+		t.Fatalf("earlier file: %q %v", b, err)
+	}
+	if ents, _ := os.ReadDir(root); len(ents) != 1 {
+		t.Fatalf("leftovers: %v", ents)
+	}
+	good := sha256.Sum256([]byte("new"))
+	r.hash = good[:]
+	if err := exportFile(e.s.blobs, root, r); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "new" {
+		t.Fatalf("exported: %q", b)
 	}
 }

@@ -1,6 +1,9 @@
 package fs
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func guardSetup(t *testing.T, windows bool) (*Mem, *Guard) {
 	t.Helper()
@@ -93,5 +96,26 @@ func TestGuardGetsAroundForeignReadonlyDirs(t *testing.T) {
 	}
 	if !ro(m, "free") {
 		t.Error("the user's read-only directory was left writable")
+	}
+}
+
+type noUnlockFS struct{ FS }
+
+func (noUnlockFS) SetWritable(p string, w bool) error {
+	if w {
+		return errors.New("injected")
+	}
+	return nil
+}
+
+// An unlock that fails holds nothing, so nothing is "restored" later, and the operation reports its own error.
+func TestGuardUnlockFailureHoldsNothing(t *testing.T) {
+	m, _ := guardSetup(t, false)
+	g := NewGuard(noUnlockFS{m}, []string{"r"})
+	if err := g.Remove("r/a"); err == nil {
+		t.Fatal("remove below a read-only directory succeeded")
+	}
+	if len(g.held) != 0 {
+		t.Fatalf("held: %v", g.held)
 	}
 }
