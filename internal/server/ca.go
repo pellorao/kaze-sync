@@ -86,15 +86,37 @@ func serial() *big.Int {
 	return n
 }
 
+// writeAtomic replaces path with b (mode mode) by one rename. Root runs it in var/tls, which the service user
+// owns and can fill with links: the temporary file is created new (O_EXCL, random name) and the final rename
+// replaces a link at path itself, so nothing is ever written through one.
 func writeAtomic(path string, b []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symbolic link", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, mode); err != nil {
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, mode); err != nil {
+	tmp := f.Name()
+	fail := func(err error) error {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(mode); err != nil {
+		return fail(err)
+	}
+	if _, err := f.Write(b); err != nil {
+		return fail(err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := f.Close(); err != nil {
 		os.Remove(tmp)
 		return err
 	}
