@@ -417,14 +417,11 @@ func (in *Installer) chownData(data string) error {
 			}
 		}
 	}
-	// Everything below var/ but the blocks themselves (read-only, world-readable): this also repairs a
-	// tree that root restored from a backup (design 9.4).
+	// Everything below var/, blocks included (the service refreshes their mtime with os.Chtimes, which needs the
+	// owner): this also repairs a tree that root restored from a backup (design 9.4) or made by another user.
 	return filepath.WalkDir(state, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if !d.IsDir() && strings.HasPrefix(p, filepath.Join(state, "blobs")+"/") {
-			return nil
 		}
 		if err := in.Chown(p, uid, gid); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err

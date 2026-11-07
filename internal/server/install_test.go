@@ -511,8 +511,10 @@ func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
 			t.Errorf("%s not handed to the service user", p)
 		}
 	}
-	if owned[blob] {
-		t.Error("block files are chowned one by one")
+	// The service refreshes the mtime of a block it reuses (os.Chtimes needs the owner): blocks made before the
+	// install by another user must be handed over as well, else every commit that reuses one fails (unfreeze 11-08).
+	if !owned[blob] || f.owners[blob] != 32768 {
+		t.Error("block files are not handed to the service user")
 	}
 }
 
