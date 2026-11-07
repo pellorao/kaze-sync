@@ -141,20 +141,27 @@ func TestServerCertRenewal(t *testing.T) {
 	}
 }
 
-func TestCheckServerCertWithoutCAKey(t *testing.T) {
+func TestCheckServerCertOnlyWarns(t *testing.T) {
 	data := caData(t)
-	db := installDB(t, data)
 	now := time.Now()
 	if _, err := EnsureServerCert(data, ServerSANs("", ""), now); err != nil {
 		t.Fatal(err)
 	}
-	if renewed, err := CheckServerCert(db, data, now.Add(leafLife-time.Hour)); err != nil || !renewed {
-		t.Fatalf("with the key: %v %v", renewed, err)
+	// The service never renews, even when it could read the key: the certificate file stays as it is.
+	before, _ := os.ReadFile(serverPEMPath(data))
+	if err := CheckServerCert(data, now.Add(leafLife-time.Hour)); err == nil {
+		t.Fatal("a certificate about to expire not reported")
 	}
-	// The service user cannot read the key: nothing is renewed, only a warning is logged.
-	os.Remove(filepath.Join(data, CADir, caKeyFile))
-	if renewed, err := CheckServerCert(db, data, now.Add(2*leafLife)); err != nil || renewed {
-		t.Fatalf("without the key: %v %v", renewed, err)
+	if err := CheckServerCert(data, now); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(serverPEMPath(data))
+	if string(before) != string(after) {
+		t.Fatal("the service renewed the certificate")
+	}
+	os.Remove(serverPEMPath(data))
+	if err := CheckServerCert(data, now); err == nil {
+		t.Fatal("missing certificate not reported")
 	}
 }
 
@@ -290,11 +297,14 @@ func TestCACommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.in.CA(CAOptions{Data: f.data}); err == nil {
-		t.Fatal("ca switched a self-signed installation without --enable")
+		t.Fatal("ca switched a self-signed installation")
+	}
+	if err := f.install(InstallOptions{CA: true}); err != nil {
+		t.Fatal(err)
 	}
 	f.out.Reset()
 	exp := filepath.Join(t.TempDir(), "ca.pem")
-	if err := f.in.CA(CAOptions{Data: f.data, Enable: true, SAN: "x.local", Export: exp}); err != nil {
+	if err := f.in.CA(CAOptions{Data: f.data, SAN: "x.local", Export: exp}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(exp)
@@ -310,7 +320,7 @@ func TestCACommand(t *testing.T) {
 	if !strings.Contains(f.out.String(), "sha256:"+hex.EncodeToString(sum[:])) {
 		t.Fatalf("output:\n%s", f.out.String())
 	}
-	// Repeating needs no --enable, keeps the CA, and "-" prints only the certificate.
+	// Repeating keeps the CA, and "-" prints only the certificate.
 	f.out.Reset()
 	if err := f.in.CA(CAOptions{Data: f.data, Export: "-"}); err != nil {
 		t.Fatal(err)
@@ -373,7 +383,11 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	}))
 	defer ts.Close()
 	os.WriteFile(filepath.Join(f.data, "ntfy.json"), []byte(`{"url":"`+ts.URL+`","topic":"t"}`), 0o600)
-	os.WriteFile(filepath.Join(f.data, CADir, caCertFile), []byte("broken"), 0o644) // the check fails at once
+	// A certificate that expires soon: the check fails at once, the service cannot renew it.
+	os.Remove(serverPEMPath(f.data))
+	if _, err := EnsureServerCert(f.data, ServerSANs(addr, ""), time.Now().Add(-leafLife+24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, f.data) }()

@@ -19,7 +19,7 @@ import (
 const usage = `usage:
   kaze-syncd run --data DIR
   kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE | --ca [--san NAMES]] [--wan] [--new-epoch]
-  kaze-syncd ca [--data DIR] [--enable] [--san NAMES] [--export FILE|-]
+  kaze-syncd ca [--data DIR] [--san NAMES] [--export FILE|-]
   kaze-syncd admin-password [--data DIR]
   kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "YYYY-MM-DD HH:MM[:SS]" (UTC)]`
 
@@ -59,7 +59,6 @@ func main() {
 	}
 	var caOpts server.CAOptions
 	if cmd == "ca" {
-		fs.BoolVar(&caOpts.Enable, "enable", false, "switch an installation that is not in CA mode")
 		fs.StringVar(&caOpts.SAN, "san", "", "extra host names and IP addresses for the server certificate, comma separated")
 		fs.StringVar(&caOpts.Export, "export", "", "write the CA certificate to this file (- for the output)")
 	}

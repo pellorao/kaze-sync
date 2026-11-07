@@ -75,11 +75,10 @@ func Run(ctx context.Context, data string) error {
 	return nil
 }
 
-// certLoop renews the CA-signed server certificate when this process may sign, and warns when it may not
-// and the certificate is about to expire.
+// certLoop warns when the CA-signed server certificate is about to expire (renewal is done by root).
 func (s *Server) certLoop(ctx context.Context, data string) {
 	for {
-		if _, err := CheckServerCert(s.db, data, time.Now()); err != nil {
+		if err := CheckServerCert(data, time.Now()); err != nil {
 			slog.Error("server certificate check failed", "err", err)
 			s.Push.Fail("cert", "The server certificate cannot be renewed or is about to expire", 1)
 		} else {

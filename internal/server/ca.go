@@ -311,31 +311,22 @@ func (cs *CertSource) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, er
 	return cs.cert, nil
 }
 
-// CheckServerCert renews the server certificate when the service may sign (it runs as the owner of the CA
-// key) and otherwise only warns when the certificate is about to expire. It returns the renewal outcome for tests.
-func CheckServerCert(db *sql.DB, data string, now time.Time) (renewed bool, err error) {
-	sans := ServerSANs(MetaString(db, "listen"), MetaString(db, "san"))
-	if f, oerr := os.Open(filepath.Join(data, CADir, caKeyFile)); oerr == nil {
-		f.Close()
-		renewed, err = EnsureServerCert(data, sans, now)
-		if renewed {
-			slog.Info("server certificate renewed")
-		}
-		return renewed, err
-	}
+// CheckServerCert reports an error (logged and pushed by certLoop) when the server certificate is about to expire. The service runs as the unprivileged
+// kaze-sync user and cannot read the CA key, so it never renews: root does, with `install` or `kaze-syncd ca`.
+func CheckServerCert(data string, now time.Time) error {
 	c, err := loadChain(serverPEMPath(data))
 	if err != nil {
-		return false, err
+		return err
 	}
 	leaf, err := x509.ParseCertificate(c.Certificate[0])
 	if err != nil {
-		return false, err
+		return err
 	}
 	if left := leaf.NotAfter.Sub(now); left < warnBefore {
-		slog.Warn("server certificate expires soon and this service cannot renew it: run `kaze-syncd ca --data "+data+"` as the CA owner (root)",
-			"expires", leaf.NotAfter.Format(time.DateOnly))
+		return fmt.Errorf("server certificate expires on %s and this service cannot renew it: run `kaze-syncd ca --data %s` as root",
+			leaf.NotAfter.Format(time.DateOnly), data)
 	}
-	return false, nil
+	return nil
 }
 
 // SetupCA turns on CA mode for the installation in data: it stores the mode and the extra names, creates the
@@ -368,22 +359,20 @@ func SetupCA(db *sql.DB, data string, extraSAN string, setSAN bool) (*tls.Certif
 // CAOptions are the arguments of `kaze-syncd ca`.
 type CAOptions struct {
 	Data   string
-	Enable bool   // switch an installation that is not in CA mode yet
 	SAN    string // extra names, comma separated; kept when empty
 	Export string // write the CA certificate here ("-" is the output)
 }
 
-// CA is `kaze-syncd ca`: it checks and renews the server certificate of an installation in CA mode, and
-// exports the CA certificate. With Enable it switches the installation to CA mode, as `install --ca` does,
-// for installations that `install` does not manage (it needs root).
+// CA is `kaze-syncd ca`: it checks and renews the server certificate of an installation in CA mode (run by
+// root), and exports the CA certificate.
 func (in *Installer) CA(o CAOptions) error {
 	db, err := OpenDB(filepath.Join(o.Data, VarDir, DBFile), false)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if MetaString(db, "tls") != "ca" && !o.Enable {
-		return errors.New("this installation is not in CA mode; --enable switches it (clients must pin the new fingerprint)")
+	if MetaString(db, "tls") != "ca" {
+		return errors.New("this installation is not in CA mode: run `install --ca` as root (clients must pin the new fingerprint)")
 	}
 	chain, err := SetupCA(db, o.Data, o.SAN, o.SAN != "")
 	if err != nil {
