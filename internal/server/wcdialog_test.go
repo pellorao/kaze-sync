@@ -101,3 +101,24 @@ func TestRestoreErrorPageCarriesLocks(t *testing.T) {
 		t.Fatalf("locks %+v", locks)
 	}
 }
+
+// A file cannot be unrestricted (design-writectl 2.2): inside a free directory it is a single-writer scope of its own,
+// so its dialog inherits "single", not "free"; the directory itself keeps inheriting "free".
+func TestFileInFreeDirInheritsSingle(t *testing.T) {
+	l := newLockEnv(t)
+	l.mode("free", proto.ModeFree, 0)
+	l.apiCommit(l.ta, l.f, l.op("free/x.txt", 0, "x"), l.op("free/sub/y.txt", 0, "y"))
+	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?dir=free")
+	for _, row := range regexp.MustCompile(`(?s)<tr [^>]*>`).FindAllString(page, -1) {
+		switch {
+		case strings.Contains(row, `data-path="free/x.txt"`):
+			if !strings.Contains(row, `data-inh="single"`) {
+				t.Errorf("file row inherits %s", row)
+			}
+		case strings.Contains(row, `data-path="free/sub"`):
+			if !strings.Contains(row, `data-inh="free"`) {
+				t.Errorf("directory row inherits %s", row)
+			}
+		}
+	}
+}
