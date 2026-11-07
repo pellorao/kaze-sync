@@ -122,3 +122,24 @@ func TestFileInFreeDirInheritsSingle(t *testing.T) {
 		}
 	}
 }
+
+// The dialog that reopens after a failed save (and the one a notification link opens) knows that the path is a file:
+// inside a free directory it inherits "single" there too.
+func TestWCReopenedDialogOfFileInheritsSingle(t *testing.T) {
+	l := newLockEnv(t)
+	l.mode("free", proto.ModeFree, 0)
+	l.apiCommit(l.ta, l.f, l.op("free/x.txt", 0, "x"))
+	dlg := regexp.MustCompile(`<dialog id="dlg-wc"[^>]*>`)
+	st, page := l.post(l.web, "/folders/"+itoa(l.f)+"/writectl", url.Values{"path": {"free/x.txt"}, "mode": {"exclusive"}, "device": {"0"}})
+	if d := dlg.FindString(page); st != 400 || !strings.Contains(d, ` data-inh="single"`) {
+		t.Errorf("failed save of a file: %d %s", st, d)
+	}
+	_, page = l.get(l.web, "/folders/"+itoa(l.f)+"?wc=free/x.txt")
+	if d := dlg.FindString(page); !strings.Contains(d, ` data-inh="single"`) || !strings.Contains(d, " data-file") {
+		t.Errorf("link to a file: %s", d)
+	}
+	_, page = l.get(l.web, "/folders/"+itoa(l.f)+"?wc=free")
+	if d := dlg.FindString(page); strings.Contains(d, " data-file") || !strings.Contains(d, ` data-inh="single"`) {
+		t.Errorf("link to a directory: %s", d)
+	}
+}

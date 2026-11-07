@@ -1040,7 +1040,7 @@
   $$("[data-ruleedit]").forEach(ruleEditor);
   $$("dialog[data-autoopen]").forEach((d) => {
     if (restore && d.id === "dlg-restore") restore.open(d.querySelector("form").elements.path.value, null);
-    else { if (d.id === "dlg-wc") fillWC(d, d.dataset, false); openDialog(d); }
+    else { if (d.id === "dlg-wc") fillWC(d, d.dataset, "file" in d.dataset); openDialog(d); }
   });
   const hit = decodeURIComponent(location.hash.slice(1));
   if (hit) {

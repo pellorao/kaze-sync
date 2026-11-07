@@ -87,7 +87,7 @@
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary" data-restore-go disabled>{{icon "restore"}}<span>{{t "common.restore"}}</span></button></div>
 </form></dialog>
 
-<dialog id="dlg-wc" class="dlg" data-folder-name="{{.Folder.Name}}" data-clear="wc" data-held="{{.HeldSpans}}"{{with .WCOpen}} data-path="{{.Path}}" data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}{{if eq .Open "dlg-wc"}} data-autoopen{{end}} aria-labelledby="wc-t"><form method="post" action="/folders/{{.Folder.ID}}/writectl">
+<dialog id="dlg-wc" class="dlg" data-folder-name="{{.Folder.Name}}" data-clear="wc" data-held="{{.HeldSpans}}"{{with .WCOpen}} data-path="{{.Path}}" data-wc-mode="{{if .Explicit}}{{.Mode}}{{end}}" data-wc-dev="{{.DevID}}" data-inh="{{.InhMode}}" data-inh-from="{{.InhFrom}}"{{end}}{{if .WCFile}} data-file{{end}}{{if eq .Open "dlg-wc"}} data-autoopen{{end}} aria-labelledby="wc-t"><form method="post" action="/folders/{{.Folder.ID}}/writectl">
 <input type="hidden" name="path" value="{{with .WCOpen}}{{.Path}}{{end}}"><input type="hidden" name="dir" value="{{.Dir}}">
 <div class="dlg-h">{{icon "lock"}}<h3 id="wc-t">{{t "dlg.wc.title"}}</h3></div>
 <div class="dlg-b">

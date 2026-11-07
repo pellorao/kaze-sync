@@ -245,9 +245,10 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		"Scope": dir, "LockPaths": lockPaths(wcRules, owners), "HeldSpans": s.heldSpans(f.ID), "WCHere": wcFor(wcRules, dir)}
 	s.wcLine(t, data, owners, wcRules, dir)
 	if wp, ok := r.URL.Query()["wc"]; ok && ds == nil { // a link of the notifications opens the dialog (design 2.8.11)
-		data["Open"], data["WCOpen"] = "dlg-wc", wcFor(wcRules, strings.Trim(wp[0], "/"))
+		data["Open"] = "dlg-wc"
+		s.wcOpen(data, f.ID, wcRules, strings.Trim(wp[0], "/"))
 	} else if ds != nil && ds.dialog == "dlg-wc" {
-		data["WCOpen"] = wcFor(wcRules, strings.Trim(r.PostForm.Get("path"), "/"))
+		s.wcOpen(data, f.ID, wcRules, strings.Trim(r.PostForm.Get("path"), "/"))
 	}
 	if hd, err := strconv.ParseInt(r.FormValue("held"), 10, 64); err == nil && ds == nil {
 		if data["HeldView"], err = s.heldView(f.ID, hd); err != nil {
@@ -453,4 +454,20 @@ func lockPaths(rules []lockRow, owners map[string]ownerNow) string {
 	slices.SortFunc(out, func(a, b l) int { return strings.Compare(a.K+"\x00"+a.D, b.K+"\x00"+b.D) })
 	b, _ := json.Marshal(out)
 	return string(b)
+}
+
+// wcOpen sets the path of the write-control dialog the page opens by itself. A file is never unrestricted, so inside a
+// free directory it inherits "single" (the rows get this in decorateWC) and the dialog hides the "free" option.
+func (s *Server) wcOpen(data map[string]any, folder int64, rules []lockRow, p string) {
+	w := wcFor(rules, p)
+	if db, err := s.folderDB(folder); err == nil && p != "" {
+		var one int
+		if db.QueryRow(`SELECT 1 FROM files WHERE path=? AND hash IS NOT NULL`, p).Scan(&one) == nil {
+			data["WCFile"] = true
+			if w.InhMode == proto.ModeFree {
+				w.InhMode = proto.ModeSingle
+			}
+		}
+	}
+	data["WCOpen"] = w
 }
