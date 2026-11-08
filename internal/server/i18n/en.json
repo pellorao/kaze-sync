@@ -220,6 +220,7 @@
  "err.pathOverlap": "The path overlaps another mapping of this device, {path}",
  "err.lock.unmapped": "{device} does not map this folder",
  "err.lock.path": "The path is not valid",
+ "err.lock.fileFree": "A file cannot be set to any writer; use single writer or exclusive",
  "err.language": "Unsupported language",
  "flash.saved": "Saved",
  "flash.rules": "Exclusion rules saved",

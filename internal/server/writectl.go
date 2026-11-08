@@ -215,6 +215,9 @@ func (s *Server) writectlHandler(w http.ResponseWriter, r *http.Request) error {
 	if p != "" && pp.CheckPortable(p) != nil || p == "" && mode == "inherit" {
 		return fieldErr(s.folderPage, http.StatusBadRequest, "dlg-wc", "path", "err.lock.path")
 	}
+	if mode == proto.ModeFree && s.isFile(f.ID, p) { // design-writectl 2.2: a file is never unrestricted
+		return fieldErr(s.folderPage, http.StatusBadRequest, "dlg-wc", "path", "err.lock.fileFree")
+	}
 	dev, _ := strconv.ParseInt(r.FormValue("device"), 10, 64)
 	err = s.configChange(func(tx *sql.Tx) (bool, error) {
 		changed, err := setWC(tx, f.ID, p, mode, dev, s.now().Unix())

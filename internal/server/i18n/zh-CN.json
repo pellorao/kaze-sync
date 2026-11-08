@@ -206,6 +206,7 @@
  "err.pathOverlap": "路径与该设备的另一个映射 {path} 重叠",
  "err.lock.unmapped": "{device} 没有映射这个文件夹",
  "err.lock.path": "路径无效",
+ "err.lock.fileFree": "文件不能设为不限，请选单端或独占",
  "err.language": "不支持的语言",
  "flash.saved": "已保存",
  "flash.rules": "排除规则已保存",

@@ -206,6 +206,7 @@
  "err.pathOverlap": "路徑與該裝置的另一個對應 {path} 重疊",
  "err.lock.unmapped": "{device} 沒有對應這個資料夾",
  "err.lock.path": "路徑無效",
+ "err.lock.fileFree": "檔案不能設為不限，請選單端或獨佔",
  "err.language": "不支援的語言",
  "flash.saved": "已儲存",
  "flash.rules": "排除規則已儲存",

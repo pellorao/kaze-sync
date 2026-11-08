@@ -460,14 +460,21 @@ func lockPaths(rules []lockRow, owners map[string]ownerNow) string {
 // free directory it inherits "single" (the rows get this in decorateWC) and the dialog hides the "free" option.
 func (s *Server) wcOpen(data map[string]any, folder int64, rules []lockRow, p string) {
 	w := wcFor(rules, p)
-	if db, err := s.folderDB(folder); err == nil && p != "" {
-		var one int
-		if db.QueryRow(`SELECT 1 FROM files WHERE path=? AND hash IS NOT NULL`, p).Scan(&one) == nil {
-			data["WCFile"] = true
-			if w.InhMode == proto.ModeFree {
-				w.InhMode = proto.ModeSingle
-			}
+	if s.isFile(folder, p) {
+		data["WCFile"] = true
+		if w.InhMode == proto.ModeFree {
+			w.InhMode = proto.ModeSingle
 		}
 	}
 	data["WCOpen"] = w
+}
+
+// isFile tells whether p is a live file of the folder (a directory has no row of its own).
+func (s *Server) isFile(folder int64, p string) bool {
+	db, err := s.folderDB(folder)
+	if err != nil || p == "" {
+		return false
+	}
+	var one int
+	return db.QueryRow(`SELECT 1 FROM files WHERE path=? AND hash IS NOT NULL`, p).Scan(&one) == nil
 }

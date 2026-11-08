@@ -285,13 +285,21 @@ func (s *sim) reconfigure(fid int64, first bool) {
 			s.e.setRule(fid, simRule{Path: r.Path, Mode: "inherit"}, s.devIDs)
 		}
 	}
+	kept := rules[:0]
 	for _, r := range rules {
 		if o, ok := in(old, r.Path); !ok || o != r {
-			if st := s.e.setRule(fid, r, s.devIDs); st != 303 && st != 404 {
+			st := s.e.setRule(fid, r, s.devIDs)
+			if st == 400 && r.Mode == "free" && r.Path != "" { // the path is a file now: a file is never unrestricted (design-writectl 2.2)
+				s.e.setRule(fid, simRule{Path: r.Path, Mode: "inherit"}, s.devIDs)
+				continue
+			}
+			if st != 303 && st != 404 {
 				s.t.Fatalf("set rule %+v of folder %d: %d", r, fid, st)
 			}
 		}
+		kept = append(kept, r)
 	}
+	rules = kept
 	s.rules[fid] = rules
 	s.cfgVer[fid]++
 	_ = first

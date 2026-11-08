@@ -143,3 +143,30 @@ func TestWCReopenedDialogOfFileInheritsSingle(t *testing.T) {
 		t.Errorf("link to a directory: %s", d)
 	}
 }
+
+// A file cannot be unrestricted (design-writectl 2.2): the server refuses "free" for a file and saves nothing (the
+// dialog only hides the option); a directory, and the other modes of a file, still save.
+func TestWriteControlRefusesFreeForFile(t *testing.T) {
+	l := newLockEnv(t)
+	l.apiCommit(l.ta, l.f, l.op("d/x.txt", 0, "x"))
+	wc := "/folders/" + itoa(l.f) + "/writectl"
+	v := metaInt(l.s.db, "config_version")
+	st, page := l.post(l.web, wc, urlValues("d/x.txt", "free"))
+	if st != 400 || !regexp.MustCompile(`id="dlg-wc"[^>]* data-autoopen`).MatchString(page) {
+		t.Errorf("free for a file: %d, dialog not reopened", st)
+	}
+	if n := l.count(`SELECT count(*) FROM writectl`); n != 0 || metaInt(l.s.db, "config_version") != v {
+		t.Errorf("free for a file saved: %d rows, config_version %d -> %d", n, v, metaInt(l.s.db, "config_version"))
+	}
+	if n := l.count(`SELECT count(*) FROM folders WHERE wc_ack=1`); n != 0 {
+		t.Errorf("refused save confirmed the folder")
+	}
+	if st, _ := l.post(l.web, wc, urlValues("d", "free")); st != 303 {
+		t.Errorf("free for a directory: %d", st)
+	}
+	if st, _ := l.post(l.web, wc, urlValues("d/x.txt", "single")); st != 303 {
+		t.Errorf("single for a file: %d", st)
+	}
+}
+
+func urlValues(path, mode string) url.Values { return url.Values{"path": {path}, "mode": {mode}} }

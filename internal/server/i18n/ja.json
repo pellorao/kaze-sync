@@ -206,6 +206,7 @@
  "err.pathOverlap": "パスがこのデバイスの別のマッピング {path} と重なっています",
  "err.lock.unmapped": "{device} はこのフォルダーをマッピングしていません",
  "err.lock.path": "パスが無効です",
+ "err.lock.fileFree": "ファイルは「制限なし」にできません。単一書き込みか専有を選んでください",
  "err.language": "サポートされていない言語です",
  "flash.saved": "保存しました",
  "flash.rules": "除外ルールを保存しました",
