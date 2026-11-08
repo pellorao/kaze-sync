@@ -266,6 +266,8 @@
  "notice.held": "{device} に判断待ちの変更が {n} 件あります: {scope} ({why})",
  "notice.handle": "処理する…",
  "advice.held": "ダイアログで 1 件ずつ、または範囲全体に対して、アップロード、上書きアップロード、破棄のいずれかを選びます",
+ "notice.held.cut": "{device} の判断待ちの変更が上限を超えています: {n} 件は表示されません",
+ "advice.held.cut": "表示された変更を処理すると、デバイスが再度報告し、残りが表示されます",
  "held.why.owner": "{other} と同時に書き込み",
  "held.why.exclusive": "{other} が専有",
  "held.why.conflict": "サーバーの版と食い違い",

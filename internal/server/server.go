@@ -91,6 +91,7 @@ type report struct {
 	tooOld    int                         // the version of the client when its last request was refused as too old; 0 once it polls again
 	offline   *time.Timer                 // fires when the device counts as offline: the Web UI then updates
 	held      map[int64][]proto.HeldItem  // the changes the device holds for the user, by folder (design 2.8.10)
+	heldCut   map[int64]int               // how many held changes of the last report were dropped for the limit, by folder
 	actions   map[actionKey]pendingAction // the user's decisions on them that have not taken effect yet
 }
 

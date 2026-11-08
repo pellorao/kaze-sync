@@ -266,6 +266,8 @@
  "notice.held": "{device} 上有 {n} 个改动待处理: {scope} ({why})",
  "notice.handle": "在文件夹页处理",
  "advice.held": "在处理框中逐个或整范围选择: 上传, 上传并覆盖, 丢弃",
+ "notice.held.cut": "{device} 上待处理的改动超过上限, 另有 {n} 个未显示",
+ "advice.held.cut": "处理已显示的改动后, 设备会再次上报, 其余的才会出现",
  "held.why.owner": "与 {other} 同时写入",
  "held.why.exclusive": "{other} 独占",
  "held.why.conflict": "与服务端版本冲突",

@@ -180,7 +180,7 @@ func TestTimeZoneIsStoredOnTheServer(t *testing.T) {
 	e.mapFolder(dev, f, "/x")
 	e.report(tok, f, proto.FileError{Path: "x", Kind: proto.KindIO, Message: "m", Since: e.clk.Now().Unix()})
 	_, body := e.get(c, "/")
-	if !regexp.MustCompile(`<time datetime="2026-11-01T12:00:00Z">2026-11-01 12:00:00</time>`).MatchString(body) {
+	if !regexp.MustCompile(`<time datetime="2030-11-01T12:00:00Z">2030-11-01 12:00:00</time>`).MatchString(body) {
 		t.Errorf("no <time> element in UTC:\n%s", body)
 	}
 }

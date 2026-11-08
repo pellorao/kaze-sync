@@ -38,6 +38,7 @@ type notice struct {
 const (
 	kindHeld      = "held"
 	kindNewFolder = "wc-unset"
+	kindHeldCut   = "held-cut" // N held changes of a device are not kept or shown: its report was over the limit
 )
 
 // adviceOf is what to do about a kind of notice, in the language of the page ("" when there is nothing to say).
@@ -103,6 +104,9 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				}
 				out = append(out, n)
 			}
+		}
+		if n := rep.heldCut[folder]; n > 0 {
+			out = append(out, notice{Error: true, Kind: kindHeldCut, Device: d.name, N: n, ReportedAt: stale, Folder: folder})
 		}
 		byScope := map[string]*heldGroup{}
 		var order []string

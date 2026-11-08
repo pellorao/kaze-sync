@@ -174,7 +174,7 @@ func setWC(tx *sql.Tx, folder int64, path, mode string, device int64, now int64)
 			return false, err
 		}
 		if n == 0 {
-			var dn string
+			dn := strconv.FormatInt(device, 10) // a device that is not there is named by its id
 			tx.QueryRow(`SELECT name FROM devices WHERE id=?`, device).Scan(&dn)
 			return false, M("err.lock.unmapped", "device", dn)
 		}

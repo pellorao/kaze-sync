@@ -66,7 +66,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	db.Close()
-	clk := &clock{t: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)}
+	clk := &clock{t: time.Date(2030, 11, 1, 12, 0, 0, 0, time.UTC)}
 	s, err := New(dir, clk.Now)
 	if err != nil {
 		t.Fatal(err)

@@ -193,3 +193,11 @@ func TestLockWebUI(t *testing.T) {
 		t.Error("device page lacks the exclusive count")
 	}
 }
+
+// A device that is not there is named by its id in the refusal.
+func TestLockUnknownDeviceNamedById(t *testing.T) {
+	l := newLockEnv(t)
+	if st, body := l.lock("z", 987); st != 400 || !strings.Contains(body, "987") {
+		t.Fatalf("unknown device: %d %s", st, body)
+	}
+}

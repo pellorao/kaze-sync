@@ -232,3 +232,46 @@ func TestHeldDialogDrawsAtMostMaxRows(t *testing.T) {
 		t.Error("the page does not name the total")
 	}
 }
+
+// A report over the limit is cut, and the cut is not silent: the answer counts what was dropped and the folder's
+// notices say so, until a report fits again.
+func TestHeldReportCutIsShown(t *testing.T) {
+	l, _ := heldEnv(t)
+	items := make([]proto.HeldItem, maxHeldItems+3)
+	for i := range items {
+		items[i] = proto.HeldItem{Path: "p" + strconv.Itoa(i), Scope: "d:", Reason: "conflict", Kind: "modify", At: 1}
+	}
+	st, out := l.api(l.tb, "held", proto.HeldReq{Folder: l.f, Items: items})
+	if st != 200 {
+		t.Fatalf("held: %d %s", st, out)
+	}
+	var r map[string]int
+	json.Unmarshal(out, &r)
+	if r["held"] != maxHeldItems || r["cut"] != 3 {
+		t.Fatalf("answer %v", r)
+	}
+	notes, err := l.s.folderNotices(l.f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := 0
+	for _, n := range notes {
+		if n.Kind == kindHeldCut {
+			cut = n.N
+		}
+	}
+	if cut != 3 {
+		t.Fatalf("notices %+v", notes)
+	}
+	_, page := l.get(l.web, "/folders/"+itoa(l.f))
+	if !strings.Contains(page, "3 个未显示") {
+		t.Errorf("the page does not say that 3 changes are not shown")
+	}
+	l.heldReport(l.tb, l.f)
+	notes, _ = l.s.folderNotices(l.f)
+	for _, n := range notes {
+		if n.Kind == kindHeldCut {
+			t.Errorf("the cut notice stays: %+v", n)
+		}
+	}
+}

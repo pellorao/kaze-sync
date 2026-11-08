@@ -292,6 +292,8 @@
  "notice.held.1": "{device} has {n} change waiting for your decision: {scope} ({why})",
  "notice.handle": "Handle…",
  "advice.held": "In the dialog choose, one by one or for the whole scope: upload, upload and overwrite, or discard",
+ "notice.held.cut": "{device} holds more changes than the server keeps: {n} not shown",
+ "advice.held.cut": "Decide the ones shown; the device then reports again and the rest appear",
  "held.why.owner": "written at the same time as {other}",
  "held.why.exclusive": "exclusive to {other}",
  "held.why.conflict": "differs from the server's version",

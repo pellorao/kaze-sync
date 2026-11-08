@@ -49,7 +49,9 @@ func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
 		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
 		return
 	}
+	cut := 0
 	if len(req.Items) > maxHeldItems {
+		cut = len(req.Items) - maxHeldItems
 		req.Items = req.Items[:maxHeldItems]
 	}
 	s.mu.Lock()
@@ -58,6 +60,14 @@ func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
 		rep.held = map[int64][]proto.HeldItem{}
 	}
 	rep.held[req.Folder] = req.Items
+	if rep.heldCut == nil {
+		rep.heldCut = map[int64]int{}
+	}
+	if cut > 0 {
+		rep.heldCut[req.Folder] = cut
+	} else {
+		delete(rep.heldCut, req.Folder)
+	}
 	still := map[string]bool{}
 	for _, it := range req.Items {
 		still[it.Path] = true
@@ -69,7 +79,7 @@ func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
 	}
 	s.bumpLocked()
 	s.mu.Unlock()
-	writeJSON(w, map[string]int{"held": len(req.Items)})
+	writeJSON(w, map[string]int{"held": len(req.Items), "cut": cut})
 }
 
 // reportLocked returns the report of a device, made when there is none; the caller holds s.mu.

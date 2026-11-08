@@ -266,6 +266,8 @@
  "notice.held": "{device} 上有 {n} 個改動待處理: {scope} ({why})",
  "notice.handle": "在資料夾頁處理",
  "advice.held": "在處理框中逐個或整範圍選擇: 上傳, 上傳並覆蓋, 捨棄",
+ "notice.held.cut": "{device} 上待處理的改動超過上限, 另有 {n} 個未顯示",
+ "advice.held.cut": "處理已顯示的改動後, 裝置會再次回報, 其餘的才會出現",
  "held.why.owner": "與 {other} 同時寫入",
  "held.why.exclusive": "{other} 獨占",
  "held.why.conflict": "與伺服器版本衝突",

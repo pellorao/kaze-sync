@@ -266,6 +266,8 @@
  "notice.held": "{device}에 처리 대기 중인 변경이 {n}개 있습니다: {scope} ({why})",
  "notice.handle": "처리하기…",
  "advice.held": "대화 상자에서 항목별로 또는 범위 전체에 대해 업로드, 덮어쓰며 업로드, 버리기 중에서 선택하세요",
+ "notice.held.cut": "{device}의 처리 대기 변경이 상한을 넘었습니다: {n}개는 표시되지 않습니다",
+ "advice.held.cut": "표시된 변경을 처리하면 기기가 다시 보고하여 나머지가 나타납니다",
  "held.why.owner": "{other}와 동시에 쓰기",
  "held.why.exclusive": "{other}가 독점",
  "held.why.conflict": "서버 버전과 충돌",

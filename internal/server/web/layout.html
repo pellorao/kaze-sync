@@ -39,6 +39,9 @@
 {{if eq .Kind "held"}}<span class="msg">{{heldMsg .}}</span><a class="path" href="{{.Link}}">{{t "notice.handle"}}</a>
 <span class="meta">{{.Device}} · {{time .Since}}{{if .ReportedAt}} · {{tm "notif.reportedAt" "time" (time .ReportedAt)}}{{end}}</span>
 <span class="adv">{{t "advice.held"}}</span>
+{{else if eq .Kind "held-cut"}}<span class="msg">{{t "notice.held.cut" "device" .Device "n" .N}}</span>
+<span class="meta">{{.Device}}{{if .ReportedAt}} · {{tm "notif.reportedAt" "time" (time .ReportedAt)}}{{end}}</span>
+<span class="adv">{{t "advice.held.cut"}}</span>
 {{else if eq .Kind "wc-unset"}}<span class="msg">{{t "notice.wc.unset"}}</span>
 <span class="adv">{{t "advice.wc.unset"}}</span>
 <span class="acts"><a class="path" href="{{.Link}}">{{t "notice.wc.set"}}</a><form method="post" action="/folders/{{.Folder}}/wc-ack" class="inl"><button class="linkbtn">{{t "notice.wc.keep"}}</button></form></span>
