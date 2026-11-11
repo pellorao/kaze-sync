@@ -129,9 +129,16 @@ Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程�
   /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # 在服务器上
   ```
 
+  `ca.pem` 只包含公开证书, 因此可以用 U 盘, 网盘等方式复制到其他设备上. 导入前请先核对指纹: `ca.pem` 的 SHA-256 指纹必须与 `install` 打印的 CA 指纹一致. 在 Linux 和 macOS 上执行 `openssl x509 -in ca.pem -noout -fingerprint -sha256`; 在 Windows 上执行 `certutil -dump ca.pem` 并查看 "Cert Hash(sha256)".
+
   - **Windows (Chrome 和 Edge)**: 执行 `certutil -user -addstore Root ca.pem`. Windows 会弹出一次确认安装根证书的对话框, 选 **是**. 证书会装入当前用户的存储区, 不需要管理员权限. 装好后重启浏览器.
   - **Linux 系统存储**: 执行 `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Linux 上的 Chrome 和 Chromium 使用独立的 NSS 证书库, 需执行 `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (工具在软件包 `libnss3-tools` 中).
   - **Firefox**: 依次打开 设置 -> 隐私与安全 -> 证书 -> 查看证书 -> 证书颁发机构 -> 导入, 选择 `ca.pem`, 并勾选 "信任由此证书颁发机构来标识网站". (Windows 上的 Firefox 也可以直接读取系统证书库: 在 `about:config` 中把 `security.enterprise_roots.enabled` 设为 `true` 即可.)
+  - **macOS**: 双击 `ca.pem` (或在 "钥匙串访问" 中将它导入 "登录" 钥匙串), 打开该证书, 展开 "信任", 将 "使用此证书时" 设为 "始终信任". 也可以在命令行执行: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
+  - **Android**: 依次打开 设置 -> 安全 (部分手机为 安全与隐私 -> 更多安全设置) -> 加密与凭据 -> 安装证书 -> CA 证书, 选择 `ca.pem` 并确认警告. 不同厂商的菜单名称会有差异. Android 上的 Chrome 使用这个用户安装的证书库; 部分应用会忽略用户安装的 CA, 但不影响在 Chrome 中使用 Web UI.
+  - **iPhone 和 iPad**: 把 `ca.pem` 传到设备上 (通过隔空投送, "文件" 应用或下载链接), 打开它并允许 "已下载描述文件", 然后依次打开 设置 -> 通用 -> VPN 与设备管理 -> 点刚下载的描述文件 -> 安装, 最后依次打开 设置 -> 通用 -> 关于本机 -> 证书信任设置, 为该证书开启完全信任.
+
+  只需在你用浏览器打开 Web UI 的每台设备 (电脑或手机) 上导入一次 `ca.pem`, 只运行客户端的设备不需要导入.
 
   谁拿到 `ca-key.pem`, 谁就能签发你的电脑会无条件信任的网站证书, 因此请妥善保护 `<data>/ca/` 目录, 并在备份服务端时把它一并纳入备份 (第 14 节). 本地 CA 签发的服务端证书有效期为两年, 剩余有效期不足 90 天时会自动续期: 可以通过执行 `install`, 以 root 执行 `kaze-syncd ca --data <data>`, 或在服务以 CA 私钥属主身份运行时由服务自己完成续期. 运行中的服务会在一分钟内自动加载续期后的新证书, 无需重启. 因为默认情况下 CA 归 root 所有, 请配置一条每月执行一次的 cron 定时任务来负责续期 (`0 4 1 * * /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync`); 如果忘了配, 服务在证书到期前最后 30 天内会在日志里持续发出警告. 后续执行 `install` 会自动沿用 CA 模式. 从自签名模式或外部证书模式切到本地 CA 模式只需执行 `install --ca`.
 
