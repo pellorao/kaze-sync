@@ -227,13 +227,23 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 		f.DB.setMeta("scanc", c)
 	}
 	unsent := map[string]bool{}
+	unsentF := map[string]bool{} // unsent files whose scope is not their directory's (a setting on the file itself)
+	note := func(p string) {
+		d := path.Dir(p)
+		unsent[d] = true
+		if a, _ := f.scopeOf(p); a != "" {
+			if b, _ := f.dirScope(d); a != b {
+				unsentF[p] = true
+			}
+		}
+	}
 	for _, it := range items {
 		if _, refused := f.rejected[it.path]; !it.done && !refused { // a refused path (name, size, space...) cannot be sent: not unsent
-			unsent[path.Dir(it.path)] = true
+			note(it.path)
 		}
 	}
 	for p := range f.youngFiles {
-		unsent[path.Dir(p)] = true
+		note(p)
 	}
 	for d := range f.changedDirs { // a file in use (retryDirs only) is a standing warning: not unsent
 		unsent[d] = true
@@ -248,8 +258,13 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 	// unsent everywhere until a whole scan is clean.
 	somewhere := failed != nil || folderErr || (f.retry && len(unsent) == 0)
 	if whole {
-		f.unsentAll, f.unsentDirs = false, nil
+		f.unsentAll, f.unsentDirs, f.unsentFiles = false, nil, nil
 	} else {
+		for p := range f.unsentFiles {
+			if f.coversDir(path.Dir(p)) {
+				delete(f.unsentFiles, p)
+			}
+		}
 		for d := range f.unsentDirs {
 			if f.coversDir(d) {
 				delete(f.unsentDirs, d)
@@ -263,6 +278,12 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 		}
 		f.unsentDirs[d] = true
 	}
+	for p := range unsentF {
+		if f.unsentFiles == nil {
+			f.unsentFiles = map[string]bool{}
+		}
+		f.unsentFiles[p] = true
+	}
 	f.clearDirty()
 }
 
@@ -273,10 +294,7 @@ func (f *Folder) clearDirty() {
 		return
 	}
 	busy := map[string]bool{}
-	for d := range f.unsentDirs {
-		id, _ := f.dirScope(d)
-		busy[id] = true
-	}
+	f.eachUnsentScope(func(id, _ string) bool { busy[id] = true; return true })
 	for id := range f.DB.metaPrefix("dirty:") {
 		if _, fr := f.frozen[id]; !fr && !busy[id] {
 			f.DB.delMeta("dirty:" + id)
@@ -302,18 +320,36 @@ func (f *Folder) sinceHeldBack() bool {
 		return true
 	}
 	dirty := f.DB.metaPrefix("dirty:")
-	for d := range f.unsentDirs {
-		if id, mode := f.dirScope(d); mode == proto.ModeSingle {
-			if _, ok := dirty[id]; ok {
-				continue
-			}
-			if _, fr := f.frozen[id]; fr { // frozen: its changes go to held, not to a since (design 2.8.6)
-				continue
-			}
+	held := false
+	f.eachUnsentScope(func(id, mode string) bool {
+		if mode != proto.ModeSingle {
 			return true
 		}
+		if _, ok := dirty[id]; ok {
+			return true
+		}
+		if _, fr := f.frozen[id]; fr { // frozen: its changes go to held, not to a since (design 2.8.6)
+			return true
+		}
+		held = true
+		return false
+	})
+	return held
+}
+
+// eachUnsentScope calls fn with the scope of each unsent directory and of each unsent file that has a setting of its
+// own, until fn returns false.
+func (f *Folder) eachUnsentScope(fn func(id, mode string) bool) {
+	for d := range f.unsentDirs {
+		if id, mode := f.dirScope(d); !fn(id, mode) {
+			return
+		}
 	}
-	return false
+	for p := range f.unsentFiles {
+		if id, mode := f.scopeOf(p); !fn(id, mode) {
+			return
+		}
+	}
 }
 
 // coversDir reports whether the partial scan that just ran looked at the files directly in directory d.

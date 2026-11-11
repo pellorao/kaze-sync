@@ -87,6 +87,7 @@ type Folder struct {
 	heldNote       map[string]string // why the last decision on a held path was not carried out (HeldItem.Note)
 	unsentAll      bool              // changes may be unsent anywhere: until a whole scan is clean (after a restart or a failed scan)
 	unsentDirs     map[string]bool   // directories where a scan left changes unsent: a clean scan covering one clears it
+	unsentFiles    map[string]bool   // unsent files that have a setting of their own (a scope of one file), cleared like unsentDirs
 	linkProbe      int               // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
