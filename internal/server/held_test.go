@@ -326,3 +326,25 @@ func TestResolveRedirectKeepsDirectory(t *testing.T) {
 		t.Fatalf("returned to %q", resp.Header.Get("Location"))
 	}
 }
+
+// After "discard all" the dialog shows at once that the decision is sent (the device carries it out on its own time),
+// and the group buttons are off, so a second click is not needed nor offered (discard2x).
+func TestGroupDecisionShowsWaiting(t *testing.T) {
+	l, it := heldEnv(t)
+	l.heldReport(l.tb, l.f, it)
+	seen := l.seq(l.f)
+	_, before := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
+	if strings.Contains(before, "data-waiting") {
+		t.Fatal("waiting note before any decision")
+	}
+	l.post(l.web, "/folders/"+itoa(l.f)+"/resolve", url.Values{"device": {itoa(l.b)}, "scope": {"d:D"}, "action": {"discard"}, "seen": {itoa(seen)}})
+	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
+	if !strings.Contains(page, "data-waiting") || !strings.Contains(page, `value="discard" disabled`) {
+		t.Errorf("the group does not show the decision as sent:\n%.3000s", page)
+	}
+	l.heldReport(l.tb, l.f)
+	_, after := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
+	if strings.Contains(after, "data-waiting") || strings.Contains(after, `class="held-grp"`) {
+		t.Error("the group is still shown after the device reported")
+	}
+}

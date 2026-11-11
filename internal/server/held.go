@@ -231,6 +231,7 @@ type heldGroupView struct {
 	Scope, Path, Reason, Other string
 	Rows                       []heldRowView
 	Total                      int
+	Decided                    int // how many of Total have a decision waiting for the device
 }
 
 type heldDevView struct {
@@ -293,6 +294,9 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 	for _, it := range items {
 		g := &v.Groups[idx[it.Scope]]
 		g.Total++
+		if waiting[it.Path] {
+			g.Decided++
+		}
 		if len(g.Rows) >= maxHeldRows {
 			continue
 		}

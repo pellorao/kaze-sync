@@ -324,6 +324,7 @@
  "dlg.held.changed": "{device} が変更済み",
  "dlg.held.same": "変更なし",
  "dlg.held.waiting": "{device} の実行待ち",
+ "dlg.held.groupWaiting": "決定を送信しました。{device} がまもなく実行し、この一覧は自動で更新されます。",
  "dlg.held.upload": "アップロード",
  "dlg.held.overwrite": "上書きアップロード",
  "dlg.held.discard": "破棄",

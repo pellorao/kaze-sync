@@ -324,6 +324,7 @@
  "dlg.held.changed": "{device}가 변경함",
  "dlg.held.same": "변경 없음",
  "dlg.held.waiting": "{device}의 실행 대기",
+ "dlg.held.groupWaiting": "결정을 보냈습니다. {device}가 곧 실행하며 이 목록은 자동으로 갱신됩니다.",
  "dlg.held.upload": "업로드",
  "dlg.held.overwrite": "덮어쓰며 업로드",
  "dlg.held.discard": "버리기",

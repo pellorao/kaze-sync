@@ -39,7 +39,8 @@
 {{range .Groups}}<form method="post" action="/folders/{{$.Folder.ID}}/resolve" class="held-grp">
 <button class="sr" tabindex="-1" aria-hidden="true"></button><input type="hidden" name="device" value="{{$.HeldView.DeviceID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><input type="hidden" name="scope" value="{{.Scope}}"><input type="hidden" name="seen" value="{{$.HeldView.Seen}}">
 <div class="held-h"><span class="mono">/{{.Path}}</span><span class="muted">{{t "held.n" "n" .Total}} · {{heldWhy .Reason .Other}}</span></div>
-<div class="held-acts"><button class="btn sm" name="action" value="discard">{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite" data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
+{{if and .Total (eq .Decided .Total)}}<p class="note" data-waiting>{{icon "info"}}<span>{{t "dlg.held.groupWaiting" "device" $.HeldView.Device}}</span></p>{{end}}
+<div class="held-acts"><button class="btn sm" name="action" value="discard"{{if and .Total (eq .Decided .Total)}} disabled{{end}}>{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite"{{if and .Total (eq .Decided .Total)}} disabled{{end}} data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
 <label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
 <details><summary>{{t "dlg.held.expand"}}</summary>
 <p class="note warn" data-mixwarn hidden>{{icon "warn"}}<span>{{t "dlg.held.mixed"}}</span></p>

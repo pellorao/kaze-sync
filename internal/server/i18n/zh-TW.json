@@ -324,6 +324,7 @@
  "dlg.held.changed": "已被 {device} 改過",
  "dlg.held.same": "未變",
  "dlg.held.waiting": "等待 {device} 執行",
+ "dlg.held.groupWaiting": "已送出決定，{device} 稍後執行，此清單會自動更新。",
  "dlg.held.upload": "上傳",
  "dlg.held.overwrite": "上傳並覆蓋",
  "dlg.held.discard": "捨棄",

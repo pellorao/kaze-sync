@@ -346,8 +346,21 @@
   let es = null, lastGen = null, dirty = false;
   const busy = () => !!$("dialog[open]") || menu.matches(":popover-open");
   function flush() { if (dirty) refresh(); }
+  // The decision dialog stays open while a device carries out the decisions it was given: it takes the new list in
+  // place as long as the user has not started choosing rows.
+  async function refreshHeld() {
+    const d = $("dialog#dlg-held[open]");
+    if (!d || !$("[data-waiting]", d) || $$(".held-rows select", d).some((s) => s.value)) return;
+    let r;
+    try { r = await fetch(location.href, { credentials: "same-origin" }); } catch (e) { return; }
+    if (!r.ok) return;
+    const nu = $("#dlg-held .dlg-b", new DOMParser().parseFromString(await r.text(), "text/html"));
+    const cur = $(".dlg-b", d);
+    if (nu && cur && d.open) cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
+    renderTimes(d);
+  }
   async function refresh() {
-    if (busy()) { dirty = true; return; }
+    if (busy()) { dirty = true; refreshHeld(); return; }
     dirty = false;
     let r;
     try { r = await fetch(liveURL, { credentials: "same-origin", headers: main && main.dataset.folder ? { "X-Live": "1" } : {} }); } catch (e) { return; }

@@ -351,6 +351,7 @@
  "dlg.held.changed": "changed by {device}",
  "dlg.held.same": "unchanged",
  "dlg.held.waiting": "Waiting for {device}",
+ "dlg.held.groupWaiting": "Decision sent. {device} carries it out soon and this list updates by itself.",
  "dlg.held.upload": "Upload",
  "dlg.held.overwrite": "Upload and overwrite",
  "dlg.held.discard": "Discard",
