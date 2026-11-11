@@ -286,7 +286,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 		}
 	}
 	if !t.scan {
-		f.retry, f.retryDirs = false, nil // nothing was scanned: this task's Pull alone says whether a retry is still due
+		f.retry, f.retryDirs, f.changedDirs = false, nil, nil // nothing was scanned: this task's Pull alone says whether a retry is still due
 	}
 	if err == nil && (t.pull || f.retry || f.Seen() < 0) && f.Ready() {
 		done := trace("pull", "folder", r.cfg.ID)

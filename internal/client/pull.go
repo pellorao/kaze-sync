@@ -65,8 +65,8 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		f.seen = since
 		err = f.retryUnlinked(ctx)
 	}
-	if err == nil && held == 0 && !f.hasUnsent() && len(f.frozen) == 0 {
-		// Nothing unsent is known and the cursor is whole: what is on disk was either sent or came with this Pull, so a
+	if err == nil && held == 0 && !f.sinceHeldBack() {
+		// Nothing unsent is known in a scope with no since yet, and the cursor is whole: what is on disk was either sent or came with this Pull, so a
 		// change made after now began at this cursor. (A change in the moments of the Pull itself is the one the
 		// base check, not the since, still catches.) Without this the first edit after a Pull would carry an old since.
 		if c := f.DB.metaInt("cursor"); c != f.DB.metaInt("scanc") {

@@ -235,7 +235,7 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 	for p := range f.youngFiles {
 		unsent[path.Dir(p)] = true
 	}
-	for d := range f.retryDirs {
+	for d := range f.changedDirs { // a file in use (retryDirs only) is a standing warning: not unsent
 		unsent[d] = true
 	}
 	// Standing warnings (refused paths, files in use, skipped entries, unreadable files) are paths that cannot be sent
@@ -263,18 +263,52 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 		}
 		f.unsentDirs[d] = true
 	}
-	if f.hasUnsent() {
+	f.clearDirty()
+}
+
+// clearDirty clears the since of each scope with no unsent directory of its own and no freeze, so that a scope
+// kept back by unsent changes (or frozen) does not keep the others (design 2.8.6). With unsentAll nothing clears.
+func (f *Folder) clearDirty() {
+	if f.unsentAll {
 		return
 	}
+	busy := map[string]bool{}
+	for d := range f.unsentDirs {
+		p := d + "/x"
+		if d == "." {
+			p = "x"
+		}
+		id, _ := f.scopeOf(p)
+		busy[id] = true
+	}
 	for id := range f.DB.metaPrefix("dirty:") {
-		if _, fr := f.frozen[id]; !fr {
+		if _, fr := f.frozen[id]; !fr && !busy[id] {
 			f.DB.delMeta("dirty:" + id)
 		}
 	}
 }
 
-// hasUnsent reports whether some change is known to be left unsent, or may be (after a restart or a failed scan).
-func (f *Folder) hasUnsent() bool { return f.unsentAll || len(f.unsentDirs) > 0 }
+// sinceHeldBack reports whether the cursor of a Pull may not become the since of the scopes' next changes: some change
+// is unsent (or may be) in a single-writer scope that has no since yet. A scope with a since keeps it, so unsent
+// changes or a freeze elsewhere do not stop the others (design 2.8.6).
+func (f *Folder) sinceHeldBack() bool {
+	if f.unsentAll {
+		return true
+	}
+	dirty := f.DB.metaPrefix("dirty:")
+	for d := range f.unsentDirs {
+		p := d + "/x"
+		if d == "." {
+			p = "x"
+		}
+		if id, mode := f.scopeOf(p); mode == proto.ModeSingle {
+			if _, ok := dirty[id]; !ok {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // coversDir reports whether the partial scan that just ran looked at the files directly in directory d.
 func (f *Folder) coversDir(d string) bool {
@@ -311,9 +345,6 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 	}
 }
 
-// heldItemOverhead is the JSON an item takes besides its path, scope and note (keys, numbers at their longest).
-const heldItemOverhead = 170
-
 // HeldItems is the list of held changes for the server (POST /held), and whether it differs from the last one sent.
 // At most proto.MaxHeldItems are returned, the rest is counted in cut: a longer list would not fit the request.
 func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
@@ -336,7 +367,8 @@ func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
 	f.heldSig = string(sum[:])
 	size := 0
 	for i, it := range items { // paths and notes make an item longer: keep the request well within proto.MaxJSONBody
-		if size += heldItemOverhead + len(it.Path) + len(it.Scope) + len(it.Note); i >= proto.MaxHeldItems || size > proto.MaxJSONBody*7/8 {
+		eb, _ := json.Marshal(it) // the encoded length, escapes included ("&" is 6 bytes)
+		if size += len(eb) + 1; i >= proto.MaxHeldItems || size > proto.MaxJSONBody*7/8 {
 			cut, items = len(items)-i, items[:i]
 			break
 		}
@@ -347,10 +379,14 @@ func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
 // HeldReportFailed records that the list could not reach the server (err), or that it did (nil), so that the status
 // shows it; a log line alone is not seen (design 2.8.10).
 func (f *Folder) HeldReportFailed(err error) {
-	f.heldErr = ""
-	if err != nil {
-		f.heldErr = "cannot report the held changes: " + err.Error()
+	if err == nil {
+		f.heldErr = ""
+		return
 	}
+	if f.heldErr == "" {
+		f.heldErrAt = f.Now().Unix() // the first failure, not the latest
+	}
+	f.heldErr = "cannot report the held changes: " + err.Error()
 }
 
 // ShowHeldError adds the failure of the last held report to a report that was made before it.
@@ -358,7 +394,8 @@ func (f *Folder) ShowHeldError(rep *Report) {
 	if f.heldErr == "" {
 		return
 	}
-	rep.Errors = append(slices.Clone(rep.Errors), proto.FileError{Kind: proto.KindIO, Message: f.heldErr, Since: f.Now().Unix()})
+	// KindSkipped, not KindIO: no push about "files that cannot be synced"
+	rep.Errors = append(slices.Clone(rep.Errors), proto.FileError{Kind: proto.KindSkipped, Message: f.heldErr, Since: f.heldErrAt})
 	rep.State = "error"
 }
 

@@ -61,10 +61,10 @@ type Folder struct {
 
 	errs, pullErrs []proto.FileError
 	scope          func(string) bool    // what the last scan covered: nil for the whole root
-	young          time.Time            // while scanning: when the youngest file left for being too fresh becomes stable
 	youngFiles     map[string]time.Time // while scanning: the too-fresh files and when each becomes stable
 	unstableFiles  map[string]time.Time // the same after a scan, kept across scans and pulls (see Unstable)
 	retryDirs      map[string]bool      // directories whose files a retry must look at again (see RetryDirs)
+	changedDirs    map[string]bool      // the part of retryDirs where a file changed while read: its change is unsent
 	sink           *[]proto.FileError
 	errSince       map[string]int64
 	ready          bool // the sync root was checked by the last Scan
@@ -81,6 +81,7 @@ type Folder struct {
 	frozen         map[string]int64     // the frozen scopes and the cursor their pulls stop at (design 2.8.5)
 	heldDirty      bool                 // the held list may differ from what the server has
 	heldSig        string
+	heldErrAt      int64  // when the report of the held changes began to fail
 	heldErr        string // why the last report of the held changes failed, "" when it did not
 	heldSent       string
 	heldNote       map[string]string // why the last decision on a held path was not carried out (HeldItem.Note)
@@ -116,7 +117,7 @@ func (f *Folder) UnstableDirs() []string { return dirsOf(f.unstableFiles) }
 
 // RetryDirs are the directories the last Scan or Pull wants scanned again (a file changed while it was read
 // or placed, or is in use), sorted. A retry without any (downloads waiting) needs a pull only.
-func (f *Folder) RetryDirs() []string { return dirsOf(f.retryDirs) }
+func (f *Folder) RetryDirs() []string { return slices.Sorted(maps.Keys(f.retryDirs)) }
 
 func dirsOf[V any](m map[string]V) []string {
 	set := map[string]bool{}
@@ -126,13 +127,19 @@ func dirsOf[V any](m map[string]V) []string {
 	return slices.Sorted(maps.Keys(set))
 }
 
-// retryFile asks for a retry that scans the directory of p again.
+// retryFile asks for a retry that scans the directory of p again, for a file that changed while it was read or
+// placed: that change is unsent until the retry (changedDirs), unlike a file in use (retryDir only).
 func (f *Folder) retryFile(p string) {
 	f.retry = true
 	f.retryDir(p)
+	if f.changedDirs == nil {
+		f.changedDirs = map[string]bool{}
+	}
+	f.changedDirs[path.Dir(p)] = true
 }
 
-// retryDir records the directory of p for the next retry, quick or slow.
+// retryDir records the directory of p for the next retry, quick or slow. A file in use only asks for the slow
+// retry: it is a standing warning, not an unsent change (design 2.8.6).
 func (f *Folder) retryDir(p string) {
 	if f.retryDirs == nil {
 		f.retryDirs = map[string]bool{}
@@ -228,8 +235,8 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	var rep Report
 	old := f.errs
 	f.savedTS = ""
-	f.errs, f.sink, f.retry, f.pendingUp, f.scope, f.young = nil, &f.errs, false, 0, nil, time.Time{}
-	f.retryDirs, f.youngFiles = nil, nil
+	f.errs, f.sink, f.retry, f.pendingUp, f.scope = nil, &f.errs, false, 0, nil
+	f.retryDirs, f.changedDirs, f.youngFiles = nil, nil, nil
 	pd, rootOnly := pruneDirs(slices.Clone(dirs))
 	whole := len(pd) == 0 && !rootOnly
 	ok, err := f.checkRoot()
@@ -613,9 +620,6 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
 			end := time.Unix(0, e.MtimeNs).Add(f.Stable)
-			if f.young.IsZero() || end.Before(f.young) {
-				f.young = end
-			}
 			if f.youngFiles == nil {
 				f.youngFiles = map[string]time.Time{}
 			}
