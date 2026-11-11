@@ -40,7 +40,7 @@ If kaze-sync fits what you need, you can get a server and your first client sync
    /var/lib/kaze-sync/kaze-syncd admin-password         # shows the admin password once
    ```
 
-   `install` starts the service and prints the listening port and the certificate fingerprint. Open that TCP port in your firewall or cloud security group so clients and your browser can reach it (on OpenWrt, `install --wan` does this for you).
+   `install` starts the service and prints the listening port and the certificate fingerprint. Open that TCP port in your firewall or cloud security group so clients and your browser can reach it (on OpenWrt, `install --wan` does this for you; see [section 2.6 of the manual](docs/manuals/user-manual.md#26-ports-and-firewall-rules)).
 
 3. **Sign in.** Open `https://<server>:<port>/` in your browser and log in with the password printed by `admin-password`. Because the certificate is self-signed by default, the browser will show a warning; compare the fingerprint with the one `install` printed, then accept it.
 4. **Enroll a client.** Now connect your first computer to the server. In the Web UI overview, press **Add device** (`添加设备`), enter a name, and copy the enrollment command from the dialog. Put `kaze-syncc` or `kaze-syncc.exe` in a permanent directory on that computer and run the command:

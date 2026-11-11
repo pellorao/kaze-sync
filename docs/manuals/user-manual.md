@@ -95,7 +95,7 @@ On a standard x86-64 Linux server, the root file system has plenty of space and 
 
 `install` automatically detects your service manager (checking for OpenWrt first, then systemd, then OpenRC, and refusing anything else). It creates the system user `kaze-sync` (using `useradd`, or busybox `adduser` on Alpine), writes the service file (`/etc/systemd/system/kaze-sync.service` on systemd, `/etc/init.d/kaze-sync` on OpenRC), enables it at boot, and starts it.
 
-Unlike on OpenWrt, `install` on plain Linux does **not** touch your firewall and does not accept `--wan`. Open the printed TCP port yourself in your cloud provider's security group or local firewall (for example, `ufw allow <port>/tcp` or `firewall-cmd --add-port=<port>/tcp --permanent`).
+Unlike on OpenWrt, `install` on plain Linux does **not** touch your firewall and does not accept `--wan`. Open the printed TCP port yourself in your cloud provider's security group or local firewall (for example, `ufw allow <port>/tcp` or `firewall-cmd --add-port=<port>/tcp --permanent`; see section 2.6).
 
 Use your platform's service manager for day-to-day control and logs:
 
@@ -112,7 +112,7 @@ Note that `install` requires root privileges, and there is no supported way to r
 
 ### 2.4 Port, certificate and firewall
 
-Because the Web UI and the client protocol share a single HTTPS port, every connection to the server is encrypted. By default, `install` picks a random port so port scanners do not easily find it, or you can fix a port with `--listen :PORT`.
+Because the Web UI and the client protocol share a single HTTPS port, every connection to the server is encrypted. By default, `install` picks a random port so port scanners do not easily find it, or you can fix a port with `--listen :PORT` (see section 2.6).
 
 For TLS certificates, you can choose among three modes depending on how you use the Web UI and whether you already own a domain certificate:
 
@@ -146,6 +146,51 @@ With the server running and the port open, open `https://<server>:<port>/` in a 
 You can run `admin-password` again at any time—for example, if you forget the password or get locked out. Each run generates a new random password (you cannot choose a custom password), prints it once, and restarts the service, which immediately signs out all active browser sessions and clears all failed-login lockouts. Run it as `<data>/kaze-syncd admin-password`, or run another copy of the binary with `--data DIR`.
 
 **Resource usage.** In normal operation, the server uses about 24 MB of memory, and daily garbage collection (section 13) adds a bounded amount on top. A machine with 512 MB of RAM can garbage-collect up to about 512 GB of stored data in a single pass; if you store more than that, garbage collection simply scans in multiple passes rather than using more memory.
+
+### 2.6 Ports and firewall rules
+
+Because the server (`kaze-syncd`) serves both the Web UI and the client sync protocol over a single HTTPS listening socket and opens no plain-HTTP port, local admin port, or UDP socket, your firewall setup comes down to a single rule: **open one inbound TCP port on the server** so your browsers and clients can reach `https://<server>:<port>/`.
+
+Clients (`kaze-syncc` on Linux and Windows) do not open any listening socket at all. Because every connection is initiated outbound from the client to the server, client computers need no inbound firewall rules and work behind NAT without port forwarding. If you also filter outbound traffic, clients only need outbound TCP to the server's port, and both the server and clients need outbound HTTP or HTTPS (plus DNS if the URL uses a hostname) only when you enable optional ntfy push alerts in `ntfy.json` (section 9.1); neither program makes any other outbound connections.
+
+**Which port to open and how to find it.** On the first run, `install` picks a random TCP port between 20000 and 59999, saves it in the server database, and keeps that same port on later `install` runs. To choose the port yourself, pass `--listen :<port>` (or a specific address and port such as `--listen 127.0.0.1:<port>`). With the default `:<port>` form, the server binds both IPv4 and IPv6 on all interfaces, so if your clients or browsers connect over IPv6, open the port in both your IPv4 and IPv6 firewalls. Because `kaze-syncd` has no `status` subcommand, if you ever need to check the port later, re-run `install` with the same `--data` directory (which is safe to repeat and prints `installed in <data>, listening on :<port>` along with the fingerprint), check the `listening addr=... fingerprint=...` line in the server log (`journalctl -u kaze-sync` on systemd, syslog tag `kaze-sync` in `/var/log/messages` on OpenRC/Alpine, or `logread` on OpenWrt), run `ss -ltnp` on the server, or check the `https://<server>:<port>` URL already used on an enrolled client.
+
+**Opening the port.** If your server runs in the cloud, add an inbound rule for TCP `<port>` in your provider's security group from the addresses your clients and browsers use (you can restrict the source to known addresses if they are fixed, though the port is already protected by TLS certificate pinning, device tokens, a random admin password, and IP lockout after failed attempts). For a firewall on the server itself, replace `<port>` with your listening port in the commands for your platform:
+
+On **Ubuntu / Debian (`ufw`)** or **RHEL / Rocky / Fedora (`firewalld`)**:
+
+```bash
+ufw allow <port>/tcp                               # server (ufw)
+
+firewall-cmd --add-port=<port>/tcp --permanent     # server (firewalld)
+firewall-cmd --reload
+```
+
+On **Alpine Linux (OpenRC with `iptables` / `ip6tables`)**, add the rule, save the ruleset, and enable the firewall service at boot (include the `ip6tables` lines if you use IPv6):
+
+```bash
+iptables -A INPUT -p tcp --dport <port> -j ACCEPT  # server (IPv4)
+rc-service iptables save
+rc-update add iptables
+ip6tables -A INPUT -p tcp --dport <port> -j ACCEPT # server (IPv6)
+rc-service ip6tables save
+rc-update add ip6tables
+```
+
+On **OpenWrt**, passing `--wan` to `install` creates the WAN firewall rule automatically, or you can create the same `kaze-sync` rule manually with `uci` (note that running `install` later without `--wan` removes `firewall.kaze_sync`):
+
+```bash
+./kaze-syncd install --data /mnt/data/kaze-sync --wan    # server: automatic
+
+uci set firewall.kaze_sync=rule                          # server: manual equivalent
+uci set firewall.kaze_sync.name=kaze-sync
+uci set firewall.kaze_sync.src=wan
+uci set firewall.kaze_sync.proto=tcp
+uci set firewall.kaze_sync.dest_port=<port>
+uci set firewall.kaze_sync.target=ACCEPT
+uci commit firewall
+/etc/init.d/firewall reload
+```
 
 ## 3. Installing and enrolling clients
 

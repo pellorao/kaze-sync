@@ -95,7 +95,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 
 `install` 会自动识别系统的服务管理器 (依次检测 OpenWrt, systemd, OpenRC; 其余初始化系统一律拒绝). 它会创建系统用户 `kaze-sync` (使用 `useradd`, Alpine 上使用 busybox `adduser`), 写入服务定义文件 (systemd 下为 `/etc/systemd/system/kaze-sync.service`, OpenRC 下为 `/etc/init.d/kaze-sync`), 设为开机自启并立即启动服务.
 
-与 OpenWrt 不同, 普通 Linux 上的 `install` **不会**改动任何防火墙配置, 也不接受 `--wan` 选项. 请在云厂商的安全组或本机防火墙中放行打印出的 TCP 端口 (例如执行 `ufw allow <端口>/tcp` 或 `firewall-cmd --add-port=<端口>/tcp --permanent`).
+与 OpenWrt 不同, 普通 Linux 上的 `install` **不会**改动任何防火墙配置, 也不接受 `--wan` 选项. 请在云厂商的安全组或本机防火墙中放行打印出的 TCP 端口 (例如执行 `ufw allow <端口>/tcp` 或 `firewall-cmd --add-port=<端口>/tcp --permanent`; 见 2.6 节).
 
 日常启停服务和查看日志使用各平台自带的工具:
 
@@ -112,7 +112,7 @@ systemd 下的单元文件带有安全加固选项 (限制服务只能写入 `<d
 
 ### 2.4 端口, 证书与防火墙
 
-Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程加密. 默认情况下 `install` 会随机选定端口以避免被全网扫描发现; 如果需要固定端口, 可以用 `--listen :PORT` 指定.
+Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程加密. 默认情况下 `install` 会随机选定端口以避免被全网扫描发现; 如果需要固定端口, 可以用 `--listen :PORT` 指定 (见 2.6 节).
 
 在证书配置上, 你可以根据自己的使用习惯和是否拥有域名证书, 在以下三种模式中选择一种:
 
@@ -146,6 +146,51 @@ Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程�
 `admin-password` 命令随时可以再次执行 (例如忘记了密码或登录失败过多被锁定时). 它会生成一个新的随机密码 (不支持自定义密码), 在终端显示一次, 并自动重启服务端; 重启会同时清除所有已登录会话和所有 IP 失败锁定. 执行方式为 `<data>/kaze-syncd admin-password`, 或使用另一处的二进制文件加上 `--data DIR`.
 
 **资源占用.** 服务端正常运行时约占 24 MB 内存; 每日垃圾回收 (第 13 节) 额外占用的内存有固定上限. 一台 512 MB 内存的机器在管理约 512 GB 以内的数据时, 垃圾回收一趟扫描即可完成; 数据量更大时只是多扫几趟, 不会占用更多内存.
+
+### 2.6 端口与防火墙规则
+
+服务端 (`kaze-syncd`) 通过同一个 HTTPS 监听套接字同时提供 Web UI 和客户端同步协议, 不开启任何明文 HTTP 端口, 本地管理端口或 UDP 套接字, 因此防火墙配置只需一条规则: **在服务端开放一个入站 TCP 端口**, 让浏览器和客户端能够访问 `https://<server>:<port>/`.
+
+客户端 (Linux 和 Windows 上的 `kaze-syncc`) 完全不开启任何监听套接字. 所有连接都由客户端主动向外发起到服务端, 因此客户端电脑不需要任何入站防火墙规则, 在 NAT 之后无需端口转发即可工作. 如果你还限制出站流量, 客户端只需要到服务端端口的出站 TCP 连接; 此外只有当你在 `ntfy.json` 中启用了可选的 ntfy 消息推送 (9.1 节) 时, 服务端和客户端才需要出站 HTTP 或 HTTPS 连接 (如果 URL 使用主机名, 还需要 DNS); 两个程序都不会发起任何其他出站连接.
+
+**开放哪个端口以及如何查看端口.** 首次执行时, `install` 会在 20000 到 59999 之间随机选定一个 TCP 端口并保存在服务端数据库中, 后续再次执行 `install` 时保持该端口不变. 如果想自己指定端口, 请传入 `--listen :<port>` (或指定具体地址和端口, 如 `--listen 127.0.0.1:<port>`). 使用默认的 `:<port>` 形式时, 服务端会在所有网卡接口上同时绑定 IPv4 和 IPv6, 因此如果客户端或浏览器通过 IPv6 连接, 请在 IPv4 和 IPv6 防火墙中都放行该端口. 因为 `kaze-syncd` 没有 `status` 子命令, 日后如果需要查看端口, 可以用同一个 `--data` 目录重新执行一次 `install` (可安全重复执行, 会打印 `installed in <data>, listening on :<port>` 以及证书指纹), 查看服务端日志中的 `listening addr=... fingerprint=...` 行 (systemd 下用 `journalctl -u kaze-sync`, OpenRC/Alpine 下看 `/var/log/messages` 中标签为 `kaze-sync` 的 syslog, OpenWrt 下用 `logread`), 在服务端执行 `ss -ltnp`, 或查看已注册客户端上使用的 `https://<server>:<port>` 地址.
+
+**放行端口.** 如果服务器运行在云平台上, 请在云厂商的安全组中添加一条入站规则, 允许你的客户端和浏览器所使用的地址访问 TCP `<port>` (如果客户端和浏览器的来源地址固定, 可以限制来源 IP, 不过该端口本身已有 TLS 证书指纹固定, 设备令牌, 随机管理员密码和失败后 IP 锁定多重保护). 对于服务器本机上的防火墙, 请在对应平台的命令中把 `<port>` 替换为你的监听端口:
+
+**Ubuntu / Debian (`ufw`)** 或 **RHEL / Rocky / Fedora (`firewalld`)**:
+
+```bash
+ufw allow <port>/tcp                               # server (ufw)
+
+firewall-cmd --add-port=<port>/tcp --permanent     # server (firewalld)
+firewall-cmd --reload
+```
+
+**Alpine Linux (使用 `iptables` / `ip6tables` 的 OpenRC)**, 添加规则, 保存规则集并启用开机自启服务 (如果使用 IPv6, 请一并执行 `ip6tables` 各行):
+
+```bash
+iptables -A INPUT -p tcp --dport <port> -j ACCEPT  # server (IPv4)
+rc-service iptables save
+rc-update add iptables
+ip6tables -A INPUT -p tcp --dport <port> -j ACCEPT # server (IPv6)
+rc-service ip6tables save
+rc-update add ip6tables
+```
+
+**OpenWrt**, 执行 `install` 时加上 `--wan` 会自动创建 WAN 防火墙规则, 也可以用 `uci` 手动创建同一条 `kaze-sync` 规则 (注意后续如果执行 `install` 时不带 `--wan`, 会删除 `firewall.kaze_sync`):
+
+```bash
+./kaze-syncd install --data /mnt/data/kaze-sync --wan    # server: 自动配置
+
+uci set firewall.kaze_sync=rule                          # server: 等效的手动命令
+uci set firewall.kaze_sync.name=kaze-sync
+uci set firewall.kaze_sync.src=wan
+uci set firewall.kaze_sync.proto=tcp
+uci set firewall.kaze_sync.dest_port=<port>
+uci set firewall.kaze_sync.target=ACCEPT
+uci commit firewall
+/etc/init.d/firewall reload
+```
 
 ## 3. 安装并注册客户端
 

@@ -40,7 +40,7 @@ Web UI 提供简体中文, 繁体中文, 英文, 日文和韩文五种界面语�
    /var/lib/kaze-sync/kaze-syncd admin-password         # 只显示一次管理员密码
    ```
 
-   `install` 会启动服务并打印监听端口和证书指纹. 请在防火墙或云厂商安全组中放行该 TCP 端口, 以便浏览器和客户端连接 (在 OpenWrt 上加 `install --wan` 可以自动放行).
+   `install` 会启动服务并打印监听端口和证书指纹. 请在防火墙或云厂商安全组中放行该 TCP 端口, 以便浏览器和客户端连接 (在 OpenWrt 上加 `install --wan` 可以自动放行; 见[手册 2.6 节](docs/manuals/user-manual.zh-CN.md#26-端口与防火墙规则)).
 
 3. **登录.** 在浏览器中打开 `https://<服务器>:<端口>/`, 用 `admin-password` 打印出的密码登录. 因为默认使用自签名证书, 浏览器会弹出证书警告; 核对指纹与 `install` 打印的一致后接受即可.
 4. **注册客户端.** 登录 Web UI 后, 把第一台电脑接入服务端. 在总览页点 **添加设备**, 输入设备名称, 复制对话框里生成的命令. 把 `kaze-syncc` 或 `kaze-syncc.exe` 放到这台电脑的固定目录后执行该命令:
