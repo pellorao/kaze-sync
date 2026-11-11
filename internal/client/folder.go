@@ -60,9 +60,11 @@ type Folder struct {
 	OnDir      func(string) // called for every directory a scan visits (the watcher adds it)
 
 	errs, pullErrs []proto.FileError
-	scope          func(string) bool // what the last scan covered: nil for the whole root
-	young          time.Time         // while scanning: when the youngest file left for being too fresh becomes stable
-	unstable       time.Time         // the same after a scan, kept across scans and pulls (see Unstable)
+	scope          func(string) bool    // what the last scan covered: nil for the whole root
+	young          time.Time            // while scanning: when the youngest file left for being too fresh becomes stable
+	youngFiles     map[string]time.Time // while scanning: the too-fresh files and when each becomes stable
+	unstableFiles  map[string]time.Time // the same after a scan, kept across scans and pulls (see Unstable)
+	retryDirs      map[string]bool      // directories whose files a retry must look at again (see RetryDirs)
 	sink           *[]proto.FileError
 	errSince       map[string]int64
 	ready          bool // the sync root was checked by the last Scan
@@ -94,9 +96,47 @@ type rejection struct {
 func (f *Folder) Ready() bool { return f.ready }
 
 // Unstable is when the youngest file that scans left alone for being modified less than Stable ago becomes
-// stable, zero when there is none. A scan of the whole root replaces it, a partial scan can only move it
-// earlier, and nothing else changes it: the caller must run a whole scan once it is due.
-func (f *Folder) Unstable() time.Time { return f.unstable }
+// stable, zero when there is none. A scan of the whole root replaces the record, a partial scan replaces what it
+// covered, and nothing else changes it: once it is due the caller scans UnstableDirs.
+func (f *Folder) Unstable() time.Time {
+	var t time.Time
+	for _, end := range f.unstableFiles {
+		if t.IsZero() || end.Before(t) {
+			t = end
+		}
+	}
+	return t
+}
+
+// UnstableDirs are the directories holding the files Unstable is about, sorted: the only places a retry for
+// them has to scan.
+func (f *Folder) UnstableDirs() []string { return dirsOf(f.unstableFiles) }
+
+// RetryDirs are the directories the last Scan or Pull wants scanned again (a file changed while it was read
+// or placed, or is in use), sorted. A retry without any (downloads waiting) needs a pull only.
+func (f *Folder) RetryDirs() []string { return dirsOf(f.retryDirs) }
+
+func dirsOf[V any](m map[string]V) []string {
+	set := map[string]bool{}
+	for p := range m {
+		set[path.Dir(p)] = true
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// retryFile asks for a retry that scans the directory of p again.
+func (f *Folder) retryFile(p string) {
+	f.retry = true
+	f.retryDir(p)
+}
+
+// retryDir records the directory of p for the next retry, quick or slow.
+func (f *Folder) retryDir(p string) {
+	if f.retryDirs == nil {
+		f.retryDirs = map[string]bool{}
+	}
+	f.retryDirs[path.Dir(p)] = true
+}
 
 // Seen is the latest server seq the last successful Pull read.
 func (f *Folder) Seen() int64 { return f.seen }
@@ -167,7 +207,7 @@ type Report struct {
 	Errors      []proto.FileError
 	PendingUp   int  // changes found and not yet on the server
 	PendingDown int  // server changes not applied yet
-	Retry       bool // something was postponed (also files too fresh to upload, see Folder.Unstable): run again soon
+	Retry       bool // something was postponed (also files too fresh to upload, see Folder.Unstable): run again soon; derived from the Folder's state
 	Slow        bool // files are in use or locked: retry on the slow schedule (design 5.7)
 	Committed   int  // commits the server accepted as changes
 	Held        int  // changes waiting for the user's decision (design 2.8.6)
@@ -187,6 +227,7 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 	old := f.errs
 	f.savedTS = ""
 	f.errs, f.sink, f.retry, f.pendingUp, f.scope, f.young = nil, &f.errs, false, 0, nil, time.Time{}
+	f.retryDirs, f.youngFiles = nil, nil
 	pd, rootOnly := pruneDirs(slices.Clone(dirs))
 	whole := len(pd) == 0 && !rootOnly
 	ok, err := f.checkRoot()
@@ -210,9 +251,17 @@ func (f *Folder) Scan(ctx context.Context, dirs ...string) (Report, error) {
 		}
 	}
 	if whole {
-		f.unstable = f.young
-	} else if !f.young.IsZero() && (f.unstable.IsZero() || f.young.Before(f.unstable)) {
-		f.unstable = f.young
+		f.unstableFiles = f.youngFiles
+	} else {
+		for p := range f.unstableFiles {
+			if f.scope == nil || f.scope(p) {
+				delete(f.unstableFiles, p)
+			}
+		}
+		if f.unstableFiles == nil && f.youngFiles != nil {
+			f.unstableFiles = map[string]time.Time{}
+		}
+		maps.Copy(f.unstableFiles, f.youngFiles)
 	}
 	f.finish(&rep)
 	return rep, err
@@ -253,7 +302,7 @@ func (f *Folder) finish(rep *Report) {
 	}
 	rep.Errors = all[:min(len(all), maxErrors)]
 	rep.PendingUp, rep.PendingDown = f.pendingUp, f.pendingDown
-	rep.Retry = rep.Retry || f.retry || !f.unstable.IsZero()
+	rep.Retry = f.retry || len(f.unstableFiles) > 0
 }
 
 // checkRoot makes sure the sync root is the one we set up (design 3.5). It
@@ -561,9 +610,14 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			continue
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
-			if end := time.Unix(0, e.MtimeNs).Add(f.Stable); f.young.IsZero() || end.Before(f.young) {
+			end := time.Unix(0, e.MtimeNs).Add(f.Stable)
+			if f.young.IsZero() || end.Before(f.young) {
 				f.young = end
 			}
+			if f.youngFiles == nil {
+				f.youngFiles = map[string]time.Time{}
+			}
+			f.youngFiles[p] = end
 			continue
 		}
 		if rj, ok := f.rejected[p]; ok && rj.size == e.Size && rj.mtime == e.MtimeNs {
@@ -580,6 +634,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		switch {
 		case errors.Is(err, errInUse), errors.Is(err, cfs.ErrLocked):
 			f.note(p, proto.KindInUse, err.Error())
+			f.retryDir(p) // the slow schedule scans its directory again
 			continue
 		case errors.Is(err, errLinkTarget):
 			f.note(p, proto.KindSkipped, err.Error())
@@ -589,7 +644,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			continue
 		}
 		if st, err := f.FS.Stat(p); err != nil || (!e.IsLink && h.size != e.Size) || st.IsLink != e.IsLink || st.Size != e.Size || st.MtimeNs != e.MtimeNs {
-			f.retry = true // written while we read it
+			f.retryFile(p) // written while we read it
 			continue
 		}
 		exec := e.Exec && !e.IsLink

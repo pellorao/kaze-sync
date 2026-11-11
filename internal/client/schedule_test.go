@@ -22,7 +22,7 @@ func TestScheduleKeepsUnstableFilesAcrossAPullOnlyTask(t *testing.T) {
 		t.Fatalf("plan %+v %v", p, ok)
 	}
 	stableAt := t0.Add(6 * time.Second)
-	s.done(testConf, now, p, taskResult{retry: false, unstableAt: stableAt})
+	s.done(testConf, now, p, taskResult{retry: false, unstableAt: stableAt, unstableDirs: []string{"d"}})
 	if got := s.next(); !got.Equal(stableAt) {
 		t.Fatalf("next %v, want the moment the file is stable (%v)", got.Sub(t0), stableAt.Sub(t0))
 	}
@@ -33,7 +33,7 @@ func TestScheduleKeepsUnstableFilesAcrossAPullOnlyTask(t *testing.T) {
 	if !ok || p.scan || !p.pull {
 		t.Fatalf("plan %+v %v", p, ok)
 	}
-	s.done(testConf, now, p, taskResult{unstableAt: stableAt}) // the folder still remembers the file
+	s.done(testConf, now, p, taskResult{unstableAt: stableAt, unstableDirs: []string{"d"}}) // the folder still remembers the file
 	if got := s.next(); !got.Equal(stableAt) {
 		t.Fatalf("after the pull-only task next is %v, want %v", got.Sub(t0), stableAt.Sub(t0))
 	}
@@ -41,8 +41,8 @@ func TestScheduleKeepsUnstableFilesAcrossAPullOnlyTask(t *testing.T) {
 		t.Fatal("work before the file is stable")
 	}
 	p, ok = s.take(stableAt)
-	if !ok || !p.scan || !p.retry || p.dirs != nil {
-		t.Fatalf("at the stable time: %+v %v; want a whole scan", p, ok)
+	if !ok || !p.scan || p.pull || p.full || len(p.dirs) != 1 || p.dirs[0] != "d" {
+		t.Fatalf("at the stable time: %+v %v; want a scan of d only, no pull", p, ok)
 	}
 	s.done(testConf, stableAt, p, taskResult{}) // uploaded: nothing is unstable any more
 	if got := s.next(); !got.Equal(t0.Add(time.Hour)) {
@@ -130,5 +130,46 @@ func TestScheduleFailedResetWaitsForTheRetry(t *testing.T) {
 	p, ok = s.take(t0.Add(testConf.RetryAfter))
 	if !ok || !p.reset || !p.pull {
 		t.Fatalf("at the retry time: %+v %v", p, ok)
+	}
+}
+
+// A retry for files that changed while they were read scans their directories and pulls; it does not scan the
+// whole folder, unless the task before it failed.
+func TestScheduleRetryScansOnlyItsDirectories(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	var s schedule
+	s.nextFull = t0.Add(time.Hour)
+	s.done(testConf, t0, plan{scan: true}, taskResult{retry: true, retryDirs: []string{"a/b", "c"}})
+	p, ok := s.take(t0.Add(testConf.RetryAfter))
+	if !ok || !p.retry || !p.scan || !p.pull || p.full || len(p.dirs) != 2 || p.dirs[0] != "a/b" || p.dirs[1] != "c" {
+		t.Fatalf("plan %+v %v", p, ok)
+	}
+	s.done(testConf, t0, p, taskResult{err: errors.New("boom")})
+	p, ok = s.take(s.next())
+	if !ok || !p.scan || p.dirs != nil {
+		t.Fatalf("after a failed task: %+v %v; want a whole scan", p, ok)
+	}
+}
+
+// Downloads that cannot be applied retry with a pull alone, with a growing delay.
+func TestScheduleDownloadRetryPullsOnlyAndBacksOff(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	var s schedule
+	s.nextFull = t0.Add(time.Hour)
+	now := t0
+	var last time.Duration
+	for i := 0; i < 4; i++ {
+		s.done(testConf, now, plan{pull: true}, taskResult{retry: true})
+		next := s.next()
+		if d := next.Sub(now); i > 0 && d <= last {
+			t.Fatalf("round %d: delay %v after %v does not grow", i, d, last)
+		} else {
+			last = d
+		}
+		now = next
+		p, ok := s.take(now)
+		if !ok || p.scan || !p.pull || !p.retry {
+			t.Fatalf("round %d: plan %+v %v; want a pull only", i, p, ok)
+		}
 	}
 }

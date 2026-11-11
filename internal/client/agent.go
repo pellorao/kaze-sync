@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -250,6 +251,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 			slog.Warn("cannot reset the folder state", "folder", r.cfg.ID, "err", err)
 		}
 	}
+	fresh := false // a watcher started in this task: a scan of the whole folder has to follow it
 	a.mu.Lock()
 	old := r.w
 	if r.s.rewatch && old != nil { // lost events, or a watcher that stopped (Windows, after the root went away): a new one, before the full scan
@@ -261,17 +263,27 @@ func (a *Agent) work(ctx context.Context, t task) {
 	a.mu.Unlock()
 	if old != nil {
 		old.Close()
-		if f.Ready() {
-			a.startWatch(r)
+		if f.Ready() && a.startWatch(r) {
+			fresh = true
 		}
 	}
+	if r.w == nil && err == nil {
+		if _, serr := f.FS.Stat(markerName); serr == nil && a.startWatch(r) { // the root exists: watch it before the first scan, which then registers every directory
+			fresh = true
+		}
+	}
+	wholeDone := false
 	if t.scan && err == nil {
+		wholeDone = wholeScan(t.dirs)
 		done := trace("scan", "folder", r.cfg.ID, "dirs", t.dirs)
 		rep, err = f.Scan(ctx, t.dirs...)
 		done("committed", rep.Committed, "pending_up", rep.PendingUp, "unstable", !f.Unstable().IsZero(), "err", err)
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("scan failed", "folder", r.cfg.ID, "err", err)
 		}
+	}
+	if !t.scan {
+		f.retry, f.retryDirs = false, nil // nothing was scanned: this task's Pull alone says whether a retry is still due
 	}
 	if err == nil && (t.pull || f.retry || f.Seen() < 0) && f.Ready() {
 		done := trace("pull", "folder", r.cfg.ID)
@@ -281,9 +293,14 @@ func (a *Agent) work(ctx context.Context, t task) {
 			slog.Warn("pull failed", "folder", r.cfg.ID, "err", err)
 		}
 	}
-	if r.w == nil && f.Ready() && err == nil {
-		a.startWatch(r) // the first scan has created the root; scan again so that every directory gets watched
-		t.full = true
+	if r.w == nil && f.Ready() && err == nil && a.startWatch(r) {
+		fresh = true // the first scan has created the root: scan again so that every directory gets watched
+		wholeDone = false
+	}
+	if fresh && !wholeDone {
+		a.mu.Lock()
+		r.s.full = true
+		a.mu.Unlock()
 	}
 	if items, changed := f.HeldItems(); changed && ctx.Err() == nil { // the list for the Web UI, only when it differs
 		if herr := a.API.Held(ctx, proto.HeldReq{Folder: r.cfg.ID, Items: items}); herr != nil {
@@ -309,19 +326,26 @@ func (a *Agent) work(ctx context.Context, t task) {
 		a.failures = 0
 	}
 	a.notifyFolder(r, rep, err, t.scan)
-	r.s.done(a.schedConf(), now, t.plan, taskResult{err: err, retry: f.retry, slow: rep.Slow, unstableAt: f.Unstable(),
-		watching: r.w != nil, reported: r.report.State != "", unauth: errors.Is(err, ErrUnauthorized)})
+	r.s.done(a.schedConf(), now, t.plan, taskResult{err: err, retry: f.retry, slow: rep.Slow, unstableAt: f.Unstable(), unstableDirs: f.UnstableDirs(), retryDirs: f.RetryDirs(),
+		unauth: errors.Is(err, ErrUnauthorized)})
 }
 
-func (a *Agent) startWatch(r *runner) {
+// wholeScan reports whether a Scan with these dirs covers the whole folder.
+func wholeScan(dirs []string) bool {
+	pd, rootOnly := pruneDirs(slices.Clone(dirs))
+	return len(pd) == 0 && !rootOnly
+}
+
+// startWatch starts the folder's watcher; it reports false when that failed. A scan that visits every directory
+// after it was started registers them with it.
+func (a *Agent) startWatch(r *runner) bool {
 	w, err := watch.Start(r.cfg.Path, r.events)
 	if err != nil {
 		slog.Warn("cannot watch the folder; relying on periodic scans", "folder", r.cfg.ID, "err", err)
-		return
+		return false
 	}
 	a.mu.Lock()
 	r.w = w
-	r.s.full = true
 	a.mu.Unlock()
 	r.f.OnDir = func(d string) {
 		if d == "" {
@@ -329,6 +353,7 @@ func (a *Agent) startWatch(r *runner) {
 		}
 		w.Add(d) // fails when the inotify limit is reached: the hourly scan still covers it
 	}
+	return true
 }
 
 // consume turns the watcher's hints into the runner's dirty set until the runner stops.

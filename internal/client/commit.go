@@ -354,7 +354,7 @@ func (f *Folder) upload(ctx context.Context, items []*item, need map[proto.Hash]
 		case errors.As(err, &uerr):
 			return nil, uerr.err
 		case errors.Is(err, errChanged):
-			rep.Retry = true
+			f.retryFile(it.path) // changed while it was read
 			continue
 		case err != nil:
 			f.note(it.path, proto.KindIO, err.Error())

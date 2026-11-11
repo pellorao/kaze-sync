@@ -316,7 +316,7 @@ func (f *Folder) finishLive(ctx context.Context, e proto.Entry, err error) (appl
 		f.changed = true
 		return done, nil
 	case errors.Is(err, place.ErrTargetChanged):
-		f.retry = true // changed meanwhile: a local change for Scan
+		f.retryFile(e.Path) // changed meanwhile: a local change for Scan
 		return done, nil
 	case errors.Is(err, errWait):
 		return later, nil
