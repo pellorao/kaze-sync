@@ -225,12 +225,18 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 	}
 	busy := map[string]bool{}
 	for _, it := range items {
-		if !it.done {
+		if _, refused := f.rejected[it.path]; !it.done && !refused { // a refused name cannot be sent: not unsent
 			id, _ := f.scopeOf(it.path)
 			busy[id] = true
 		}
 	}
-	clean := failed == nil && len(busy) == 0 && f.young.IsZero() && !f.retry && len(f.errs) == 0
+	// Standing warnings (refused names, files in use, skipped entries, unreadable files) are paths that cannot be sent
+	// now: they do not hold the since back (design 2.8.6). Only a folder-level error does.
+	folderErr := false
+	for _, e := range f.errs {
+		folderErr = folderErr || e.Kind == proto.KindFolder
+	}
+	clean := failed == nil && len(busy) == 0 && f.young.IsZero() && !f.retry && !folderErr
 	if !clean || !whole && f.unsent {
 		f.unsent = f.unsent || !clean
 		return
