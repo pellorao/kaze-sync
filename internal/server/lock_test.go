@@ -201,3 +201,37 @@ func TestLockUnknownDeviceNamedById(t *testing.T) {
 		t.Fatalf("unknown device: %d %s", st, body)
 	}
 }
+
+// The other side of a concurrent write is taken within the scope of the held changes, and not carried over to
+// another device's notice (it never names the device itself).
+func TestHeldOtherWriterPerScope(t *testing.T) {
+	l := newLockEnv(t)
+	c, tc := l.enrollDevice("C", "linux")
+	l.mapFolder(c, l.f, "/c")
+	SetMeta(l.s.db, "write_window", 0) // writes of different devices in turn are not refused
+	l.apiCommit(tc, l.f, l.op("sub/x", 0, "1"))
+	l.apiCommit(l.tb, l.f, l.wcOp("other/y", 0, 1, "1")) // B has seen the write of C
+	now := l.clk.Now().Unix()
+	l.heldReport(l.ta, l.f, proto.HeldItem{Path: "other/z", Scope: "d:OTHER", Reason: "owner", Kind: "modify", At: now}, proto.HeldItem{Path: "sub/z", Scope: "d:SUB", Reason: "owner", Kind: "modify", At: now}, proto.HeldItem{Path: "sub/w", Scope: "d:SUB", Reason: "owner", Kind: "modify", At: now})
+	l.heldReport(l.tb, l.f, proto.HeldItem{Path: "sub/z", Scope: "d:SUB", Reason: "owner", Kind: "modify", At: now})
+	notes, err := l.s.folderNotices(l.f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, n := range notes {
+		if n.Kind == kindHeld {
+			got[n.Device+" "+itoa(int64(n.N))] = n.Other // a scope without a rule shows as the root: told apart by its count
+		}
+	}
+	// A holds in "other" (written by B) and in "sub" (written by C); B holds in "sub" (written by C).
+	want := map[string]string{"A 1": "B", "A 2": "C", "B 1": "C"}
+	if len(got) != len(want) {
+		t.Fatalf("notices %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: other %q, want %q (%v)", k, got[k], v, got)
+		}
+	}
+}

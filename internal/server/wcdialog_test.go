@@ -102,7 +102,7 @@ func TestRestoreErrorPageCarriesLocks(t *testing.T) {
 	}
 }
 
-// A file cannot be unrestricted (design-writectl 2.2): inside a free directory it is a single-writer scope of its own,
+// A file cannot be unrestricted (design 2.8.2): inside a free directory it is a single-writer scope of its own,
 // so its dialog inherits "single", not "free"; the directory itself keeps inheriting "free".
 func TestFileInFreeDirInheritsSingle(t *testing.T) {
 	l := newLockEnv(t)
@@ -144,7 +144,7 @@ func TestWCReopenedDialogOfFileInheritsSingle(t *testing.T) {
 	}
 }
 
-// A file cannot be unrestricted (design-writectl 2.2): the server refuses "free" for a file and saves nothing (the
+// A file cannot be unrestricted (design 2.8.2): the server refuses "free" for a file and saves nothing (the
 // dialog only hides the option); a directory, and the other modes of a file, still save.
 func TestWriteControlRefusesFreeForFile(t *testing.T) {
 	l := newLockEnv(t)

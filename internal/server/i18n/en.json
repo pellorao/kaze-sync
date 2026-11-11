@@ -200,6 +200,7 @@
  "rule.trailingBackslash": "Trailing backslash",
  "rule.bracket": "Unterminated or invalid bracket expression",
  "err.deviceName": "A device name may use only letters, digits, - and _, up to 32 characters",
+ "err.deviceReserved": "The name \"web\" is reserved for restoring versions from the Web UI",
  "err.deviceDup": "A device with this name exists",
  "err.folderName": "A folder name cannot be empty, is at most 64 bytes, and has no control characters",
  "err.folderDup": "A folder with this name exists",

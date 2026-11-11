@@ -186,6 +186,7 @@
  "rule.trailingBackslash": "끝에 역슬래시가 남아 있습니다",
  "rule.bracket": "대괄호 표현식이 닫히지 않았거나 올바르지 않습니다",
  "err.deviceName": "기기 이름에는 영문자, 숫자, -, _만 쓸 수 있으며 최대 32자입니다",
+ "err.deviceReserved": "\"web\" 이름은 Web UI에서 버전을 복원하는 데 예약되어 있습니다",
  "err.deviceDup": "같은 이름의 기기가 있습니다",
  "err.folderName": "폴더 이름은 비워 둘 수 없고 최대 64바이트이며 제어 문자를 포함할 수 없습니다",
  "err.folderDup": "같은 이름의 폴더가 있습니다",

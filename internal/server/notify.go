@@ -135,7 +135,8 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 		if err != nil {
 			return nil, err
 		}
-		var latest sql.NullString // the device that wrote last: the other side of a concurrent write
+		type otherKey struct{ device, scope string }
+		others := map[otherKey]string{} // the other side of a concurrent write, per device and scope
 		for _, g := range groups {
 			n := g.n
 			n.Scope, n.Path = heldScopePath(rules, n.Scope, g.firstPath), ""
@@ -144,11 +145,13 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 			case n.Reason == "owner" && rule.Mode == proto.ModeExclusive:
 				n.Reason, n.Other = "exclusive", rule.Device
 			case n.Reason == "owner":
-				if !latest.Valid {
-					db.QueryRow(`SELECT device FROM files WHERE device<>? AND device<>? ORDER BY seq DESC LIMIT 1`, n.Device, excludedDevice).Scan(&latest)
-					latest.Valid = true
+				k := otherKey{n.Device, g.n.Scope}
+				o, ok := others[k]
+				if !ok {
+					o = lastOtherWriter(db, n.Device, g.n.Scope)
+					others[k] = o
 				}
-				n.Other = latest.String
+				n.Other = o
 			}
 			out = append(out, n)
 		}
@@ -322,6 +325,22 @@ func noticeKindCounts(errs []proto.FileError) (errors, warnings int) {
 		}
 	}
 	return
+}
+
+// lastOtherWriter is the device other than dev that wrote last in a write-control scope ("d:<key>" is a directory and
+// what is under it, "f:<key>" one file): the other side of a concurrent write there.
+func lastOtherWriter(db *sql.DB, dev, scope string) string {
+	q, args := `SELECT device FROM files WHERE device<>? AND device<>?`, []any{dev, excludedDevice}
+	switch {
+	case strings.HasPrefix(scope, "f:"):
+		q, args = q+` AND key=?`, append(args, scope[2:])
+	case strings.TrimPrefix(scope, "d:") != "":
+		k := strings.TrimPrefix(scope, "d:")
+		q, args = q+` AND (key=? OR key>=? AND key<?)`, append(args, k, k+"/", k+"0") // "0" follows "/"
+	}
+	var other string
+	db.QueryRow(q+` ORDER BY seq DESC LIMIT 1`, args...).Scan(&other)
+	return other
 }
 
 // heldScopePath is the path a held scope is shown as: the path of its setting, or of the file for a file of a free

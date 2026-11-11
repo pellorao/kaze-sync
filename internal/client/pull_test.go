@@ -282,7 +282,7 @@ func TestDeleteAgainstModify(t *testing.T) {
 	g1.scan()
 	g2.put("b.txt", []byte("kept"))
 	g2.sync()
-	if err := g2.f.Resolve(ctx, proto.Action{Path: "b.txt", Action: ActOverwrite, Save: false}); err != nil {
+	if err := g2.f.Resolve(ctx, overwriteAct(t, g2.f, "b.txt")); err != nil {
 		t.Fatal(err)
 	}
 	g1.sync()

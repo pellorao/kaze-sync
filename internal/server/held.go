@@ -6,6 +6,7 @@ package server
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -196,7 +197,7 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 	if len(acts) > 0 {
 		s.broadcast() // wakes the device's poll and the open pages
 	}
-	http.Redirect(w, r, "/folders/"+strconv.FormatInt(f.ID, 10)+"?dir="+strings.TrimSpace(r.FormValue("dir"))+"&held="+strconv.FormatInt(devID, 10), http.StatusSeeOther)
+	http.Redirect(w, r, "/folders/"+strconv.FormatInt(f.ID, 10)+"?dir="+url.QueryEscape(strings.TrimSpace(r.FormValue("dir")))+"&held="+strconv.FormatInt(devID, 10), http.StatusSeeOther)
 	return nil
 }
 
@@ -278,7 +279,7 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 				g.Reason, g.Other = "exclusive", rule.Device
 			}
 			if g.Reason == "owner" { // the other side of a concurrent write: the latest write of another device
-				db.QueryRow(`SELECT device FROM files WHERE device<>? AND device<>? ORDER BY seq DESC LIMIT 1`, name, excludedDevice).Scan(&g.Other)
+				g.Other = lastOtherWriter(db, name, it.Scope)
 			}
 			byScope[it.Scope] = g
 			v.Groups = append(v.Groups, *g)

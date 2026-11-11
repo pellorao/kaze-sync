@@ -719,3 +719,19 @@ func TestRestoreDuringTheInitialImportUsesTheFirstRecord(t *testing.T) {
 		t.Fatalf("page:\n%s", page)
 	}
 }
+
+// The name "web" is the device name of restores: no device can be added with it (any case).
+func TestAddDeviceRefusesReservedName(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	for _, name := range []string{"web", "Web"} {
+		if st, body := e.post(c, "/devices/add", url.Values{"name": {name}}); st != 400 || !strings.Contains(body, `class="err-msg"`) {
+			t.Fatalf("add %q: %d\n%s", name, st, body)
+		}
+	}
+	if st, _ := e.post(c, "/devices/add", url.Values{"name": {"web2"}}); st != 200 {
+		t.Fatalf("web2: %d", st)
+	}
+}

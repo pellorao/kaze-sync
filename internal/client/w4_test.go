@@ -93,7 +93,7 @@ func TestOverwriteTypeClearsBlockingEntries(t *testing.T) {
 		t.Fatalf("held: %+v", held)
 	}
 	for _, p := range []string{"out", "flat/inner"} {
-		if err := g2.f.Resolve(ctx, proto.Action{Path: p, Action: ActOverwrite}); err != nil {
+		if err := g2.f.Resolve(ctx, overwriteAct(t, g2.f, p)); err != nil {
 			t.Fatalf("%s: %v", p, err)
 		}
 	}
@@ -249,4 +249,36 @@ func TestAgentSendsHeldListAgainAfterServerRestart(t *testing.T) {
 		t.Fatal("the restarted server still knows the held list; nothing was lost, so nothing is tested")
 	}
 	eventually(t, "the held change on the page again", listed)
+}
+
+// A note about a decision that was not carried out goes with the held change: when the path is no longer held, a
+// later held change of the same path starts without it.
+func TestHeldNoteDropsWithTheHeldChange(t *testing.T) {
+	_, _, _, g2, _ := pair(t)
+	g2.f.heldNote = map[string]string{"gone.txt": "local"}
+	if got := items(g2.f); len(got) != 0 || len(g2.f.heldNote) != 0 {
+		t.Fatalf("items %v, notes %v", got, g2.f.heldNote)
+	}
+}
+
+// overwriteAct is the overwrite decision the server sends for the held change of p: the version and the local file
+// the user saw are the current ones.
+func overwriteAct(t *testing.T, f *Folder, p string) proto.Action {
+	t.Helper()
+	rows, _ := f.DB.held("")
+	for _, h := range rows {
+		if h.Path == p {
+			cur, err := f.probe(context.Background(), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seq := int64(0)
+			if cur != nil {
+				seq = cur.Seq
+			}
+			return proto.Action{Path: p, Action: ActOverwrite, Expect: &seq, Size: h.Size, MtimeNs: h.MtimeNs}
+		}
+	}
+	t.Fatalf("%s is not held", p)
+	return proto.Action{}
 }

@@ -277,6 +277,15 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 func (f *Folder) HeldItems() (items []proto.HeldItem, changed bool) {
 	rows, _ := f.DB.held("")
 	items = []proto.HeldItem{}
+	live := make(map[string]bool, len(f.heldNote))
+	for _, h := range rows {
+		live[h.Path] = true
+	}
+	for p := range f.heldNote { // a path that is no longer held leaves no note for the day it is held again
+		if !live[p] {
+			delete(f.heldNote, p)
+		}
+	}
 	for _, h := range rows {
 		items = append(items, proto.HeldItem{Path: h.Path, Scope: h.Scope, Reason: h.Reason, BaseSeq: h.BaseSeq, Kind: h.Kind, Size: h.Size, MtimeNs: h.MtimeNs, At: h.At, Note: f.heldNote[h.Path]})
 	}
@@ -365,19 +374,10 @@ func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, act pr
 	it := &item{path: h.Path, del: h.Kind == "delete", decided: true, op: proto.Op{Path: h.Path, BaseSeq: h.BaseSeq, Resolve: true}}
 	var pre []*item
 	if act.Action == ActOverwrite {
-		switch {
-		case act.Expect != nil:
-			it.op.BaseSeq = *act.Expect
-		default:
-			cur, err := f.probe(ctx, h.Path)
-			if err != nil {
-				return err
-			}
-			it.op.BaseSeq = 0
-			if cur != nil {
-				it.op.BaseSeq = cur.Seq
-			}
+		if act.Expect == nil { // the server always sends the version the user saw
+			return errors.New("overwrite without the version the user saw")
 		}
+		it.op.BaseSeq = *act.Expect
 		if h.Reason == "type" {
 			blocking, err := f.API.Blocking(ctx, f.ID, h.Path)
 			if err != nil {

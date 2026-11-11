@@ -186,6 +186,7 @@
  "rule.trailingBackslash": "結尾有多餘的反斜線",
  "rule.bracket": "方括號運算式未閉合或無效",
  "err.deviceName": "裝置名稱只能用字母, 數字, - 和 _, 至多 32 個字元",
+ "err.deviceReserved": "名稱 \"web\" 保留給 Web 介面還原歷史版本使用",
  "err.deviceDup": "已有同名裝置",
  "err.folderName": "資料夾名稱不能為空, 至多 64 個位元組, 不含控制字元",
  "err.folderDup": "已有同名資料夾",

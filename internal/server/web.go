@@ -588,6 +588,9 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	if !deviceName.MatchString(name) {
 		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "err.deviceName")
 	}
+	if strings.EqualFold(name, "web") { // the device name of restores: a device of that name would be bound by the write window
+		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "err.deviceReserved")
+	}
 	var n int
 	s.db.QueryRow(`SELECT count(*) FROM devices WHERE name=?`, name).Scan(&n)
 	s.mu.Lock()

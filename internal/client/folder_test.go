@@ -351,7 +351,7 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 	if got, ok := e.serverFile(f, "doc.txt"); ok {
 		t.Fatalf("a held change reached the server: %q", got)
 	}
-	if err := g1.f.Resolve(ctx, proto.Action{Path: "doc.txt", Action: ActOverwrite, Save: false}); err != nil {
+	if err := g1.f.Resolve(ctx, overwriteAct(t, g1.f, "doc.txt")); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "v2 by dev1" {

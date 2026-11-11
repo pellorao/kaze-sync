@@ -35,7 +35,7 @@ func heldEnv(t *testing.T) (*lockEnv, proto.HeldItem) {
 	l := newLockEnv(t)
 	l.s.PollTimeout = 20 * 1e6
 	l.apiCommit(l.ta, l.f, l.op("d/x.txt", 0, "one"))
-	return l, proto.HeldItem{Path: "d/x.txt", Scope: "d:d", Reason: "owner", BaseSeq: 1, Kind: "modify", Size: 5, MtimeNs: 7e9, At: l.clk.Now().Unix()}
+	return l, proto.HeldItem{Path: "d/x.txt", Scope: "d:D", Reason: "owner", BaseSeq: 1, Kind: "modify", Size: 5, MtimeNs: 7e9, At: l.clk.Now().Unix()}
 }
 
 // A decision reaches the device once through its poll, and the next held report ends it.
@@ -80,7 +80,7 @@ func TestResolveBatchSkipsChangedPaths(t *testing.T) {
 	l.heldReport(l.tb, l.f, it, it2)
 	seen := l.seq(l.f)
 	l.apiCommit(l.ta, l.f, l.op("d/y.txt", 2, "yy")) // changes after the dialog was drawn
-	l.post(l.web, "/folders/"+itoa(l.f)+"/resolve", url.Values{"device": {itoa(l.b)}, "scope": {"d:d"}, "action": {"discard"}, "seen": {itoa(seen)}})
+	l.post(l.web, "/folders/"+itoa(l.f)+"/resolve", url.Values{"device": {itoa(l.b)}, "scope": {"d:D"}, "action": {"discard"}, "seen": {itoa(seen)}})
 	acts, _ := l.pollActions(l.tb, l.f)
 	if len(acts) != 1 || acts[0].Path != "d/x.txt" || acts[0].Action != proto.ActDiscard {
 		t.Fatalf("actions %+v", acts)
@@ -273,5 +273,19 @@ func TestHeldReportCutIsShown(t *testing.T) {
 		if n.Kind == kindHeldCut {
 			t.Errorf("the cut notice stays: %+v", n)
 		}
+	}
+}
+
+// The page the user returns to after a decision keeps the directory he was in, whatever characters its name has.
+func TestResolveRedirectKeepsDirectory(t *testing.T) {
+	l, _ := heldEnv(t)
+	resp, err := l.web.PostForm(l.ts.URL+"/folders/"+itoa(l.f)+"/resolve", url.Values{"device": {itoa(l.b)}, "dir": {"a&b#c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if loc == nil || loc.Query().Get("dir") != "a&b#c" || loc.Query().Get("held") != itoa(l.b) {
+		t.Fatalf("returned to %q", resp.Header.Get("Location"))
 	}
 }

@@ -186,6 +186,7 @@
  "rule.trailingBackslash": "末尾にバックスラッシュがあります",
  "rule.bracket": "角括弧の式が閉じていないか無効です",
  "err.deviceName": "デバイス名に使えるのは英数字、- と _ のみで、最大 32 文字です",
+ "err.deviceReserved": "\"web\" という名前は Web UI からの版の復元用に予約されています",
  "err.deviceDup": "同じ名前のデバイスがあります",
  "err.folderName": "フォルダー名は空にできず、最大 64 バイトで、制御文字を含められません",
  "err.folderDup": "同じ名前のフォルダーがあります",

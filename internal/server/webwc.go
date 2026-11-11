@@ -79,7 +79,7 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 		}
 		e.WC = wcFor(rules, e.Path)
 		if !e.IsDir && e.WC.InhMode == proto.ModeFree {
-			e.WC.InhMode = proto.ModeSingle // a file is never unrestricted: inside a free directory it is a single-writer scope of its own (design-writectl 2.2)
+			e.WC.InhMode = proto.ModeSingle // a file is never unrestricted: inside a free directory it is a single-writer scope of its own (design 2.8.2)
 		}
 		if e.WC.Explicit {
 			label := t.T("wc.tag." + e.WC.Mode)

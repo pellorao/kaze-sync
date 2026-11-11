@@ -186,6 +186,7 @@
  "rule.trailingBackslash": "末尾有多余的反斜杠",
  "rule.bracket": "方括号表达式未闭合或无效",
  "err.deviceName": "设备名称只能用字母, 数字, - 和 _, 至多 32 个字符",
+ "err.deviceReserved": "名称 \"web\" 保留给 Web 界面恢复历史版本使用",
  "err.deviceDup": "已有同名设备",
  "err.folderName": "文件夹名称不能为空, 至多 64 个字节, 不含控制字符",
  "err.folderDup": "已有同名文件夹",
