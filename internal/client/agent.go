@@ -300,7 +300,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 		r.report = rep
 	}
 	r.seen, r.ready = f.Seen(), f.Ready()
-	if err == nil && len(rep.Errors) == 0 && rep.PendingUp == 0 && rep.PendingDown == 0 {
+	if err == nil && rep.Synced() {
 		r.lastSynced = now.Unix()
 	}
 	if err != nil || f.retry {

@@ -486,7 +486,7 @@ agent 启动时先读 `config.json`, 立即按缓存的配置扫描和排队上�
 随每次长轮询上报, 状态变化时 (至多每 10 秒一次) 客户端取消挂起的长轮询并带新状态重新发起. "syncing" 只在一次任务运行满 3 秒后才上报: 文件事件触发的扫描通常只要零点几秒, 若一开始就上报, 开始与结束各要重发一次长轮询, 而结束那次受 10 秒限制要等, 一个每 30 秒重写一次的文件 (如状态栏文件) 就会让总览在约一半时间里显示 "同步中" (2026-11-05 自用中发现):
 
 - 全局: `agent_version`, `os`, `hostname`, 已应用的 `config_version`.
-- 每个文件夹: `state` (idle, syncing, error), `last_synced_at` (最近一次本地与服务端确认一致的时刻), `pending_up`, `pending_down`, 至多 100 条当前错误 `{path, kind, message, since}`.
+- 每个文件夹: `state` (idle, syncing, error), `last_synced_at` (最近一次本地与服务端确认一致的时刻; 有待传或待处理的条目, 或有 `skipped` 以外的错误时不更新, `skipped` 是用户已接受的长期跳过, 不挡; 2026-11-11 用户 #338), `pending_up`, `pending_down`, 至多 100 条当前错误 `{path, kind, message, since}`.
 
 错误种类只有 5 种, 细节放在 `message` 中:
 

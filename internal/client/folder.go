@@ -146,6 +146,21 @@ func (f *Folder) checkEpoch() error {
 	return nil
 }
 
+// Synced reports whether the folder is in step with the server for last_synced_at (design 3.6): nothing waits to be
+// transferred or decided, and no real error is open. Skipped entries (a symbolic link Windows cannot create, a
+// junction, a name that is not UTF-8) are standing warnings the user has accepted and do not count.
+func (r Report) Synced() bool {
+	if r.PendingUp != 0 || r.PendingDown != 0 || r.Held != 0 {
+		return false
+	}
+	for _, e := range r.Errors {
+		if e.Kind != proto.KindSkipped {
+			return false
+		}
+	}
+	return true
+}
+
 // Report is the outcome of one Scan.
 type Report struct {
 	State       string // "idle" or "error"

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	cfs "kaze-sync/internal/client/fs"
+	"kaze-sync/internal/proto"
 )
 
 func eventually(t *testing.T, what string, ok func() bool) {
@@ -379,5 +380,32 @@ func TestSyncingIsReportedForLongTasksOnly(t *testing.T) {
 	a.runners[1].busy, a.runners[1].busyAt = true, time.Now()
 	if w := a.nextWake(); w > syncingAfter || w < syncingAfter-time.Second {
 		t.Fatalf("next wake in %v, want about %v", w, syncingAfter)
+	}
+}
+
+// A skipped entry (a symlink Windows cannot create, a junction, a non UTF-8 name) is a standing warning the user
+// has accepted: it must not hold back last_synced_at. Real errors, locked files, held changes and pending
+// transfers still do.
+func TestSkippedWarningsDoNotBlockLastSynced(t *testing.T) {
+	skip := proto.FileError{Path: "l", Kind: proto.KindSkipped}
+	cases := []struct {
+		name string
+		rep  Report
+		want bool
+	}{
+		{"clean", Report{}, true},
+		{"skipped only", Report{Errors: []proto.FileError{skip, skip}}, true},
+		{"io", Report{Errors: []proto.FileError{skip, {Kind: proto.KindIO}}}, false},
+		{"rejected", Report{Errors: []proto.FileError{{Kind: proto.KindRejected}}}, false},
+		{"folder", Report{Errors: []proto.FileError{{Kind: proto.KindFolder}}}, false},
+		{"in use", Report{Errors: []proto.FileError{{Kind: proto.KindInUse}}}, false},
+		{"pending up", Report{Errors: []proto.FileError{skip}, PendingUp: 1}, false},
+		{"pending down", Report{PendingDown: 1}, false},
+		{"held", Report{Held: 1}, false},
+	}
+	for _, c := range cases {
+		if got := c.rep.Synced(); got != c.want {
+			t.Errorf("%s: Synced() = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
