@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"path"
 	"slices"
 	"strings"
 
@@ -217,36 +218,73 @@ func (f *Folder) setSince(items []*item) {
 }
 
 // endScan records the cursor the scan ended at, and clears the since of the scopes that have nothing left to send.
-// Only a whole scan can show that nothing is left unsent anywhere; once it has, a partial scan that sends everything it
-// finds is enough, or the first change after another device's write would always carry the old since and be refused.
+// The folder remembers where changes were left unsent (unsentAll for "somewhere", else directories). A scan replaces
+// the record for what it covered, the whole folder or its directories, so a partial retry that sends the last
+// unsent file is enough to clear the since; without this the first change after another device's write would
+// carry the old since and be refused (design 2.8.6).
 func (f *Folder) endScan(items []*item, whole bool, failed error) {
 	if c := f.DB.metaInt("cursor"); c != f.DB.metaInt("scanc") {
 		f.DB.setMeta("scanc", c)
 	}
-	busy := map[string]bool{}
+	unsent := map[string]bool{}
 	for _, it := range items {
-		if _, refused := f.rejected[it.path]; !it.done && !refused { // a refused name cannot be sent: not unsent
-			id, _ := f.scopeOf(it.path)
-			busy[id] = true
+		if _, refused := f.rejected[it.path]; !it.done && !refused { // a refused path (name, size, space...) cannot be sent: not unsent
+			unsent[path.Dir(it.path)] = true
 		}
 	}
-	// Standing warnings (refused names, files in use, skipped entries, unreadable files) are paths that cannot be sent
+	for p := range f.youngFiles {
+		unsent[path.Dir(p)] = true
+	}
+	for d := range f.retryDirs {
+		unsent[d] = true
+	}
+	// Standing warnings (refused paths, files in use, skipped entries, unreadable files) are paths that cannot be sent
 	// now: they do not hold the since back (design 2.8.6). Only a folder-level error does.
 	folderErr := false
 	for _, e := range f.errs {
 		folderErr = folderErr || e.Kind == proto.KindFolder
 	}
-	clean := failed == nil && len(busy) == 0 && f.young.IsZero() && !f.retry && !folderErr
-	if !clean || !whole && f.unsent {
-		f.unsent = f.unsent || !clean
+	// Anything not clean that names no place (a failed scan, a folder error, a retry without a directory) is
+	// unsent everywhere until a whole scan is clean.
+	somewhere := failed != nil || folderErr || (f.retry && len(unsent) == 0)
+	if whole {
+		f.unsentAll, f.unsentDirs = false, nil
+	} else {
+		for d := range f.unsentDirs {
+			if f.coversDir(d) {
+				delete(f.unsentDirs, d)
+			}
+		}
+	}
+	f.unsentAll = f.unsentAll || somewhere
+	for d := range unsent {
+		if f.unsentDirs == nil {
+			f.unsentDirs = map[string]bool{}
+		}
+		f.unsentDirs[d] = true
+	}
+	if f.hasUnsent() {
 		return
 	}
-	f.unsent = false
 	for id := range f.DB.metaPrefix("dirty:") {
 		if _, fr := f.frozen[id]; !fr {
 			f.DB.delMeta("dirty:" + id)
 		}
 	}
+}
+
+// hasUnsent reports whether some change is known to be left unsent, or may be (after a restart or a failed scan).
+func (f *Folder) hasUnsent() bool { return f.unsentAll || len(f.unsentDirs) > 0 }
+
+// coversDir reports whether the partial scan that just ran looked at the files directly in directory d.
+func (f *Folder) coversDir(d string) bool {
+	if f.scope == nil {
+		return true
+	}
+	if d == "." {
+		return f.scope("x")
+	}
+	return f.scope(d + "/x")
 }
 
 // cleanHeld drops the held changes whose files went back to the base (reverted) or are gone with no base to go

@@ -261,15 +261,18 @@ func (a *Agent) work(ctx context.Context, t task) {
 	}
 	r.s.rewatch = false
 	a.mu.Unlock()
+	tried := false // a watcher was started (or failed to) in this task: one warning, one attempt
 	if old != nil {
 		old.Close()
-		if f.Ready() && a.startWatch(r) {
-			fresh = true
+		if f.Ready() {
+			tried = true
+			fresh = a.startWatch(r)
 		}
 	}
-	if r.w == nil && err == nil {
-		if _, serr := f.FS.Stat(markerName); serr == nil && a.startWatch(r) { // the root exists: watch it before the first scan, which then registers every directory
-			fresh = true
+	if r.w == nil && err == nil && !tried {
+		if _, serr := f.FS.Stat(markerName); serr == nil { // the root exists: watch it before the first scan, which then registers every directory
+			tried = true
+			fresh = a.startWatch(r)
 		}
 	}
 	wholeDone := false
@@ -293,7 +296,7 @@ func (a *Agent) work(ctx context.Context, t task) {
 			slog.Warn("pull failed", "folder", r.cfg.ID, "err", err)
 		}
 	}
-	if r.w == nil && f.Ready() && err == nil && a.startWatch(r) {
+	if r.w == nil && f.Ready() && err == nil && !tried && a.startWatch(r) {
 		fresh = true // the first scan has created the root: scan again so that every directory gets watched
 		wholeDone = false
 	}

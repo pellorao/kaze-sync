@@ -65,6 +65,11 @@ func (s *schedule) event(c schedConf, d string, now time.Time) {
 // maxRetryDelay caps the doubling retry delay after failed tasks (the same cap as the poll loop's).
 const maxRetryDelay = time.Minute
 
+// backoff is the retry delay after n failures or waits in a row: it doubles with each, up to maxRetryDelay.
+func backoff(c schedConf, n int) time.Duration {
+	return min(c.RetryAfter<<min(n-1, 10), max(maxRetryDelay, c.RetryAfter))
+}
+
 func due(t, now time.Time) bool { return !t.IsZero() && !now.Before(t) }
 
 // take returns the work due at now and clears what it takes; ok is false when nothing is due. A retry or the
@@ -112,7 +117,10 @@ func (s *schedule) take(now time.Time) (p plan, ok bool) {
 	if p.pull && s.reset {
 		p.reset = true // a pull forced by a scan still starts from the reset
 	}
-	s.full, s.retryAt = false, time.Time{}
+	s.full = false
+	if p.retry {
+		s.retryAt = time.Time{} // only a retry that ran is used up; one that has not come yet stays
+	}
 	if p.pull {
 		s.pull, s.reset = false, false
 	}
@@ -137,7 +145,7 @@ func (s *schedule) done(c schedConf, now time.Time, p plan, o taskResult) {
 	} else {
 		s.fails = 0
 	}
-	if o.err == nil && o.retry {
+	if o.err == nil && o.retry && len(o.retryDirs) == 0 { // only the waits for downloads back off (design 5.2)
 		s.quick++
 	} else {
 		s.quick = 0
@@ -154,15 +162,18 @@ func (s *schedule) done(c schedConf, now time.Time, p plan, o taskResult) {
 	}
 	s.unstableAt, s.unstableDirs = o.unstableAt, o.unstableDirs
 	if o.err != nil || o.retry {
-		s.retryAt = now.Add(c.RetryAfter)
+		delay := c.RetryAfter
 		if o.err != nil && s.fails > 1 {
-			s.retryAt = now.Add(min(c.RetryAfter<<min(s.fails-1, 10), max(maxRetryDelay, c.RetryAfter)))
+			delay = backoff(c, s.fails)
 		}
-		if o.err == nil && s.quick > 1 { // the same retry again and again: back off
-			s.retryAt = now.Add(min(c.RetryAfter<<min(s.quick-1, 10), max(maxRetryDelay, c.RetryAfter)))
+		if o.err == nil && s.quick > 1 { // the same wait for a download again and again: back off
+			delay = backoff(c, s.quick)
 		}
 		if o.unauth {
-			s.retryAt = now.Add(c.AuthRetry)
+			delay = c.AuthRetry
+		}
+		if at := now.Add(delay); o.err != nil || o.unauth || s.retryAt.IsZero() || at.Before(s.retryAt) {
+			s.retryAt = at // a failure sets the time; otherwise a retry already waiting is not postponed
 		}
 	}
 	if o.err != nil && !s.unstableAt.IsZero() && s.unstableAt.Before(s.retryAt) {
@@ -175,7 +186,10 @@ func (s *schedule) done(c schedConf, now time.Time, p plan, o taskResult) {
 			s.slowTries++
 		}
 		if s.slowTries < len(c.SlowRetry) {
-			s.retryAt = now.Add(c.SlowRetry[s.slowTries])
+			// Other tasks between do not postpone a retry that is already waiting.
+			if at := now.Add(c.SlowRetry[s.slowTries]); s.retryAt.IsZero() || at.Before(s.retryAt) {
+				s.retryAt = at
+			}
 		}
 	}
 	if s.retryAt.IsZero() {

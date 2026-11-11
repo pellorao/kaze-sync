@@ -84,7 +84,8 @@ type Folder struct {
 	heldErr        string // why the last report of the held changes failed, "" when it did not
 	heldSent       string
 	heldNote       map[string]string // why the last decision on a held path was not carried out (HeldItem.Note)
-	unsent         bool              // a scan found changes it could not send, and no whole scan has found everything sent since
+	unsentAll      bool              // changes may be unsent anywhere: until a whole scan is clean (after a restart or a failed scan)
+	unsentDirs     map[string]bool   // directories where a scan left changes unsent: a clean scan covering one clears it
 	linkProbe      int               // whether this machine can create symbolic links, probed once per Pull: 0 unknown, 1 yes, -1 no
 }
 
@@ -154,7 +155,7 @@ func NewFolder(fc proto.FolderConfig, fsys cfs.FS, db *localDB, api *API, caseFo
 	}
 	f := &Folder{ID: fc.ID, Adopt: fc.Adopt, FS: fsys, DB: db, API: api, Matcher: m, Now: time.Now, Stable: 5 * time.Second, CaseFold: caseFold, seen: -1, epoch: db.metaString("epoch"), watched: map[string]bool{},
 		wc: buildWC(fc.Writectl), frozen: db.metaPrefix("frozen:")}
-	f.unsent = len(db.metaPrefix("dirty:")) > 0
+	f.unsentAll = len(db.metaPrefix("dirty:")) > 0
 	f.Requeue() // a change of the settings while the agent was off: the refused writes go again under the new ones
 	return f
 }
