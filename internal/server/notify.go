@@ -44,7 +44,7 @@ const (
 // adviceOf is what to do about a kind of notice, in the language of the page ("" when there is nothing to say).
 func adviceOf(t translator, kind string) string {
 	switch kind {
-	case proto.KindRejected, proto.KindIO, proto.KindFolder, proto.KindInUse, proto.KindSkipped, kindHeld:
+	case proto.KindRejected, proto.KindIO, proto.KindFolder, proto.KindInUse, proto.KindSkipped, proto.KindReport, kindHeld:
 		return t.T("advice." + kind)
 	case kindNewFolder:
 		return t.T("advice.wc.unset")
@@ -96,7 +96,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 			}
 			for _, e := range fs.Errors {
 				n := notice{Kind: e.Kind, Device: d.name, Path: e.Path, Message: e.Message, Since: e.Since, ReportedAt: stale, Folder: folder,
-					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped}
+					Error: e.Kind != proto.KindInUse && e.Kind != proto.KindSkipped && e.Kind != proto.KindReport}
 				if e.Kind == proto.KindFolder {
 					n.Link = "/devices/" + strconv.FormatInt(d.id, 10)
 				} else {
@@ -318,7 +318,7 @@ type deviceStatus struct {
 // noticeKindCounts counts the errors and reminders among a device's reported problems.
 func noticeKindCounts(errs []proto.FileError) (errors, warnings int) {
 	for _, e := range errs {
-		if e.Kind == proto.KindInUse || e.Kind == proto.KindSkipped {
+		if e.Kind == proto.KindInUse || e.Kind == proto.KindSkipped || e.Kind == proto.KindReport {
 			warnings++
 		} else {
 			errors++

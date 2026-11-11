@@ -126,7 +126,7 @@ func TestDictionaryKeysAreUsed(t *testing.T) {
 	}
 	// The families: a text for every state and kind the code can ask for.
 	for _, k := range []string{"st.idle", "st.syncing", "st.error", "cfg.latest", "cfg.pending", "kind.rejected", "kind.io", "kind.folder", "kind.in_use",
-		"kind.skipped", "advice.rejected", "advice.io", "advice.folder", "advice.in_use", "advice.skipped", "advice.held", "fold.skipped",
+		"kind.skipped", "advice.rejected", "advice.io", "advice.folder", "advice.in_use", "advice.skipped", "advice.report", "kind.report", "advice.held", "fold.skipped",
 		"fold.in_use", "fold.link-not-created", "unsynced.linkNotCreated", "unsynced.symlink", "unsynced.utf8"} {
 		if _, ok := base[k]; !ok {
 			t.Errorf("the dictionary lacks %q", k)

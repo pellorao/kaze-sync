@@ -274,11 +274,7 @@ func (f *Folder) clearDirty() {
 	}
 	busy := map[string]bool{}
 	for d := range f.unsentDirs {
-		p := d + "/x"
-		if d == "." {
-			p = "x"
-		}
-		id, _ := f.scopeOf(p)
+		id, _ := f.dirScope(d)
 		busy[id] = true
 	}
 	for id := range f.DB.metaPrefix("dirty:") {
@@ -286,6 +282,16 @@ func (f *Folder) clearDirty() {
 			f.DB.delMeta("dirty:" + id)
 		}
 	}
+}
+
+// dirScope is the scope of the files directly in directory d ("." is the root): the setting whose key is d or the
+// longest ancestor of it. The directory itself is looked up, not a made-up file in it, which a subdirectory of
+// that name (with a setting of its own) would take for its own.
+func (f *Folder) dirScope(d string) (id, mode string) {
+	if d == "." {
+		d = ""
+	}
+	return f.scopeOf(d)
 }
 
 // sinceHeldBack reports whether the cursor of a Pull may not become the since of the scopes' next changes: some change
@@ -297,14 +303,14 @@ func (f *Folder) sinceHeldBack() bool {
 	}
 	dirty := f.DB.metaPrefix("dirty:")
 	for d := range f.unsentDirs {
-		p := d + "/x"
-		if d == "." {
-			p = "x"
-		}
-		if id, mode := f.scopeOf(p); mode == proto.ModeSingle {
-			if _, ok := dirty[id]; !ok {
-				return true
+		if id, mode := f.dirScope(d); mode == proto.ModeSingle {
+			if _, ok := dirty[id]; ok {
+				continue
 			}
+			if _, fr := f.frozen[id]; fr { // frozen: its changes go to held, not to a since (design 2.8.6)
+				continue
+			}
+			return true
 		}
 	}
 	return false
@@ -315,10 +321,12 @@ func (f *Folder) coversDir(d string) bool {
 	if f.scope == nil {
 		return true
 	}
+	// A file name no directory can have, so that a scanned subdirectory of d (named like the stand-in) is not taken
+	// for d itself.
 	if d == "." {
-		return f.scope("x")
+		return f.scope("\x00")
 	}
-	return f.scope(d + "/x")
+	return f.scope(d + "/\x00")
 }
 
 // cleanHeld drops the held changes whose files went back to the base (reverted) or are gone with no base to go
@@ -365,12 +373,16 @@ func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
 	b, _ := json.Marshal(items)
 	sum := sha256.Sum256(b)
 	f.heldSig = string(sum[:])
-	size := 0
-	for i, it := range items { // paths and notes make an item longer: keep the request well within proto.MaxJSONBody
-		eb, _ := json.Marshal(it) // the encoded length, escapes included ("&" is 6 bytes)
-		if size += len(eb) + 1; i >= proto.MaxHeldItems || size > proto.MaxJSONBody*7/8 {
-			cut, items = len(items)-i, items[:i]
-			break
+	// Paths and notes make an item longer: keep the request well within proto.MaxJSONBody. The whole list is already
+	// encoded (b, with a comma between items): only a list that may be too long is measured item by item.
+	if limit := proto.MaxJSONBody * 7 / 8; len(items) > proto.MaxHeldItems || len(b) > limit {
+		size := 0
+		for i, it := range items {
+			eb, _ := json.Marshal(it) // the encoded length, escapes included ("&" is 6 bytes)
+			if size += len(eb) + 1; i >= proto.MaxHeldItems || size > limit {
+				cut, items = len(items)-i, items[:i]
+				break
+			}
 		}
 	}
 	return items, cut, f.heldSig != f.heldSent
@@ -394,8 +406,8 @@ func (f *Folder) ShowHeldError(rep *Report) {
 	if f.heldErr == "" {
 		return
 	}
-	// KindSkipped, not KindIO: no push about "files that cannot be synced"
-	rep.Errors = append(slices.Clone(rep.Errors), proto.FileError{Kind: proto.KindSkipped, Message: f.heldErr, Since: f.heldErrAt})
+	// KindReport, not KindIO: a reminder without a push, and without the advice to exclude a file
+	rep.Errors = append(slices.Clone(rep.Errors), proto.FileError{Kind: proto.KindReport, Message: f.heldErr, Since: f.heldErrAt})
 	rep.State = "error"
 }
 

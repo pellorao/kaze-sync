@@ -128,7 +128,9 @@ func dirsOf[V any](m map[string]V) []string {
 }
 
 // retryFile asks for a retry that scans the directory of p again, for a file that changed while it was read or
-// placed: that change is unsent until the retry (changedDirs), unlike a file in use (retryDir only).
+// placed. When it is during a Scan, that change is unsent until the retry (changedDirs, read by endScan); from a Pull the
+// next Scan clears changedDirs first, so only the retry directory counts (the per-file base check catches the rest).
+// Unlike a file in use, which is retryDir only.
 func (f *Folder) retryFile(p string) {
 	f.retry = true
 	f.retryDir(p)
@@ -203,7 +205,7 @@ func (r Report) Synced() bool {
 		return false
 	}
 	for _, e := range r.Errors {
-		if e.Kind != proto.KindSkipped {
+		if e.Kind != proto.KindSkipped && e.Kind != proto.KindReport {
 			return false
 		}
 	}

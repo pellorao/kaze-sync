@@ -120,6 +120,7 @@ const (
 	KindInUse    = "in_use"
 	KindRejected = "rejected"
 	KindSkipped  = "skipped"
+	KindReport   = "report" // the held changes could not be reported to the server (a reminder, no push)
 	KindIO       = "io"
 	KindFolder   = "folder"
 )
