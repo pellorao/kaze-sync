@@ -17,7 +17,7 @@ import (
 )
 
 // maxHeldItems bounds the list of held changes the server keeps per folder and device (design 2.8.10).
-const maxHeldItems = 20000
+const maxHeldItems = proto.MaxHeldItems
 
 // maxHeldRows is how many rows of one scope the decision dialog draws.
 const maxHeldRows = 2000
@@ -50,9 +50,9 @@ func (s *Server) heldHandler(w http.ResponseWriter, r *http.Request, d device) {
 		http.Error(w, "folder not mapped to this device", http.StatusForbidden)
 		return
 	}
-	cut := 0
+	cut := max(req.Cut, 0) // what the device itself left out
 	if len(req.Items) > maxHeldItems {
-		cut = len(req.Items) - maxHeldItems
+		cut += len(req.Items) - maxHeldItems
 		req.Items = req.Items[:maxHeldItems]
 	}
 	s.mu.Lock()

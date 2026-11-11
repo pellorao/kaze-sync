@@ -62,7 +62,7 @@ func TestResolveSnapshotGuards(t *testing.T) {
 // items is the held list as the server gets it: path -> note.
 func items(f *Folder) map[string]string {
 	out := map[string]string{}
-	list, _ := f.HeldItems()
+	list, _, _ := f.HeldItems()
 	for _, it := range list {
 		out[it.Path] = it.Note
 	}

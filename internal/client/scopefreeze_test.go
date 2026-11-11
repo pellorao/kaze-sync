@@ -1,6 +1,10 @@
 package client
 
 import (
+	"encoding/json"
+	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	cfs "kaze-sync/internal/client/fs"
@@ -46,5 +50,72 @@ func TestStandingWarningDoesNotFreezeScope(t *testing.T) {
 		if len(a.f.frozen) != 0 {
 			t.Errorf("bad=%v: scope frozen by another device's write after a pull: %v", bad, a.f.frozen)
 		}
+	}
+}
+
+// A new device adopting a directory whose files equal the server's is not frozen for them: nothing differs, so
+// nothing needs the user's decision (design 2.8.3).
+func TestAdoptSameContentIsNotHeld(t *testing.T) {
+	a, b := singlePair(t)
+	for _, p := range []string{"x.txt", "d/y.txt"} {
+		a.put(p, []byte("same "+p))
+		b.put(p, []byte("same "+p))
+	}
+	a.sync()
+	a.put("z.txt", []byte("later")) // the server has writes the new device has not seen
+	a.sync()
+	b.sync()
+	rows, _ := b.f.DB.held("")
+	if len(rows) != 0 || len(b.f.frozen) != 0 {
+		t.Fatalf("held %+v frozen %v", rows, b.f.frozen)
+	}
+}
+
+// A list of held changes longer than the report may be is cut to what fits, the cut is counted, and the report of a
+// full-size list stays within the request limit of the server.
+func TestHeldReportIsCutToFit(t *testing.T) {
+	a, _ := singlePair(t)
+	long := strings.Repeat("d", 200)
+	rows := make([]heldRow, 0, proto.MaxHeldItems+50)
+	for i := 0; i < proto.MaxHeldItems+50; i++ {
+		rows = append(rows, heldRow{Path: long + "/" + strconv.Itoa(i), Scope: "d:", Reason: "owner", Kind: "add", Hash: make([]byte, 32), Size: 1 << 40, MtimeNs: 1 << 60, At: 1 << 31})
+	}
+	if err := a.f.DB.putHeld(rows); err != nil {
+		t.Fatal(err)
+	}
+	items, cut, changed := a.f.HeldItems()
+	if !changed || cut == 0 || len(items)+cut != len(rows) {
+		t.Fatalf("items %d cut %d changed %v", len(items), cut, changed)
+	}
+	b, _ := json.Marshal(proto.HeldReq{Folder: 1, Items: items, Cut: cut})
+	if len(b) > proto.MaxJSONBody {
+		t.Fatalf("the request is %d bytes, the server takes %d", len(b), proto.MaxJSONBody)
+	}
+	// Short paths: the count limit decides.
+	a, _ = singlePair(t)
+	for i := range rows {
+		rows[i].Path = "p" + strconv.Itoa(i)
+	}
+	a.f.DB.putHeld(rows)
+	items, cut, _ = a.f.HeldItems()
+	if len(items) != proto.MaxHeldItems || cut == 0 {
+		t.Fatalf("short paths: items %d cut %d", len(items), cut)
+	}
+}
+
+// A report that failed shows in the folder's status, not only in the log, until one succeeds.
+func TestHeldReportFailureIsShown(t *testing.T) {
+	a, _ := singlePair(t)
+	var rep Report
+	a.f.HeldReportFailed(errors.New("held: 400 too large"))
+	a.f.ShowHeldError(&rep)
+	if rep.State != "error" || len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0].Message, "400 too large") {
+		t.Fatalf("report %+v", rep)
+	}
+	rep = Report{}
+	a.f.HeldReportFailed(nil)
+	a.f.ShowHeldError(&rep)
+	if len(rep.Errors) != 0 {
+		t.Fatalf("still shown: %+v", rep)
 	}
 }

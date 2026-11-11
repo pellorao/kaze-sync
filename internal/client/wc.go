@@ -273,8 +273,12 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 	}
 }
 
+// heldItemOverhead is the JSON an item takes besides its path, scope and note (keys, numbers at their longest).
+const heldItemOverhead = 170
+
 // HeldItems is the list of held changes for the server (POST /held), and whether it differs from the last one sent.
-func (f *Folder) HeldItems() (items []proto.HeldItem, changed bool) {
+// At most proto.MaxHeldItems are returned, the rest is counted in cut: a longer list would not fit the request.
+func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
 	rows, _ := f.DB.held("")
 	items = []proto.HeldItem{}
 	live := make(map[string]bool, len(f.heldNote))
@@ -292,7 +296,32 @@ func (f *Folder) HeldItems() (items []proto.HeldItem, changed bool) {
 	b, _ := json.Marshal(items)
 	sum := sha256.Sum256(b)
 	f.heldSig = string(sum[:])
-	return items, f.heldSig != f.heldSent
+	size := 0
+	for i, it := range items { // paths and notes make an item longer: keep the request well within proto.MaxJSONBody
+		if size += heldItemOverhead + len(it.Path) + len(it.Scope) + len(it.Note); i >= proto.MaxHeldItems || size > proto.MaxJSONBody*7/8 {
+			cut, items = len(items)-i, items[:i]
+			break
+		}
+	}
+	return items, cut, f.heldSig != f.heldSent
+}
+
+// HeldReportFailed records that the list could not reach the server (err), or that it did (nil), so that the status
+// shows it; a log line alone is not seen (design 2.8.10).
+func (f *Folder) HeldReportFailed(err error) {
+	f.heldErr = ""
+	if err != nil {
+		f.heldErr = "cannot report the held changes: " + err.Error()
+	}
+}
+
+// ShowHeldError adds the failure of the last held report to a report that was made before it.
+func (f *Folder) ShowHeldError(rep *Report) {
+	if f.heldErr == "" {
+		return
+	}
+	rep.Errors = append(slices.Clone(rep.Errors), proto.FileError{Kind: proto.KindIO, Message: f.heldErr, Since: f.Now().Unix()})
+	rep.State = "error"
 }
 
 // HeldSent records that the list HeldItems returned last reached the server.

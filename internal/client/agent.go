@@ -302,13 +302,16 @@ func (a *Agent) work(ctx context.Context, t task) {
 		r.s.full = true
 		a.mu.Unlock()
 	}
-	if items, changed := f.HeldItems(); changed && ctx.Err() == nil { // the list for the Web UI, only when it differs
-		if herr := a.API.Held(ctx, proto.HeldReq{Folder: r.cfg.ID, Items: items}); herr != nil {
+	if items, cut, changed := f.HeldItems(); changed && ctx.Err() == nil { // the list for the Web UI, only when it differs
+		herr := a.API.Held(ctx, proto.HeldReq{Folder: r.cfg.ID, Items: items, Cut: cut})
+		f.HeldReportFailed(herr)
+		if herr != nil {
 			slog.Warn("cannot report the held changes", "folder", r.cfg.ID, "err", herr)
 		} else {
 			f.HeldSent()
 		}
 	}
+	f.ShowHeldError(&rep)
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()

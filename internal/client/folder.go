@@ -81,6 +81,7 @@ type Folder struct {
 	frozen         map[string]int64     // the frozen scopes and the cursor their pulls stop at (design 2.8.5)
 	heldDirty      bool                 // the held list may differ from what the server has
 	heldSig        string
+	heldErr        string // why the last report of the held changes failed, "" when it did not
 	heldSent       string
 	heldNote       map[string]string // why the last decision on a held path was not carried out (HeldItem.Note)
 	unsent         bool              // a scan found changes it could not send, and no whole scan has found everything sent since

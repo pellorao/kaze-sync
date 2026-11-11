@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -185,10 +186,32 @@ func (s *Server) ownerChecks(tx *sql.Tx, rules []lockRow, devID int64, device st
 			out = make([]*proto.OwnerInfo, len(ops))
 		}
 		for _, i := range g.ops {
-			out[i] = info
+			if same, err := sameAsServer(tx, &ops[i]); err != nil {
+				return nil, err
+			} else if !same {
+				out[i] = info
+			}
 		}
 	}
 	return out, nil
+}
+
+// sameAsServer reports whether an op adds what the server already has: the same content at a path whose current
+// entry the op does not know (base_seq differs), as a device does that adopts a directory the folder already holds.
+// commitOp answers it with a conflict and changes nothing, and the device takes the entry as its own; freezing the
+// scope for it would hold back every file of a new device (design 2.8.3).
+func sameAsServer(tx *sql.Tx, op *proto.Op) (bool, error) {
+	if op.Hash == nil {
+		return false, nil
+	}
+	var seq int64
+	var hash []byte
+	var link bool
+	err := tx.QueryRow(`SELECT seq, hash, link FROM files WHERE path=?`, op.Path).Scan(&seq, &hash, &link)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && hash != nil && seq != op.BaseSeq && bytes.Equal(hash, op.Hash[:]) && link == op.Link, err
 }
 
 func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (proto.Result, error) {

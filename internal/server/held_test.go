@@ -276,6 +276,43 @@ func TestHeldReportCutIsShown(t *testing.T) {
 	}
 }
 
+// What the device itself left out (HeldReq.Cut) is counted with what the server drops.
+func TestHeldReportCutAddsDeviceCut(t *testing.T) {
+	l, it := heldEnv(t)
+	st, out := l.api(l.tb, "held", proto.HeldReq{Folder: l.f, Items: []proto.HeldItem{it}, Cut: 9000})
+	if st != 200 {
+		t.Fatalf("held: %d %s", st, out)
+	}
+	var r map[string]int
+	json.Unmarshal(out, &r)
+	if r["held"] != 1 || r["cut"] != 9000 {
+		t.Fatalf("answer %v", r)
+	}
+	notes, _ := l.s.folderNotices(l.f)
+	for _, n := range notes {
+		if n.Kind == kindHeldCut && n.N == 9000 {
+			return
+		}
+	}
+	t.Fatalf("notices %+v", notes)
+}
+
+// A new device whose file equals the server's is not refused for ownership; a different one still is.
+func TestOwnerCheckLetsSameContentThrough(t *testing.T) {
+	l, _ := heldEnv(t) // A committed d/x.txt = "one"
+	same := l.op("d/x.txt", 0, "one")
+	r := l.apiCommit(l.tb, l.f, same)
+	if r[0].Reason == proto.ReasonOwner {
+		t.Fatalf("same content refused for ownership: %+v", r[0])
+	}
+	if r[0].Status != proto.StatusConflict {
+		t.Fatalf("status %+v", r[0])
+	}
+	if r := l.apiCommit(l.tb, l.f, l.op("d/x.txt", 0, "two")); r[0].Reason != proto.ReasonOwner {
+		t.Fatalf("other content: %+v", r[0])
+	}
+}
+
 // The page the user returns to after a decision keeps the directory he was in, whatever characters its name has.
 func TestResolveRedirectKeepsDirectory(t *testing.T) {
 	l, _ := heldEnv(t)

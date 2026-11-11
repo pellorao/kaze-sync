@@ -50,6 +50,10 @@ const (
 	MaxJSONBody  = 4 << 20
 	MaxBlockBody = 64 << 20
 	MaxCommitOps = 1000
+	// MaxHeldItems bounds the held changes of one folder a device reports and the server keeps (design 2.8.10); a
+	// device sends no more, and says in HeldReq.Cut how many it left out, so the request stays within MaxJSONBody
+	// (an item takes about 190 bytes of JSON, a long path more).
+	MaxHeldItems = 20000
 	// MaxCommitBlocks bounds the block hashes of one commit: each takes about 67 bytes of JSON, so this stays far below
 	// MaxJSONBody. One file with more blocks than this is committed alone.
 	MaxCommitBlocks = 20000
@@ -301,6 +305,8 @@ type HeldItem struct {
 type HeldReq struct {
 	Folder int64      `json:"folder"`
 	Items  []HeldItem `json:"items"`
+	// Cut is how many held changes the device left out of Items for the limit MaxHeldItems.
+	Cut int `json:"cut,omitempty"`
 }
 
 type CommitResp struct {
