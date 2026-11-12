@@ -330,6 +330,62 @@
     if (press && Math.hypot(t.clientX - press.x, t.clientY - press.y) > 10) cancelPress();
   }, { passive: true });
 
+  // ---- tips (design 4.8): a [data-tip] trigger names its hidden content (.tip-c); one element shows it on hover, on a
+  // tap, and on keyboard focus of the trigger or of an element described by the content (the row's name). WCAG 1.4.13:
+  // Escape hides it, the pointer can move onto it, it stays until the pointer has left both.
+  const tip = el("div", { class: "tip", role: "tooltip" });
+  tip.hidden = true;
+  body.append(tip);
+  let tipFor = null, tipTimer = 0;
+  function showTip(trigger) {
+    clearTimeout(tipTimer);
+    if (tipFor === trigger && !tip.hidden) return;
+    const c = document.getElementById(trigger.dataset.tip);
+    if (!c) return;
+    tipFor = trigger;
+    tip.replaceChildren(...Array.from(c.childNodes, (n) => n.cloneNode(true)));
+    tip.hidden = false;
+    const r = trigger.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    const x = Math.max(8, Math.min(r.left - 8, innerWidth - w - 8));
+    const y = r.bottom + 6 + h > innerHeight - 8 && r.top - 6 - h >= 8 ? r.top - 6 - h : r.bottom + 6;
+    tip.style.setProperty("left", x + "px");
+    tip.style.setProperty("top", y + "px");
+  }
+  function hideTip(later) {
+    clearTimeout(tipTimer);
+    if (later) tipTimer = setTimeout(() => hideTip(false), 300);
+    else { tip.hidden = true; tipFor = null; }
+  }
+  const tipTrigger = (n) => { // the trigger of a focused element: itself, or the one whose content describes it
+    if (n.matches("[data-tip]")) return n;
+    const c = n.getAttribute("aria-describedby") && document.getElementById(n.getAttribute("aria-describedby"));
+    return c && c.classList.contains("tip-c") ? c.closest("[data-tip]") : null;
+  };
+  document.addEventListener("pointerover", (e) => {
+    if (e.pointerType === "touch") return;
+    const t = e.target.closest("[data-tip]");
+    if (t) showTip(t);
+    else if (tip.contains(e.target)) clearTimeout(tipTimer);
+  });
+  document.addEventListener("pointerout", (e) => {
+    if (e.pointerType === "touch" || tip.hidden) return;
+    const to = e.relatedTarget;
+    if (to && (tip.contains(to) || (tipFor && tipFor.isConnected && tipFor.contains(to)))) return;
+    if (e.target.closest("[data-tip]") || tip.contains(e.target)) hideTip(true);
+  });
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-tip]");
+    if (t && e.pointerType !== "mouse") { if (tipFor === t && !tip.hidden) hideTip(false); else showTip(t); } // a tap
+    else if (!tip.contains(e.target) && !t) hideTip(false);
+  });
+  document.addEventListener("focusin", (e) => {
+    const t = tipTrigger(e.target);
+    if (t && e.target.matches(":focus-visible")) showTip(t);
+  });
+  document.addEventListener("focusout", (e) => { if (tipFor && tipTrigger(e.target) === tipFor) hideTip(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !tip.hidden) hideTip(false); }, true);
+  addEventListener("scroll", () => { if (!tip.hidden) hideTip(false); }, true);
+
   // ---- notifications
   const notif = $("#notif");
   document.addEventListener("click", (e) => {

@@ -21,8 +21,8 @@ a:hover { text-decoration: underline; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -3px; }
-svg.i.lg { width: 18px; height: 18px; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -3px; }
+svg.i.lg { width: 20px; height: 20px; }
 
 /* top bar */
 .bar { position: sticky; top: 0; z-index: 5; background: var(--bar); border-bottom: 1px solid var(--line); }
@@ -93,9 +93,6 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 .tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 1; white-space: nowrap; color: var(--muted); border: 1px solid var(--line); }
 .tag.err { color: #f0a0a6; border-color: color-mix(in srgb, var(--danger) 55%, transparent); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
-.tag.wc-free { color: var(--muted); }
-.tag.wc-single { color: #8fb4ff; border-color: color-mix(in srgb, #8fb4ff 45%, transparent); }
-.tag.wc-exclusive { color: #c9a4ff; border-color: color-mix(in srgb, #c9a4ff 45%, transparent); background: color-mix(in srgb, #c9a4ff 10%, transparent); }
 .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .tag.dev { color: var(--fg); background: var(--hover); border-color: transparent; }
 .tag.dev.off { color: var(--faint); background: none; border-color: var(--line); }
@@ -114,13 +111,27 @@ table.files td.name { width: 100%; }
 .fname { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fname a, .fname .t { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fname a:hover { color: var(--accent); text-decoration: none; }
-.fname svg.dir { color: var(--accent); }
 .fname svg.file { color: var(--muted); }
-.fname svg.dir.wc-free { color: var(--muted); }
-.fname svg.dir.wc-single { color: #8fb4ff; }
-.fname svg.dir.wc-exclusive, .fname svg.file.wc-exclusive { color: #c9a4ff; }
-.ico { position: relative; display: inline-flex; flex: none; }
-.ico svg.ov { position: absolute; right: -4px; bottom: -4px; width: 11px; height: 11px; color: var(--warn); background: var(--bg); border-radius: 50%; }
+/* the write-control icon (design 2.8.11): shape and color carry the mode, a filled body a setting on the path itself */
+.wci { position: relative; display: inline-flex; flex: none; border-radius: 4px; }
+.wci svg.wc { width: 20px; height: 20px; }
+.wci.wc-free { color: var(--muted); }
+.wci.wc-single { color: #8fb4ff; }
+.wci.wc-exclusive { color: #c9a4ff; }
+.wci.set svg.wc { fill: color-mix(in srgb, currentColor 30%, transparent); }
+.wci svg.ov { position: absolute; right: -5px; bottom: -3px; width: 12px; height: 12px; color: var(--danger); background: var(--surface); border-radius: 3px; }
+.crumbs .here { display: inline-flex; align-items: center; gap: 8px; }
+/* tips (design 4.8): one element for the page, filled from the trigger's hidden .tip-c; on --bar, where the muted text keeps 5.3:1 (on --raised only 4.1:1) */
+.tip { position: fixed; inset: auto; margin: 0; max-width: min(320px, calc(100vw - 16px)); padding: 8px 12px; background: var(--bar); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); font-size: 12px; line-height: 1.5; z-index: 30; }
+.tip > span { display: block; }
+.tip .tp { color: var(--fg); font-size: 14px; font-weight: 600; }
+.tag[data-tip] { cursor: default; }
+.updown { display: inline-flex; align-items: center; gap: 2px; }
+.updown svg.i { width: 12px; height: 12px; }
+details.disc > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; }
+details.disc > summary::-webkit-details-marker { display: none; }
+details.disc > summary .chev { transition: transform 0.1s; }
+details.disc[open] > summary .chev { transform: rotate(90deg); }
 .fname .tags { display: inline-flex; gap: 6px; flex-wrap: nowrap; }
 tr.gone .fname a, tr.gone .fname .t { color: var(--muted); }
 tr.gone svg { color: var(--faint) !important; }
@@ -289,15 +300,16 @@ details.glob pre { margin: 0; padding: 8px 12px; border-top: 1px solid var(--lin
 th.act { width: 40px; }
 @media (max-width: 640px) {
   table.files { table-layout: fixed; }
-  .fname { flex-wrap: wrap; row-gap: 2px; }
-  .fname a, .fname .t { white-space: normal; overflow-wrap: anywhere; }
+  table.files .fname { flex-wrap: wrap; row-gap: 2px; }
+  table.files .fname a, table.files .fname .t { white-space: normal; overflow-wrap: anywhere; }
+  table.files .fname > .nm { max-width: calc(100% - 28px); } /* a long name wraps inside itself, next to its icon */
   .fname .tags { flex-wrap: wrap; }
   .list-h { flex-wrap: wrap; }
   .crumbs, .head h1 { font-size: 17px; }
   .sub { gap: 2px 10px; }
   .sub .dot-sep::before { margin-right: 10px; }
 }
-.sm-meta { padding-left: 24px; }
+.sm-meta { padding-left: 28px; }
 
 /* additions of the real pages */
 [hidden] { display: none !important; }

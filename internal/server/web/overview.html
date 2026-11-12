@@ -6,7 +6,7 @@
 <div data-live="folders"><table>
 <thead><tr><th>{{t "ov.name"}}</th><th>{{t "ov.status"}}</th><th class="hide-sm">{{t "ov.devices"}}</th><th class="r">{{t "ov.files"}}</th><th class="r">{{t "ov.size"}}</th><th>{{t "nav.notif"}}</th></tr></thead>
 <tbody>
-{{range .Folders}}<tr><td><a href="/folders/{{.ID}}">{{icon "folder"}} {{.Name}}</a></td>
+{{range .Folders}}<tr><td><span class="fname">{{wcIcon .WC true 0 (printf "wf%d" .ID)}}<a href="/folders/{{.ID}}" aria-describedby="wf{{.ID}}">{{.Name}}</a></span></td>
 {{if .Err}}<td colspan="5" class="st-err">{{t "ov.unreadable" "err" .Err}}</td>{{else}}
 <td>{{template "folder-state" .}}</td>
 <td class="hide-sm">{{range .Devs}}<span class="tag dev{{if not .Online}} off{{end}}">{{.Name}}</span> {{else}}<span class="muted small">{{t "ov.noDevices"}}</span>{{end}}</td>
@@ -24,7 +24,7 @@
 <tbody>
 {{range .Devices}}<tr><td class="top"><span class="dot{{if .Online}} ok{{end}}"></span><a href="/devices/{{.ID}}">{{.Name}}</a></td><td class="top hide-sm">{{.OS}}</td>
 <td class="top">{{if .Online}}<span class="st-ok">{{t "st.online"}}</span>{{else}}<span class="muted num">{{time .LastSeen}}</span>{{end}}</td>
-<td class="top">{{if .Status}}<div class="status-lines">{{range .Status}}<div class="stl"><span class="f">{{.Folder}}</span> <span class="{{stClass .State}}">{{stText .State}}</span>{{if or .PendingUp .PendingDown}} <span class="muted">↑{{.PendingUp}} ↓{{.PendingDown}}</span>{{end}} <span class="muted num">{{time .Synced}}</span></div>{{end}}</div>{{end}}</td>
+<td class="top">{{if .Status}}<div class="status-lines">{{range .Status}}<div class="stl"><span class="f">{{.Folder}}</span> <span class="{{stClass .State}}">{{stText .State}}</span>{{if or .PendingUp .PendingDown}} <span class="muted updown">{{icon "up"}}<span class="sr">↑</span>{{.PendingUp}} {{icon "down"}}<span class="sr">↓</span>{{.PendingDown}}</span>{{end}} <span class="muted num">{{time .Synced}}</span></div>{{end}}</div>{{end}}</td>
 <td class="top hide-sm">{{if .TooOld}}<span class="st-err">{{t "st.tooOld" "n" .TooOld}}</span>{{else}}<span class="num">{{.Version}}</span>{{end}}</td><td class="top hide-sm">{{cfg .ConfigState}}</td>
 </tr>{{else}}<tr><td colspan="6" class="muted">{{t "ov.noDevicesYet"}}</td></tr>{{end}}
 </tbody></table></div>

@@ -56,7 +56,10 @@ func funcs(t translator) template.FuncMap {
 			return ""
 		},
 		"heldWhy": func(reason, other string) string { return heldWhy(t, reason, other) },
-		"rowIcon": rowIcon, "modeIcon": modeIcon,
+		"wcIcon": func(w wcInfo, isDir bool, held int, id string) template.HTML {
+			return wcIcon(t, w, isDir, held, id, false)
+		},
+		"wcIconF": func(w wcInfo, id string) template.HTML { return wcIcon(t, w, true, 0, id, true) },
 		"fold":    func(kind string, n int) string { return t.T("fold."+kind, "n", n) },
 		"cfg":     func(state string) string { return cfgText(t, state) },
 		"lineErr": func(line int, m string) string { return t.T("js.ruleLine", "n", line, "msg", ruleMsg(t, m)) },
@@ -505,6 +508,7 @@ type ovFolder struct {
 	Pending          int
 	Devs             []devTag
 	Errors, Warnings int
+	WC               wcInfo // the write control of the folder's root (design 2.8.11)
 }
 
 type ovDevice struct {
@@ -525,9 +529,17 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 	if err != nil {
 		return err
 	}
+	roots, err := rootWC(s.db)
+	if err != nil {
+		return err
+	}
 	folderNames := map[int64]string{}
-	for _, f := range fols {
+	for i, f := range fols {
 		folderNames[f.ID] = f.Name
+		fols[i].WC = roots[f.ID]
+		if fols[i].WC.Mode == "" {
+			fols[i].WC.Mode = proto.ModeSingle // no row: the default (design 2.8.2)
+		}
 	}
 	mapped, err := s.mappedDevices()
 	if err != nil {
@@ -1232,28 +1244,40 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// modeIcon is the icon of a write-control mode (design 2.8.11).
-func modeIcon(mode string) string {
-	switch mode {
-	case proto.ModeSingle:
-		return "folder-one"
-	case proto.ModeExclusive:
-		return "folder-lock"
+// wcIcon is the icon of a directory or file that shows its write control (design 2.8.11): the shape and color follow
+// the effective mode, a filled body marks a setting on the path itself (an outline: inherited), a triangle marks held
+// changes below it. The texts that were labels sit in a tip (id), which app.js shows on hover, tap, and keyboard focus of
+// the row's name (it links the tip with aria-describedby) or, with focus set, of the icon itself.
+func wcIcon(t translator, w wcInfo, isDir bool, held int, id string, focus bool) template.HTML {
+	kind := "file"
+	if isDir {
+		kind = "folder"
 	}
-	return "folder"
-}
-
-// rowIcon is the icon of a row of the file list: the shape follows the write-control mode, a triangle marks held
-// changes below it (colors are in the style sheet).
-func rowIcon(e browseEntry) template.HTML {
-	name, cls := "file", "file"
-	if e.IsDir {
-		name, cls = modeIcon(e.WC.Mode), "dir wc-"+e.WC.Mode
-	} else if e.WC.Mode == proto.ModeExclusive {
-		name, cls = "file-lock", "file wc-exclusive"
+	cls := "wci wc-" + w.Mode
+	if w.Explicit {
+		cls += " set"
 	}
-	if e.HeldN > 0 {
-		return template.HTML(`<span class="ico">`) + icon(name, cls) + icon("warn", "ov") + template.HTML(`</span>`)
+	label := t.T("wc.tag." + w.Mode)
+	if w.Mode == proto.ModeExclusive {
+		label = t.T("wc.tag.exclusive", "device", w.Dev)
 	}
-	return icon(name, cls)
+	from := t.T("wc.tip.here")
+	switch {
+	case w.Path == "" && !w.Explicit:
+		from = t.T("wc.tip.default")
+	case !w.Explicit:
+		from = t.T("wc.tip.from", "from", "/"+w.From)
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="` + cls + `" data-tip="` + id + `"`)
+	if focus {
+		b.WriteString(` tabindex="0" role="img" aria-label="` + html.EscapeString(label) + `" aria-describedby="` + id + `"`)
+	}
+	b.WriteString(`><svg class="i wc" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#i-` + kind + `-` + w.Mode + `"/></svg>`)
+	if held > 0 {
+		b.WriteString(string(icon("alert", "ov")))
+	}
+	b.WriteString(`<span class="tip-c" id="` + id + `" hidden><span class="tp">` + html.EscapeString(label) + `</span><span class="ts">` +
+		html.EscapeString(from) + `</span><span class="ts">` + html.EscapeString(t.T("dlg.wc."+w.Mode+".help")) + `</span></span></span>`)
+	return template.HTML(b.String())
 }

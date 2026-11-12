@@ -1,7 +1,7 @@
 {{define "mainattr"}} data-folder="{{.Folder.ID}}" data-seq="{{.Seq}}"{{end}}
 
 {{define "content"}}
-<div class="head"><div class="crumbs"><a href="/">{{t "nav.overview"}}</a><span class="sep">/</span>{{if .Dir}}<a href="/folders/{{.Folder.ID}}{{if .Deleted}}?deleted=1{{end}}">{{.Folder.Name}}</a>{{range $i, $c := .Crumbs}}<span class="sep">/</span>{{if eq (len $.Crumbs) (add1 $i)}}<span>{{$c.Name}}</span>{{else}}<a href="/folders/{{$.Folder.ID}}?dir={{$c.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{$c.Name}}</a>{{end}}{{end}}{{else}}<span>{{.Folder.Name}}</span>{{end}}</div>
+<div class="head"><div class="crumbs"><a href="/">{{t "nav.overview"}}</a><span class="sep">/</span>{{if .Dir}}<a href="/folders/{{.Folder.ID}}{{if .Deleted}}?deleted=1{{end}}">{{.Folder.Name}}</a>{{range $i, $c := .Crumbs}}<span class="sep">/</span>{{if eq (len $.Crumbs) (add1 $i)}}<span class="here">{{wcIconF $.WCHere "wt-here"}}{{$c.Name}}</span>{{else}}<a href="/folders/{{$.Folder.ID}}?dir={{$c.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{$c.Name}}</a>{{end}}{{end}}{{else}}<span class="here">{{wcIconF .WCHere "wt-here"}}{{.Folder.Name}}</span>{{end}}</div>
 <span class="sp"></span>
 <a class="toggle{{if .Deleted}} on{{end}}" role="switch" aria-checked="{{if .Deleted}}true{{else}}false{{end}}" href="/folders/{{.Folder.ID}}?{{if .Dir}}dir={{.Dir}}{{end}}{{if not .Deleted}}{{if .Dir}}&amp;{{end}}deleted=1{{end}}"><span class="sw"></span>{{t "fo.showDeleted"}}</a>
 {{if not .Dir}}<button type="button" class="btn" data-dialog="dlg-rules">{{icon "rules"}}{{t "fo.rules"}}{{if .RuleCount}} <span class="n">{{.RuleCount}}</span>{{end}}</button>{{end}}
@@ -9,18 +9,18 @@
 <p class="sub"><span>{{if .Mapped}}{{t "fo.devices" "n" .Mapped "names" (names .Devs)}}{{else}}{{t "fo.noMapped"}}{{end}}</span>
 <span class="dot-sep num">{{t "fo.nFiles" "n" .Files}}</span><span class="dot-sep num">{{size .Bytes}}</span>
 <span class="dot-sep">{{template "folder-state" .}}</span>
-<span class="dot-sep wc-line">{{icon (modeIcon .WCHere.Mode)}}{{tm "fo.wc.line" "mode" .WCMode "from" .WCFrom}}{{if .WCOwner}}{{tm "fo.wc.owner" "device" .WCOwner "time" (time .WCUntil)}}{{end}}</span>
+<span class="dot-sep wc-line">{{tm "fo.wc.line" "mode" .WCMode "from" .WCFrom}}{{if .WCOwner}}{{tm "fo.wc.owner" "device" .WCOwner "time" (time .WCUntil)}}{{end}}</span>
 {{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</button>{{end}}</p>
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
 <div class="list-h"><span>{{t "fo.items" "n" (len .Entries)}}</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}{{t "fo.reload"}}</button></div>
 {{if .Entries}}<table class="files">
 <thead><tr><th>{{t "ov.name"}}</th><th class="size r">{{t "fo.size"}}</th><th class="time">{{t "fo.modified"}}</th><th class="act"></th></tr></thead>
 <tbody>
-{{range .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if not .Unsynced}}{{template "wc-data" .WC}}{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
-<td class="name"><div class="fname">{{if .IsDir}}{{rowIcon .}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
+{{range $i, $_ := .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if not .Unsynced}}{{template "wc-data" .WC}}{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
+<td class="name"><div class="fname">{{if .IsDir}}{{wcIcon .WC .IsDir .HeldN (printf "wt%d" $i)}}<a class="nm" aria-describedby="wt{{$i}}" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
 {{else if .Unsynced}}{{icon "link" "file"}}<span class="t nm">{{.Name}}</span>
-{{else}}{{rowIcon .}}<a class="nm" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
-<span class="tags">{{if and .IsDir .Gone}}<span class="tag">{{t "fo.onlyDeleted"}}</span>{{else if and .Gone (not .IsDir)}}<span class="tag">{{t "fo.deleted"}}</span>{{end}}{{range .Tags}}<span class="tag {{.Class}}"{{if .Title}} title="{{.Title}}"{{end}}>{{.Text}}</span>{{end}}</span></div>
+{{else}}{{wcIcon .WC .IsDir .HeldN (printf "wt%d" $i)}}<a class="nm" aria-describedby="wt{{$i}}" href="/folders/{{$.Folder.ID}}?dir={{$.Dir}}&amp;file={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>{{end}}
+<span class="tags">{{if and .IsDir .Gone}}<span class="tag">{{t "fo.onlyDeleted"}}</span>{{else if and .Gone (not .IsDir)}}<span class="tag">{{t "fo.deleted"}}</span>{{end}}{{range $j, $g := .Tags}}<span class="tag {{.Class}}"{{if .Title}} tabindex="0" data-tip="wt{{$i}}-{{$j}}" aria-describedby="wt{{$i}}-{{$j}}"{{end}}>{{.Text}}{{if .Title}}<span class="tip-c" id="wt{{$i}}-{{$j}}" hidden><span class="tp">{{.Title}}</span></span>{{end}}</span>{{end}}</span></div>
 {{if and (or .Size .Time) (not .Unsynced) (not (and .IsDir .Gone))}}<div class="sm-meta">{{if not .Gone}}{{size .Size}} · {{time .Time}}{{else}}{{tm "fo.deletedAt" "time" (time .Time)}}{{end}}</div>{{end}}</td>
 <td class="size">{{if and (not .Gone) (not .Unsynced)}}{{size .Size}}{{end}}</td>
 <td class="time">{{if and (not .Unsynced) (not (and .IsDir .Gone))}}{{if .Gone}}{{tm "fo.deletedAt" "time" (time .Time)}}{{else}}{{time .Time}}{{end}}{{end}}</td>
@@ -42,7 +42,7 @@
 {{if and .Total (eq .Decided .Total)}}<p class="note" data-waiting>{{icon "info"}}<span>{{t "dlg.held.groupWaiting" "device" $.HeldView.Device}}</span></p>{{end}}
 <div class="held-acts"><button class="btn sm" name="action" value="discard"{{if and .Total (eq .Decided .Total)}} disabled{{end}}>{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite"{{if and .Total (eq .Decided .Total)}} disabled{{end}} data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
 <label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
-<details><summary>{{t "dlg.held.expand"}}</summary>
+<details class="disc"><summary>{{icon "open" "chev"}}{{t "dlg.held.expand"}}</summary>
 <p class="note warn" data-mixwarn hidden>{{icon "warn"}}<span>{{t "dlg.held.mixed"}}</span></p>
 <table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
 {{range .Rows}}<tr><td class="mono">{{.Path}}</td>
@@ -99,7 +99,7 @@
 <label class="radio" data-opt="free"><input type="radio" name="mode" value="free"> {{t "dlg.wc.free"}}</label><span class="help" data-opt="free">{{t "dlg.wc.free.help"}}</span>
 <label class="radio" data-opt="single"><input type="radio" name="mode" value="single"> {{t "dlg.wc.single"}}</label><span class="help">{{t "dlg.wc.single.help"}}</span>
 <label class="radio" data-opt="exclusive"><input type="radio" name="mode" value="exclusive"> {{t "dlg.wc.exclusive"}}</label><span class="help">{{t "dlg.wc.exclusive.help"}}</span>
-<div class="wc-dev"><label for="wc-dev">{{t "dlg.lock.device"}}</label><select id="wc-dev" name="device"{{if not .Devs}} disabled{{end}}>{{range .Devs}}<option value="{{.ID}}">{{.Name}}{{if .Online}} ●{{end}}</option>{{end}}</select>
+<div class="wc-dev"><label for="wc-dev">{{t "dlg.lock.device"}}</label><select id="wc-dev" name="device"{{if not .Devs}} disabled{{end}}>{{range .Devs}}<option value="{{.ID}}">{{.Name}}{{if .Online}} · {{t "st.online"}}{{end}}</option>{{end}}</select>
 {{if not .Devs}}<span class="help">{{t "dlg.lock.none"}}</span>{{end}}</div>
 </div>
 <p class="note" data-wc-root hidden>{{icon "info"}}<span>{{t "dlg.wc.root"}}</span></p>
@@ -120,7 +120,7 @@
 <span class="help" id="ru-help">{{tm "ru.help"}}</span>
 </div>
 <div data-hitsbox>{{template "hits" .Hits}}</div>
-<details class="glob"><summary>{{tm "ru.global" "n" .GlobalCount "href" "/settings"}}</summary>
+<details class="glob disc"><summary>{{icon "open" "chev"}}<span>{{tm "ru.global" "n" .GlobalCount "href" "/settings"}}</span></summary>
 <pre>{{.Global}}</pre></details>
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close data-discard>{{t "common.cancel"}}</button>{{template "rulesgo" .Hits}}</div>

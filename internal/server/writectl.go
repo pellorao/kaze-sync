@@ -36,6 +36,26 @@ func folderWC(q interface {
 	}, `SELECT w.path, w.key, w.mode, w.device_id, coalesce(d.name, ''), w.created_at FROM writectl w LEFT JOIN devices d ON d.id=w.device_id WHERE w.folder_id=? ORDER BY w.key`, folder)
 }
 
+// rootWC reads the root setting of every folder that has one (the overview shows it, design 2.8.11); a folder without
+// a row is single writer by default.
+func rootWC(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}) (map[int64]wcInfo, error) {
+	type root struct {
+		folder int64
+		w      wcInfo
+	}
+	rows, err := queryAll(q, func(r *sql.Rows, x *root) error {
+		x.w.Explicit = true
+		return r.Scan(&x.folder, &x.w.Mode, &x.w.DevID, &x.w.Dev)
+	}, `SELECT w.folder_id, w.mode, w.device_id, coalesce(d.name, '') FROM writectl w LEFT JOIN devices d ON d.id=w.device_id WHERE w.key=''`)
+	out := map[int64]wcInfo{}
+	for _, x := range rows {
+		out[x.folder] = x.w
+	}
+	return out, err
+}
+
 // folderLocks lists the exclusive settings of a folder.
 func folderLocks(q interface {
 	Query(string, ...any) (*sql.Rows, error)

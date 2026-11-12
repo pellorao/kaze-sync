@@ -88,7 +88,7 @@ func TestDictionaryKeysAreUsed(t *testing.T) {
 		names = append(names, regexp.QuoteMeta(g))
 	}
 	keyRe := regexp.MustCompile(`"((?:` + strings.Join(names, "|") + `)\.[A-Za-z0-9_.-]*[A-Za-z0-9_])"`)
-	dynamic := []string{"st.", "cfg.", "kind.", "advice.", "fold.", "unsynced.", "js.ago_", "js.menu.", "held.why.", "held.kind.", "held.note.", "wc.tag.", "wc.desc.", "wc.mode.", "js.wc.mode."}
+	dynamic := []string{"st.", "cfg.", "kind.", "advice.", "fold.", "unsynced.", "js.ago_", "js.menu.", "held.why.", "held.kind.", "held.note.", "wc.tag.", "wc.mode.", "js.wc.mode."}
 
 	var files []string
 	for _, pat := range []string{"*.go", "web/*.html", "web/app.js"} {

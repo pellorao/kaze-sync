@@ -42,7 +42,8 @@ func wcFor(rules []lockRow, p string) wcInfo {
 	return wcInfo{Path: p, Mode: gov.Mode, Explicit: row && gov.key == k, From: gov.Path, Dev: gov.Device, DevID: gov.DeviceID, InhMode: inh.Mode, InhFrom: inh.Path}
 }
 
-// decorateWC gives the rows their mode, labels and the held counts, from memory and the settings (no query).
+// decorateWC gives the rows their mode (the icon shows it, wcIcon) and the held counts with their label, from memory
+// and the settings (no query).
 func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, folder int64, rules []lockRow) {
 	prefix := ""
 	if dir != "" {
@@ -80,13 +81,6 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 		e.WC = wcFor(rules, e.Path)
 		if !e.IsDir && e.WC.InhMode == proto.ModeFree {
 			e.WC.InhMode = proto.ModeSingle // a file is never unrestricted: inside a free directory it is a single-writer scope of its own (design 2.8.2)
-		}
-		if e.WC.Explicit {
-			label := t.T("wc.tag." + e.WC.Mode)
-			if e.WC.Mode == proto.ModeExclusive {
-				label = t.T("wc.tag.exclusive", "device", e.WC.Dev)
-			}
-			e.Tags = append([]entryTag{{"wc-" + e.WC.Mode, label, t.T("wc.desc." + e.WC.Mode)}}, e.Tags...)
 		}
 		if n := held[e.Name]; n > 0 {
 			e.HeldN, e.HeldDev = n, strings.Join(slices.Sorted(maps.Keys(devs[e.Name])), ", ")
