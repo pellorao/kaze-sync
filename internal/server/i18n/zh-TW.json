@@ -286,6 +286,7 @@
  "wc.tip.here": "設定在此",
  "wc.tip.from": "繼承, 來自 {from}",
  "wc.tip.default": "預設 (根目錄還沒有儲存設定)",
+ "wc.tip.file": "這裡每個檔案自成一個單端範圍.",
  "tag.held": "待處理 {n} · {device}",
  "tag.held.title": "這裡有裝置在等你處理的改動",
  "fo.wc.line": "寫入控制: {mode}, 來自 {from}",

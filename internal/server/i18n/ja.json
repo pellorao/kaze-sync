@@ -286,6 +286,7 @@
  "wc.tip.here": "ここで設定",
  "wc.tip.from": "{from} から継承",
  "wc.tip.default": "既定 (ルートにはまだ設定が保存されていません)",
+ "wc.tip.file": "ここでは各ファイルがそれぞれ独立した単一書き込みの範囲です.",
  "tag.held": "要対応 {n} · {device}",
  "tag.held.title": "ここにはデバイスが判断待ちにしている変更があります",
  "fo.wc.line": "書き込み制御: {mode} ({from} から)",

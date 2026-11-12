@@ -286,6 +286,7 @@
  "wc.tip.here": "设置在此",
  "wc.tip.from": "继承, 来自 {from}",
  "wc.tip.default": "默认 (根目录还没有保存设置)",
+ "wc.tip.file": "这里每个文件自成一个单端范围.",
  "tag.held": "待处理 {n} · {device}",
  "tag.held.title": "这里有设备在等你处理的改动",
  "fo.wc.line": "写入控制: {mode}, 来自 {from}",

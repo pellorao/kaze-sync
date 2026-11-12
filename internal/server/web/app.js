@@ -336,7 +336,7 @@
   const tip = el("div", { class: "tip", role: "tooltip" });
   tip.hidden = true;
   body.append(tip);
-  let tipFor = null, tipTimer = 0;
+  let tipFor = null, tipTimer = 0, tipFocusAt = -1e9;
   function showTip(trigger) {
     clearTimeout(tipTimer);
     if (tipFor === trigger && !tip.hidden) return;
@@ -345,6 +345,9 @@
     tipFor = trigger;
     tip.replaceChildren(...Array.from(c.childNodes, (n) => n.cloneNode(true)));
     tip.hidden = false;
+    placeTip(trigger);
+  }
+  function placeTip(trigger) {
     const r = trigger.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
     const x = Math.max(8, Math.min(r.left - 8, innerWidth - w - 8));
     const y = r.bottom + 6 + h > innerHeight - 8 && r.top - 6 - h >= 8 ? r.top - 6 - h : r.bottom + 6;
@@ -380,11 +383,19 @@
   });
   document.addEventListener("focusin", (e) => {
     const t = tipTrigger(e.target);
-    if (t && e.target.matches(":focus-visible")) showTip(t);
+    if (t && e.target.matches(":focus-visible")) { showTip(t); tipFocusAt = performance.now(); }
   });
   document.addEventListener("focusout", (e) => { if (tipFor && tipTrigger(e.target) === tipFor) hideTip(false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !tip.hidden) hideTip(false); }, true);
-  addEventListener("scroll", () => { if (!tip.hidden) hideTip(false); }, true);
+  // Scrolling hides the tip, except the scroll the browser makes to bring a just-focused element into view: that one
+  // moves the tip along with its trigger.
+  addEventListener("scroll", () => {
+    if (tip.hidden) return;
+    if (tipFor && tipFor.isConnected && performance.now() - tipFocusAt < 500) placeTip(tipFor);
+    else hideTip(false);
+  }, true);
+  // A live update that replaced the trigger leaves no pointerout or focusout behind: the tip goes with it.
+  function dropStaleTip() { if (!tip.hidden && !(tipFor && tipFor.isConnected)) hideTip(false); }
 
   // ---- notifications
   const notif = $("#notif");
@@ -430,6 +441,7 @@
       cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
       renderTimes(cur);
     }
+    dropStaleTip();
   }
   // The hint "content updated" is for changes that the listing shows. The event says that the folder changed; the
   // server says whether that touched the directory on the page (a direct child, or a subdirectory that came or went).

@@ -1278,6 +1278,10 @@ func wcIcon(t translator, w wcInfo, isDir bool, held int, id string, focus bool)
 		b.WriteString(string(icon("alert", "ov")))
 	}
 	b.WriteString(`<span class="tip-c" id="` + id + `" hidden><span class="tp">` + html.EscapeString(label) + `</span><span class="ts">` +
-		html.EscapeString(from) + `</span><span class="ts">` + html.EscapeString(t.T("dlg.wc."+w.Mode+".help")) + `</span></span></span>`)
+		html.EscapeString(from) + `</span><span class="ts">` + html.EscapeString(t.T("dlg.wc."+w.Mode+".help")) + `</span>`)
+	if !isDir && w.Mode == proto.ModeFree { // the file is a scope of its own although the directory is free (design 2.8.2)
+		b.WriteString(`<span class="ts">` + html.EscapeString(t.T("wc.tip.file")) + `</span>`)
+	}
+	b.WriteString(`</span></span>`)
 	return template.HTML(b.String())
 }

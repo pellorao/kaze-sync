@@ -113,13 +113,14 @@ table.files td.name { width: 100%; }
 .fname a:hover { color: var(--accent); text-decoration: none; }
 .fname svg.file { color: var(--muted); }
 /* the write-control icon (design 2.8.11): shape and color carry the mode, a filled body a setting on the path itself */
-.wci { position: relative; display: inline-flex; flex: none; border-radius: 4px; }
+/* the 20px icon sits in a 24px target (padding), the negative margin keeps the layout of the 20px */
+.wci { position: relative; display: inline-flex; flex: none; border-radius: 4px; padding: 2px; margin: -2px; }
 .wci svg.wc { width: 20px; height: 20px; }
 .wci.wc-free { color: var(--muted); }
 .wci.wc-single { color: #8fb4ff; }
 .wci.wc-exclusive { color: #c9a4ff; }
 .wci.set svg.wc { fill: color-mix(in srgb, currentColor 30%, transparent); }
-.wci svg.ov { position: absolute; right: -5px; bottom: -3px; width: 12px; height: 12px; color: var(--danger); background: var(--surface); border-radius: 3px; }
+.wci svg.ov { position: absolute; right: -7px; bottom: -5px; width: 12px; height: 12px; color: var(--danger); background: var(--surface); border-radius: 3px; }
 .crumbs .here { display: inline-flex; align-items: center; gap: 8px; }
 /* tips (design 4.8): one element for the page, filled from the trigger's hidden .tip-c; on --bar, where the muted text keeps 5.3:1 (on --raised only 4.1:1) */
 .tip { position: fixed; inset: auto; margin: 0; max-width: min(320px, calc(100vw - 16px)); padding: 8px 12px; background: var(--bar); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); font-size: 12px; line-height: 1.5; z-index: 30; }
@@ -134,7 +135,7 @@ details.disc > summary .chev { transition: transform 0.1s; }
 details.disc[open] > summary .chev { transform: rotate(90deg); }
 .fname .tags { display: inline-flex; gap: 6px; flex-wrap: nowrap; }
 tr.gone .fname a, tr.gone .fname .t { color: var(--muted); }
-tr.gone svg { color: var(--faint) !important; }
+tr.gone svg:not(.wc):not(.ov) { color: var(--faint) !important; }
 tr.unsynced .fname .t { color: var(--muted); font-style: italic; }
 tr.unsynced svg.file { color: var(--warn); }
 tr.menu-open td { background: color-mix(in srgb, var(--accent) 12%, transparent) !important; }

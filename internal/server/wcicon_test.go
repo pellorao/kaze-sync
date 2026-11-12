@@ -3,6 +3,7 @@ package server
 import (
 	"io/fs"
 	"net/url"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -66,8 +67,11 @@ func TestFileListShowsWriteControlByIcon(t *testing.T) {
 	}
 	// Files follow their directory: plain in a free one, and a setting of their own fills the icon.
 	_, page = l.get(l.web, "/folders/"+itoa(l.f)+"?dir=scratch")
-	if row := rowOf(t, page, "scratch/a.txt"); !strings.Contains(row, "#i-file-free\"") || strings.Contains(row, " set\"") || !strings.Contains(row, "继承, 来自 /scratch") {
+	if row := rowOf(t, page, "scratch/a.txt"); !strings.Contains(row, "#i-file-free\"") || strings.Contains(row, " set\"") || !strings.Contains(row, "继承, 来自 /scratch") || !strings.Contains(row, `<span class="ts">这里每个文件自成一个单端范围.</span>`) {
 		t.Errorf("a file of a free directory:\n%s", row)
+	}
+	if row := rowOf(t, page, "scratch/b.txt"); strings.Contains(row, "自成一个单端范围") {
+		t.Errorf("a file set to single writer carries the free-directory note:\n%s", row)
 	}
 	if row := rowOf(t, page, "scratch/b.txt"); !strings.Contains(row, "#i-file-single\"") || !strings.Contains(row, "wc-single set\"") {
 		t.Errorf("a file set to single writer:\n%s", row)
@@ -131,5 +135,19 @@ func TestIconsAreVectorsOfTheSprite(t *testing.T) {
 		if !has[n] {
 			t.Errorf("no icon %s", n)
 		}
+	}
+}
+
+// The behaviour of the tip box in app.js (design 4.8) is tested with node's built-in runner, without a dependency; the
+// test is skipped where node is not installed.
+func TestTipBoxScript(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	cmd := exec.Command(node, "--test", "tip.test.js")
+	cmd.Dir = "jstest"
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
 }

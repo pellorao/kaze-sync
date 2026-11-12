@@ -286,6 +286,7 @@
  "wc.tip.here": "여기에서 설정",
  "wc.tip.from": "상속, 출처 {from}",
  "wc.tip.default": "기본값 (루트에 저장된 설정 없음)",
+ "wc.tip.file": "여기서는 각 파일이 별도의 단일 기기 쓰기 범위입니다.",
  "tag.held": "처리 대기 {n} · {device}",
  "tag.held.title": "기기가 처리를 기다리는 변경이 여기에 있습니다",
  "fo.wc.line": "쓰기 제어: {mode}, 출처 {from}",
