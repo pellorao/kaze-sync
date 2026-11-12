@@ -36,7 +36,7 @@ function setup() {
   const document = {
     addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },
     getElementById: (id) => byId[id] || null,
-    documentElement: { clientWidth: 1000, clientHeight: 800 }, // the visible viewport, without scrollbars
+    documentElement: { clientWidth: 1000, offsetWidth: 1000, clientHeight: 800 }, // the visible viewport, without scrollbars
   };
   const body = new Node("body");
   const el = (tag) => new Node(tag);
@@ -156,4 +156,12 @@ test("the tip is clamped to the visible viewport, which excludes the scrollbar",
 
 test("no popup placement reads innerWidth/innerHeight (they include the scrollbar)", () => {
   assert.doesNotMatch(src, /\binner(Width|Height)\b/);
+});
+
+test("a stable scrollbar gutter on a page too short to scroll narrows the viewport (offsetWidth, not clientWidth)", () => {
+  const p = setup(), r = p.row(1, 100), pos = p.tipPos();
+  p.root.offsetWidth = 985; // clientWidth stays 1000: no scrollbar, but 15 px stay reserved
+  r.icon.rect = { left: 960, top: 100, right: 980, bottom: 120 };
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  assert.strictEqual(pos.left, 985 - 100 - 8);
 });

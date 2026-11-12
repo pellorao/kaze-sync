@@ -244,7 +244,7 @@
     menu.showPopover();
     menu.style.setProperty("left", "0px"); menu.style.setProperty("top", "0px"); // measure at the origin: the width of a fixed box shrinks to the room right of its left edge
     const w = menu.offsetWidth, h = menu.offsetHeight;
-    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight; // visible viewport: without scrollbars
+    const de = document.documentElement, vw = Math.min(de.clientWidth, de.offsetWidth), vh = de.clientHeight; // visible viewport: without scrollbars; offsetWidth is the narrower one when a stable gutter is reserved but the page is too short to scroll
     menu.style.setProperty("left", Math.max(8, Math.min(x, vw - w - 8)) + "px");
     menu.style.setProperty("top", Math.max(8, Math.min(y + h > vh - 8 ? y - h : y, vh - h - 8)) + "px");
     const rowEl = row.closest("tr");
@@ -352,7 +352,7 @@
   function placeTip(trigger) {
     tip.style.setProperty("left", "0px"); tip.style.setProperty("top", "0px"); // measure at the origin (as for the menu)
     const r = trigger.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
-    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight; // visible viewport: without scrollbars
+    const de = document.documentElement, vw = Math.min(de.clientWidth, de.offsetWidth), vh = de.clientHeight; // visible viewport: without scrollbars; offsetWidth is the narrower one when a stable gutter is reserved but the page is too short to scroll
     const x = Math.max(8, Math.min(r.left - 8, vw - w - 8));
     const y = r.bottom + 6 + h > vh - 8 && r.top - 6 - h >= 8 ? r.top - 6 - h : r.bottom + 6;
     tip.style.setProperty("left", x + "px");
