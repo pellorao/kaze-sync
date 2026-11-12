@@ -371,12 +371,12 @@ func (f *Folder) walk(dir string, files map[string]found, failed map[string]bool
 	if f.OnDir != nil {
 		f.OnDir(dir)
 	}
-	if dir != "" && !strings.Contains(dir, "/") {
-		f.watched[dir] = true
-	}
 	entries, err := f.FS.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return // gone: everything below it counts as deleted
+		return // gone: everything below it counts as deleted; a directory of that name created later is a new one, not watched
+	}
+	if dir != "" && !strings.Contains(dir, "/") {
+		f.watched[dir] = true
 	}
 	if err != nil {
 		f.note(dir, proto.KindIO, err.Error())

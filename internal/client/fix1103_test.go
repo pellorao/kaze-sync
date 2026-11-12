@@ -450,3 +450,23 @@ func TestRootHintFailsWhenTheRootCannotBeListed(t *testing.T) {
 		t.Fatal("a/one.txt lost")
 	}
 }
+
+// A scan of a hint for a directory that has just been removed must not mark it watched: the directory created
+// later under that name is a new one with no watch, and only a root hint can find it (newdir).
+func TestRemovedTopDirectoryHintDoesNotHideTheNewOne(t *testing.T) {
+	e, f, _, g := setup(t)
+	g.put("d/one.txt", []byte("1"))
+	g.scan()
+	g.fs.Remove("d/one.txt")
+	g.fs.Remove("d")
+	if rep := g.scanHint(".", "d"); rep.Committed != 1 { // events of the removal: the root's and the directory's
+		t.Fatalf("removal: %+v", rep)
+	}
+	g.put("d/two.txt", []byte("2"))
+	if rep := g.scanHint("."); rep.Committed != 1 {
+		t.Fatalf("new directory with the removed one's name: %+v", rep)
+	}
+	if _, ok := e.serverFile(f, "d/two.txt"); !ok {
+		t.Fatal("d/two.txt not uploaded")
+	}
+}
