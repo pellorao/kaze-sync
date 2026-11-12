@@ -31,6 +31,7 @@ type notice struct {
 	// of the first of them and the device behind it (design 2.8.11).
 	N                    int
 	Scope, Reason, Other string
+	Items                []string // of a kindHeld notice: the paths of the held changes (they share memory with the report); for the counts of a directory page
 }
 
 // kindHeld is the kind of the notice of the changes a device holds for the user's decision (design 2.8.11);
@@ -119,6 +120,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 				order = append(order, h.Scope)
 			}
 			g.n.N++
+			g.n.Items = append(g.n.Items, h.Path)
 			g.n.Since = min(g.n.Since, h.At)
 		}
 		for _, sc := range order {

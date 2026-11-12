@@ -118,7 +118,7 @@
  "fo.showDeleted": "削除済みを表示",
  "fo.rules": "除外ルール",
  "fo.actions": "フォルダーの操作",
- "fo.devices": "デバイス {n} 台: {names}",
+ "fo.devices": "デバイス {n} 台",
  "fo.noMapped": "マッピングしているデバイスはありません",
  "fo.nFiles": "{n} 件のファイル",
  "fo.items": "{n} 件",

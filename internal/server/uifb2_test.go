@@ -45,7 +45,7 @@ func TestDirectoryRowsSumSizeAndLatestMtime(t *testing.T) {
 		return browseEntry{}
 	}
 	for _, deleted := range []bool{false, true} {
-		es, err := e.s.browse(f, "", deleted)
+		es, _, err := e.s.browse(f, "", deleted)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func TestDirectoryRowsSumSizeAndLatestMtime(t *testing.T) {
 			}
 		}
 	}
-	es, _ := e.s.browse(f, "d", false)
+	es, _, _ := e.s.browse(f, "d", false)
 	if sub := find(es, "sub"); sub.Size != 12 || sub.Time != 300 {
 		t.Errorf("sub: %+v", sub)
 	}

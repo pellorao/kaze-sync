@@ -118,7 +118,7 @@
  "fo.showDeleted": "显示已删除",
  "fo.rules": "排除规则",
  "fo.actions": "文件夹操作",
- "fo.devices": "{n} 台设备: {names}",
+ "fo.devices": "{n} 台设备",
  "fo.noMapped": "没有设备映射",
  "fo.nFiles": "{n} 个文件",
  "fo.items": "{n} 项",

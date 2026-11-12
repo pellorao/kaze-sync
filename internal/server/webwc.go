@@ -6,8 +6,9 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
-	"maps"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"kaze-sync/internal/proto"
@@ -49,8 +50,12 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 	if dir != "" {
 		prefix = dir + "/"
 	}
-	held := map[string]int{}
-	devs := map[string]map[string]bool{}
+	type heldKey struct {
+		name string
+		dev  int64
+	}
+	held := map[heldKey]int{}
+	hdevs := map[string][]int64{}
 	names := map[int64]string{}
 	if devs, err := queryAll(s.db, func(r *sql.Rows, d *devTag) error { return r.Scan(&d.ID, &d.Name) }, `SELECT id, name FROM devices`); err == nil {
 		for _, d := range devs {
@@ -65,11 +70,11 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 				continue
 			}
 			name, _, _ := strings.Cut(rest, "/")
-			held[name]++
-			if devs[name] == nil {
-				devs[name] = map[string]bool{}
+			k := heldKey{name, id}
+			if held[k] == 0 {
+				hdevs[name] = append(hdevs[name], id)
 			}
-			devs[name][names[id]] = true
+			held[k]++
 		}
 	}
 	s.mu.Unlock()
@@ -82,9 +87,17 @@ func (s *Server) decorateWC(t translator, entries []browseEntry, dir string, fol
 		if !e.IsDir && e.WC.InhMode == proto.ModeFree {
 			e.WC.InhMode = proto.ModeSingle // a file is never unrestricted: inside a free directory it is a single-writer scope of its own (design 2.8.2)
 		}
-		if n := held[e.Name]; n > 0 {
-			e.HeldN, e.HeldDev = n, strings.Join(slices.Sorted(maps.Keys(devs[e.Name])), ", ")
-			e.Tags = append(e.Tags, entryTag{"err", t.T("tag.held", "n", n, "device", e.HeldDev), t.T("tag.held.title")})
+		if ids := hdevs[e.Name]; len(ids) > 0 {
+			slices.SortFunc(ids, func(a, b int64) int { return strings.Compare(names[a], names[b]) })
+			var dn []string
+			for _, id := range ids { // a tag per device: the held dialog is the device's
+				n := held[heldKey{e.Name, id}]
+				e.HeldN += n
+				dn = append(dn, names[id])
+				e.Tags = append(e.Tags, entryTag{Class: "err", Text: t.T("tag.held", "n", n, "device", names[id]), Title: t.T("tag.held.title"),
+					Href: "/folders/" + strconv.FormatInt(folder, 10) + "?dir=" + url.QueryEscape(dir) + "&held=" + strconv.FormatInt(id, 10)})
+			}
+			e.HeldDev = strings.Join(dn, ", ")
 		}
 	}
 }

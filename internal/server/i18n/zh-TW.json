@@ -118,7 +118,7 @@
  "fo.showDeleted": "顯示已刪除",
  "fo.rules": "排除規則",
  "fo.actions": "資料夾操作",
- "fo.devices": "{n} 台裝置: {names}",
+ "fo.devices": "{n} 台裝置",
  "fo.noMapped": "沒有裝置對應",
  "fo.nFiles": "{n} 個檔案",
  "fo.items": "{n} 項",

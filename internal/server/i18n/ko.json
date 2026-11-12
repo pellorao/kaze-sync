@@ -118,7 +118,7 @@
  "fo.showDeleted": "삭제된 항목 표시",
  "fo.rules": "제외 규칙",
  "fo.actions": "폴더 작업",
- "fo.devices": "기기 {n}대: {names}",
+ "fo.devices": "기기 {n}대",
  "fo.noMapped": "매핑된 기기 없음",
  "fo.nFiles": "파일 {n}개",
  "fo.items": "항목 {n}개",

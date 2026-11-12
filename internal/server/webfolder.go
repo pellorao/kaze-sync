@@ -33,8 +33,11 @@ func (s *Server) loadFolder(r *http.Request) (f folderRow, err error) {
 	return f, err
 }
 
-// entryTag is a label on a row of the file list.
-type entryTag struct{ Class, Text, Title string }
+// entryTag is a label on a row of the file list; with Href it is a link (a held tag opens the held dialog).
+type entryTag struct{ Class, Text, Title, Href string }
+
+// dirTotal is what a directory holds in live files, itself and below.
+type dirTotal struct{ Files, Bytes int64 }
 
 type browseEntry struct {
 	Name, Path string
@@ -53,11 +56,13 @@ type browseEntry struct {
 // browse lists the entries directly below dir ("" or "a/b"); directories are
 // derived from the paths below them, with the total size and latest modification time of the files below each
 // (design 4.5; summed from the rows the scan reads anyway). Tombstones count only when deleted is set, and are
-// never part of a total.
-func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, error) {
+// never part of a total. The third result is the number and total size of the live files in dir and below
+// (the page head, design 4.5), summed from the same rows.
+func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, dirTotal, error) {
+	var tot dirTotal
 	db, err := s.folderDB(folder)
 	if err != nil {
-		return nil, err
+		return nil, tot, err
 	}
 	prefix, q, args := "", `SELECT path, size, mtime_ns, created_at, hash IS NULL FROM files WHERE true`, []any{}
 	if dir != "" {
@@ -67,7 +72,7 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 	}
 	rows, err := db.Query(q+` ORDER BY path`, args...)
 	if err != nil {
-		return nil, err
+		return nil, tot, err
 	}
 	defer rows.Close()
 	var out []browseEntry
@@ -77,7 +82,11 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 		var size, mtime, created int64
 		var gone bool
 		if err := rows.Scan(&p, &size, &mtime, &created, &gone); err != nil {
-			return nil, err
+			return nil, tot, err
+		}
+		if !gone {
+			tot.Files++
+			tot.Bytes += size
 		}
 		if gone && !deleted {
 			continue
@@ -103,7 +112,21 @@ func (s *Server) browse(folder int64, dir string, deleted bool) ([]browseEntry, 
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	return out, tot, rows.Err()
+}
+
+// noticeIn tells whether a notice belongs to dir (and below) for the counts of the page head: a notice with a path
+// by that path, a held notice when one of its held changes is there; one without a place (a folder-level error,
+// the reminder of a new folder) only to the top level.
+func noticeIn(n notice, dir string) bool {
+	if dir == "" {
+		return true
+	}
+	in := func(p string) bool { return p == dir || strings.HasPrefix(p, dir+"/") }
+	if n.Kind == kindHeld {
+		return slices.ContainsFunc(n.Items, in)
+	}
+	return in(n.Path)
 }
 
 // kindLabel is the short name of a kind of notice ("in use", "read/write error"...).
@@ -144,7 +167,7 @@ func decorate(t translator, entries []browseEntry, dir string, notes []notice) [
 				if n.Error {
 					class = "err"
 				}
-				entries[j].Tags = append(entries[j].Tags, entryTag{class, kindLabel(t, n.Kind) + " · " + n.Device, n.Message})
+				entries[j].Tags = append(entries[j].Tags, entryTag{Class: class, Text: kindLabel(t, n.Kind) + " · " + n.Device, Title: n.Message})
 			}
 			continue
 		}
@@ -154,7 +177,7 @@ func decorate(t translator, entries []browseEntry, dir string, notes []notice) [
 		note := n
 		byPath[n.Path] = len(entries)
 		entries = append(entries, browseEntry{Name: path.Base(n.Path), Path: n.Path, Unsynced: true, Note: &note,
-			Tags: []entryTag{{"warn", t.T("tag.unsynced", "why", unsyncedLabel(t, n), "device", n.Device), n.Message}}})
+			Tags: []entryTag{{Class: "warn", Text: t.T("tag.unsynced", "why", unsyncedLabel(t, n), "device", n.Device), Title: n.Message}}})
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].IsDir != entries[j].IsDir {
@@ -194,7 +217,7 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		return err
 	}
 	seq := metaInt(db, "next_seq") - 1 // before the listing is read: a change made during the read shows as an update
-	entries, err := s.browse(f.ID, dir, deleted)
+	entries, tot, err := s.browse(f.ID, dir, deleted)
 	if err != nil {
 		return err
 	}
@@ -225,22 +248,21 @@ func (s *Server) folderPage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 	state, pending := s.folderStatus(f.ID, devs)
 	var errs, warns int
 	for _, n := range notes {
+		if !noticeIn(n, dir) {
+			continue
+		}
 		if n.Error {
 			errs++
 		} else {
 			warns++
 		}
 	}
-	files, bytes, err := s.folderStats(f.ID)
-	if err != nil {
-		return err
-	}
 	rules, global := f.Rules, MetaString(s.db, "global_rules")
 	if ds != nil && ds.dialog == "dlg-rules" {
 		rules = r.PostForm.Get("rules")
 	}
 	data := map[string]any{"Folder": f, "Dir": dir, "Deleted": deleted, "Entries": entries, "Crumbs": crumbs, "Devs": devs, "Mapped": len(devs),
-		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": files, "Bytes": bytes, "Seq": seq,
+		"State": state, "Pending": pending, "Errors": errs, "Warnings": warns, "Files": tot.Files, "Bytes": tot.Bytes, "Seq": seq,
 		"Rules": rules, "SavedRules": f.Rules, "RuleCount": countRules(f.Rules), "Global": global, "GlobalCount": countRules(global), "KeepDays": metaInt(s.db, "keep_days"),
 		"Scope": dir, "LockPaths": lockPaths(wcRules, owners), "HeldSpans": s.heldSpans(f.ID), "WCHere": wcFor(wcRules, dir)}
 	s.wcLine(t, data, owners, wcRules, dir)
