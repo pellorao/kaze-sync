@@ -129,14 +129,14 @@ For TLS certificates, you can choose among three modes depending on how you use 
   /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # on the server
   ```
 
-  `ca.pem` contains only the public certificate, so you can copy it to other devices by USB stick, cloud drive, or similar means. Before importing it, check its fingerprint: the SHA-256 fingerprint of `ca.pem` must equal the CA fingerprint that `install` printed. On Linux and macOS, run `openssl x509 -in ca.pem -noout -fingerprint -sha256`; on Windows, run `certutil -dump ca.pem` and read "Cert Hash(sha256)".
+  `ca.pem` contains only the public certificate, so you can copy it to other devices by USB stick, cloud drive, or similar means. Before importing it, check its fingerprint: the SHA-256 fingerprint of `ca.pem` must equal the CA fingerprint that `install` printed. On Linux and macOS, run `openssl x509 -in ca.pem -noout -fingerprint -sha256`; on Windows, run `certutil -dump ca.pem` and read "Cert Hash(sha256)" (shown as "证书哈希(sha256)" on Chinese Windows).
 
   - **Windows (Chrome and Edge)**: Run `certutil -user -addstore Root ca.pem`. Windows asks once to confirm installing the root certificate; click **Yes**. Because it goes into the current user's certificate store, no administrator privileges are needed. Restart the browser afterward.
   - **Linux, system store**: Run `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Chrome and Chromium on Linux use their own NSS store instead: run `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (from package `libnss3-tools`).
   - **Firefox**: Open Settings -> Privacy & Security -> Certificates -> View Certificates -> Authorities -> Import, select `ca.pem`, and tick "Trust this CA to identify websites". (On Windows, Firefox can also read the Windows trust store if you set `security.enterprise_roots.enabled` to `true` in `about:config`.)
-  - **macOS**: Double-click `ca.pem` (or import it in Keychain Access, into the login keychain), open the certificate, expand Trust, and set "When using this certificate" to "Always Trust". Or on the command line: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
+  - **macOS**: Double-click `ca.pem` (or import it in Keychain Access, into the login keychain), open the certificate, expand the Trust section, and choose "Always Trust" from the pop-up menu. Or on the command line: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
   - **Android**: Open Settings -> Security (on some phones, Security & privacy -> More security settings) -> Encryption & credentials -> Install a certificate -> CA certificate, choose `ca.pem`, and confirm the warning. Menu names differ by manufacturer. Chrome on Android uses this user-installed store; some apps ignore user-installed CAs, which does not affect the Web UI in Chrome.
-  - **iPhone and iPad**: Get `ca.pem` onto the device (via AirDrop, Files, or a download link), open it, and allow "Profile Downloaded". Then open Settings -> General -> VPN & Device Management -> tap the downloaded profile -> Install, and finally Settings -> General -> About -> Certificate Trust Settings and turn on full trust for the certificate.
+  - **iPhone and iPad**: Get `ca.pem` onto the device (via AirDrop, Files, or a download link) and open it; iOS then reports that a profile was downloaded, and you install that profile following the prompts in Settings (it is also listed under Settings -> General; the exact wording differs by iOS version). Finally, open Settings -> General -> About -> Certificate Trust Settings and turn on full trust for the certificate.
 
   Import `ca.pem` once on each device (computer or phone) where you open the Web UI in a browser; a device that only runs the client does not need it.
 
@@ -173,9 +173,10 @@ firewall-cmd --add-port=<port>/tcp --permanent     # server (firewalld)
 firewall-cmd --reload
 ```
 
-On **Alpine Linux (OpenRC with `iptables` / `ip6tables`)**, add the rule, save the ruleset, and enable the firewall service at boot (include the `ip6tables` lines if you use IPv6):
+On **Alpine Linux (OpenRC with `iptables` / `ip6tables`)**, install `iptables` and `iptables-openrc` first if they are not yet installed (`iptables-openrc` provides the `iptables` and `ip6tables` init scripts), then add the rule, save the ruleset, and enable the firewall service at boot (include the `ip6tables` lines if you use IPv6):
 
 ```bash
+apk add iptables iptables-openrc                   # server: if not yet installed
 iptables -A INPUT -p tcp --dport <port> -j ACCEPT  # server (IPv4)
 rc-service iptables save
 rc-update add iptables
@@ -183,6 +184,8 @@ ip6tables -A INPUT -p tcp --dport <port> -j ACCEPT # server (IPv6)
 rc-service ip6tables save
 rc-update add ip6tables
 ```
+
+If the `INPUT` chain already contains a `REJECT` or `DROP` rule, `-A` appends the new rule after it so it never matches; use `iptables -I INPUT -p tcp --dport <port> -j ACCEPT` (and likewise `ip6tables -I INPUT -p tcp --dport <port> -j ACCEPT`) instead, which inserts the rule at the top of the chain. `rc-service iptables save` (and `rc-service ip6tables save`) can be run while the service is not started: the rules you added with `iptables` are already active, and the saved ruleset is restored at boot by the service enabled with `rc-update add`.
 
 On **OpenWrt**, passing `--wan` to `install` creates the WAN firewall rule automatically, or you can create the same `kaze-sync` rule manually with `uci` (note that running `install` later without `--wan` removes `firewall.kaze_sync`):
 

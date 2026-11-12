@@ -129,14 +129,14 @@ Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程�
   /mnt/data/kaze-sync/kaze-syncd ca --data /mnt/data/kaze-sync --export ca.pem     # 在服务器上
   ```
 
-  `ca.pem` 只包含公开证书, 因此可以用 U 盘, 网盘等方式复制到其他设备上. 导入前请先核对指纹: `ca.pem` 的 SHA-256 指纹必须与 `install` 打印的 CA 指纹一致. 在 Linux 和 macOS 上执行 `openssl x509 -in ca.pem -noout -fingerprint -sha256`; 在 Windows 上执行 `certutil -dump ca.pem` 并查看 "Cert Hash(sha256)".
+  `ca.pem` 只包含公开证书, 因此可以用 U 盘, 网盘等方式复制到其他设备上. 导入前请先核对指纹: `ca.pem` 的 SHA-256 指纹必须与 `install` 打印的 CA 指纹一致. 在 Linux 和 macOS 上执行 `openssl x509 -in ca.pem -noout -fingerprint -sha256`; 在 Windows 上执行 `certutil -dump ca.pem` 并查看 "证书哈希(sha256)" (英文版 Windows 显示为 "Cert Hash(sha256)").
 
   - **Windows (Chrome 和 Edge)**: 执行 `certutil -user -addstore Root ca.pem`. Windows 会弹出一次确认安装根证书的对话框, 选 **是**. 证书会装入当前用户的存储区, 不需要管理员权限. 装好后重启浏览器.
   - **Linux 系统存储**: 执行 `sudo cp ca.pem /usr/local/share/ca-certificates/kaze-sync-ca.crt && sudo update-ca-certificates`. Linux 上的 Chrome 和 Chromium 使用独立的 NSS 证书库, 需执行 `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n kaze-sync -i ca.pem` (工具在软件包 `libnss3-tools` 中).
   - **Firefox**: 依次打开 设置 -> 隐私与安全 -> 证书 -> 查看证书 -> 证书颁发机构 -> 导入, 选择 `ca.pem`, 并勾选 "信任由此证书颁发机构来标识网站". (Windows 上的 Firefox 也可以直接读取系统证书库: 在 `about:config` 中把 `security.enterprise_roots.enabled` 设为 `true` 即可.)
-  - **macOS**: 双击 `ca.pem` (或在 "钥匙串访问" 中将它导入 "登录" 钥匙串), 打开该证书, 展开 "信任", 将 "使用此证书时" 设为 "始终信任". 也可以在命令行执行: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
+  - **macOS**: 双击 `ca.pem` (或在 "钥匙串访问" 中将它导入 "登录" 钥匙串), 打开该证书, 展开 "信任" 部分, 在弹出式菜单中选择 "始终信任". 也可以在命令行执行: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ca.pem`.
   - **Android**: 依次打开 设置 -> 安全 (部分手机为 安全与隐私 -> 更多安全设置) -> 加密与凭据 -> 安装证书 -> CA 证书, 选择 `ca.pem` 并确认警告. 不同厂商的菜单名称会有差异. Android 上的 Chrome 使用这个用户安装的证书库; 部分应用会忽略用户安装的 CA, 但不影响在 Chrome 中使用 Web UI.
-  - **iPhone 和 iPad**: 把 `ca.pem` 传到设备上 (通过隔空投送, "文件" 应用或下载链接), 打开它并允许 "已下载描述文件", 然后依次打开 设置 -> 通用 -> VPN 与设备管理 -> 点刚下载的描述文件 -> 安装, 最后依次打开 设置 -> 通用 -> 关于本机 -> 证书信任设置, 为该证书开启完全信任.
+  - **iPhone 和 iPad**: 把 `ca.pem` 传到设备上 (通过隔空投送, "文件" 应用或下载链接) 并打开它; iOS 会提示已下载描述文件, 按 "设置" 中的提示安装该描述文件 (它也列在 设置 -> 通用 下, 具体名称因 iOS 版本而异), 最后依次打开 设置 -> 通用 -> 关于本机 -> 证书信任设置, 为该证书开启完全信任.
 
   只需在你用浏览器打开 Web UI 的每台设备 (电脑或手机) 上导入一次 `ca.pem`, 只运行客户端的设备不需要导入.
 
@@ -173,9 +173,10 @@ firewall-cmd --add-port=<port>/tcp --permanent     # server (firewalld)
 firewall-cmd --reload
 ```
 
-**Alpine Linux (使用 `iptables` / `ip6tables` 的 OpenRC)**, 添加规则, 保存规则集并启用开机自启服务 (如果使用 IPv6, 请一并执行 `ip6tables` 各行):
+**Alpine Linux (使用 `iptables` / `ip6tables` 的 OpenRC)**, 如果尚未安装 `iptables` 和 `iptables-openrc` 请先安装 (`iptables-openrc` 提供 `iptables` 和 `ip6tables` 的初始化脚本), 然后添加规则, 保存规则集并启用开机自启服务 (如果使用 IPv6, 请一并执行 `ip6tables` 各行):
 
 ```bash
+apk add iptables iptables-openrc                   # server: 若尚未安装
 iptables -A INPUT -p tcp --dport <port> -j ACCEPT  # server (IPv4)
 rc-service iptables save
 rc-update add iptables
@@ -183,6 +184,8 @@ ip6tables -A INPUT -p tcp --dport <port> -j ACCEPT # server (IPv6)
 rc-service ip6tables save
 rc-update add ip6tables
 ```
+
+如果 `INPUT` 链中已经有 `REJECT` 或 `DROP` 规则, `-A` 会把新规则追加在它后面而永远不会命中; 此时请改用 `iptables -I INPUT -p tcp --dport <port> -j ACCEPT` (以及 `ip6tables -I INPUT -p tcp --dport <port> -j ACCEPT`), 把规则插入到链的顶部. `rc-service iptables save` (以及 `rc-service ip6tables save`) 可以在服务尚未启动时执行: 用 `iptables` 添加的规则已经生效, 保存下来的规则集会在开机时由 `rc-update add` 启用的服务自动恢复.
 
 **OpenWrt**, 执行 `install` 时加上 `--wan` 会自动创建 WAN 防火墙规则, 也可以用 `uci` 手动创建同一条 `kaze-sync` 规则 (注意后续如果执行 `install` 时不带 `--wan`, 会删除 `firewall.kaze_sync`):
 
