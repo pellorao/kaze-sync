@@ -8,7 +8,8 @@ import (
 )
 
 // A single-writer setting on a file (left by a revoked exclusive owner, or set directly) is a scope of its own; an
-// unsent change of that file is recorded as its directory, which dirScope maps to the directory's scope.
+// unsent change of that file is recorded as the file itself (unsentFiles), as well as its directory, because dirScope
+// maps the directory to the directory's scope, not the file's.
 func TestCpufix4FileScopeDirtyCleared(t *testing.T) {
 	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeSingle}})
 	id, mode := a.f.scopeOf("d/f.txt")
@@ -55,5 +56,24 @@ func TestCpufix4FileScopeRecordedAndCleared(t *testing.T) {
 	a.scanHint("d")
 	if len(a.f.unsentFiles) != 0 {
 		t.Errorf("still unsent after a clean scan of d: %v (scope %s)", a.f.unsentFiles, id)
+	}
+}
+
+// A free file inside a single-writer directory has no since to hold back: it is not recorded in unsentFiles.
+func TestCpufix4FreeFileNotRecorded(t *testing.T) {
+	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeFree}})
+	if _, mode := a.f.scopeOf("d/f.txt"); mode != proto.ModeFree {
+		t.Fatalf("setup: mode %s", mode)
+	}
+	a.put("d/f.txt", []byte("zero"))
+	a.sync()
+	now := time.Unix(0, 5_000_000_000_000)
+	a.f.Now = func() time.Time { return now }
+	a.f.Stable = 5 * time.Second
+	a.put("d/f.txt", []byte("one"))
+	a.fs.SetMeta("d/f.txt", now.Add(-time.Second).UnixNano(), false)
+	a.scanHint("d")
+	if len(a.f.unsentFiles) != 0 {
+		t.Fatalf("free file recorded in unsentFiles: %v", a.f.unsentFiles)
 	}
 }

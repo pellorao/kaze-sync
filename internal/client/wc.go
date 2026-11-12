@@ -227,11 +227,11 @@ func (f *Folder) endScan(items []*item, whole bool, failed error) {
 		f.DB.setMeta("scanc", c)
 	}
 	unsent := map[string]bool{}
-	unsentF := map[string]bool{} // unsent files whose scope is not their directory's (a setting on the file itself)
+	unsentF := map[string]bool{} // unsent single-writer files whose scope is not their directory's (a setting on the file itself)
 	note := func(p string) {
 		d := path.Dir(p)
 		unsent[d] = true
-		if a, _ := f.scopeOf(p); a != "" {
+		if a, m := f.scopeOf(p); m == proto.ModeSingle {
 			if b, _ := f.dirScope(d); a != b {
 				unsentF[p] = true
 			}
