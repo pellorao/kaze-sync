@@ -36,14 +36,15 @@ function setup() {
   const document = {
     addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },
     getElementById: (id) => byId[id] || null,
+    documentElement: { clientWidth: 1000, clientHeight: 800 }, // the visible viewport, without scrollbars
   };
   const body = new Node("body");
   const el = (tag) => new Node(tag);
   const setTimeout_ = (f, ms) => { timers.push({ f, at: clock + ms, id: timers.length + 1 }); return timers.length; };
   const clearTimeout_ = (id) => { const t = timers.find((x) => x.id === id); if (t) t.dead = true; };
-  const run = new Function("el", "body", "document", "addEventListener", "innerWidth", "innerHeight", "performance", "setTimeout", "clearTimeout",
+  const run = new Function("el", "body", "document", "addEventListener", "performance", "setTimeout", "clearTimeout",
     section + "\nreturn { tip, state: () => tipFor, dropStaleTip, placeTip };");
-  const api = run(el, body, document, (t, f) => { (win[t] = win[t] || []).push(f); }, 1000, 800, { now: () => now }, setTimeout_, clearTimeout_);
+  const api = run(el, body, document, (t, f) => { (win[t] = win[t] || []).push(f); }, { now: () => now }, setTimeout_, clearTimeout_);
   const fire = (t, e) => { for (const f of listeners[t] || []) f(e); };
   const scroll = () => { for (const f of win.scroll || []) f({}); };
   const tick = (ms) => { clock += ms; now += ms; for (const t of timers) if (!t.dead && t.at <= clock) { t.dead = true; t.f(); } };
@@ -54,7 +55,8 @@ function setup() {
     const link = new Node("a"); link.attrs["aria-describedby"] = "wt" + i; link.focusVisible = true; link.rect = { left: 50, top, right: 200, bottom: top + 20 };
     return { icon, link, c };
   }
-  return { api, fire, scroll, tick, row, document, setNow: (v) => { now = v; }, advance: (ms) => { now += ms; } };
+  const tipPos = () => { const pos = {}; api.tip.style = { setProperty(k, v) { pos[k] = parseFloat(v); } }; return pos; };
+  return { api, tipPos, root: document.documentElement, fire, scroll, tick, row, document, setNow: (v) => { now = v; }, advance: (ms) => { now += ms; } };
 }
 
 test("hovering shows the tip, leaving both trigger and tip hides it after the delay", () => {
@@ -138,4 +140,20 @@ test("a live update that removed the trigger takes the tip away (finding 2)", ()
 
 test("refresh calls dropStaleTip after it replaced the live regions", () => {
   assert.match(src, /renderTimes\(cur\);\s*\}\s*dropStaleTip\(\);/);
+});
+
+test("the tip is clamped to the visible viewport, which excludes the scrollbar", () => {
+  const p = setup(), r = p.row(1, 100), pos = p.tipPos();
+  p.root.clientWidth = 985; // 15 px vertical scrollbar
+  r.icon.rect = { left: 960, top: 100, right: 980, bottom: 120 };
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  assert.strictEqual(pos.left, 985 - 100 - 8);
+  r.icon.rect = { left: 0, top: 770, right: 20, bottom: 790 };
+  p.root.clientHeight = 785;
+  p.api.placeTip(r.icon);
+  assert.ok(pos.top + 40 <= 785 - 8, "above the trigger when below does not fit");
+});
+
+test("no popup placement reads innerWidth/innerHeight (they include the scrollbar)", () => {
+  assert.doesNotMatch(src, /\binner(Width|Height)\b/);
 });
