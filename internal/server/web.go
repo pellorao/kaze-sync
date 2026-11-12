@@ -1247,7 +1247,8 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 // wcIcon is the icon of a directory or file that shows its write control (design 2.8.11): the shape and color follow
 // the effective mode, a filled body marks a setting on the path itself (an outline: inherited), a triangle marks held
 // changes below it. The texts that were labels sit in a tip (id), which app.js shows on hover, tap, and keyboard focus of
-// the row's name (it links the tip with aria-describedby) or, with focus set, of the icon itself.
+// the row's name (it links the tip with aria-describedby) or, with focus set, of the icon itself. The tip names the state
+// and its effect only; where the setting comes from is told by filled or outline and by the write-control dialog.
 func wcIcon(t translator, w wcInfo, isDir bool, held int, id string, focus bool) template.HTML {
 	kind := "file"
 	if isDir {
@@ -1261,13 +1262,6 @@ func wcIcon(t translator, w wcInfo, isDir bool, held int, id string, focus bool)
 	if w.Mode == proto.ModeExclusive {
 		label = t.T("wc.tag.exclusive", "device", w.Dev)
 	}
-	from := t.T("wc.tip.here")
-	switch {
-	case w.Path == "" && !w.Explicit:
-		from = t.T("wc.tip.default")
-	case !w.Explicit:
-		from = t.T("wc.tip.from", "from", "/"+w.From)
-	}
 	var b strings.Builder
 	b.WriteString(`<span class="` + cls + `" data-tip="` + id + `"`)
 	if focus {
@@ -1278,7 +1272,7 @@ func wcIcon(t translator, w wcInfo, isDir bool, held int, id string, focus bool)
 		b.WriteString(string(icon("alert", "ov")))
 	}
 	b.WriteString(`<span class="tip-c" id="` + id + `" hidden><span class="tp">` + html.EscapeString(label) + `</span><span class="ts">` +
-		html.EscapeString(from) + `</span><span class="ts">` + html.EscapeString(t.T("dlg.wc."+w.Mode+".help")) + `</span>`)
+		html.EscapeString(t.T("dlg.wc."+w.Mode+".help")) + `</span>`)
 	if !isDir && w.Mode == proto.ModeFree { // the file is a scope of its own although the directory is free (design 2.8.2)
 		b.WriteString(`<span class="ts">` + html.EscapeString(t.T("wc.tip.file")) + `</span>`)
 	}

@@ -3,7 +3,9 @@ package server
 import (
 	"io/fs"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -56,9 +58,13 @@ func TestFileListShowsWriteControlByIcon(t *testing.T) {
 			t.Errorf("%s: a write-control label or a browser tip is left:\n%s", c.path, row)
 		}
 	}
-	for _, w := range []string{"继承, 来自 /</span>", "独占 · A</span><span class=\"ts\">设置在此</span>", "其他设备的任何改动都会冻结它在该范围的同步."} {
-		if !strings.Contains(page, w) {
-			t.Errorf("the tips lack %q", w)
+	// A tip is the state and its effect; where the setting comes from is not in it (user 2026-11-12, design 2.8.11).
+	if w := `独占 · A</span><span class="ts">其他设备的任何改动都会冻结它在该范围的同步.</span></span>`; !strings.Contains(page, w) {
+		t.Errorf("the tips lack %q", w)
+	}
+	for _, w := range []string{"设置在此", "继承, 来自", "默认 (根目录"} {
+		if strings.Contains(page, `<span class="ts">`+w) {
+			t.Errorf("a tip still names the source: %q", w)
 		}
 	}
 	// The name link is described by the icon's tip, so that keyboard focus and screen readers reach it.
@@ -67,7 +73,7 @@ func TestFileListShowsWriteControlByIcon(t *testing.T) {
 	}
 	// Files follow their directory: plain in a free one, and a setting of their own fills the icon.
 	_, page = l.get(l.web, "/folders/"+itoa(l.f)+"?dir=scratch")
-	if row := rowOf(t, page, "scratch/a.txt"); !strings.Contains(row, "#i-file-free\"") || strings.Contains(row, " set\"") || !strings.Contains(row, "继承, 来自 /scratch") || !strings.Contains(row, `<span class="ts">这里每个文件自成一个单端范围.</span>`) {
+	if row := rowOf(t, page, "scratch/a.txt"); !strings.Contains(row, "#i-file-free\"") || strings.Contains(row, " set\"") || !strings.Contains(row, `<span class="tp">不限</span><span class="ts">两台设备改同一文件时, 只冻结那个文件.</span><span class="ts">这里每个文件自成一个单端范围.</span>`) {
 		t.Errorf("a file of a free directory:\n%s", row)
 	}
 	if row := rowOf(t, page, "scratch/b.txt"); strings.Contains(row, "自成一个单端范围") {
@@ -90,7 +96,7 @@ func TestOverviewShowsTheRootWriteControl(t *testing.T) {
 		t.Fatal("root free")
 	}
 	_, page := l.get(l.web, "/")
-	f := regexp.MustCompile(`<span class="wci wc-single" data-tip="wf` + itoa(l.f) + `"><svg class="i wc"[^>]*><use href="/static/icons.svg#i-folder-single"/></svg><span class="tip-c" id="wf\d+" hidden><span class="tp">单端</span><span class="ts">默认 \(根目录还没有保存设置\)</span>`)
+	f := regexp.MustCompile(`<span class="wci wc-single" data-tip="wf` + itoa(l.f) + `"><svg class="i wc"[^>]*><use href="/static/icons.svg#i-folder-single"/></svg><span class="tip-c" id="wf\d+" hidden><span class="tp">单端</span><span class="ts">同时写入`)
 	if !f.MatchString(page) {
 		t.Errorf("folder F (default root):\n%s", page)
 	}
@@ -134,6 +140,62 @@ func TestIconsAreVectorsOfTheSprite(t *testing.T) {
 	for _, n := range []string{"alert", "more", "warn", "err", "link"} { // used by the Go code
 		if !has[n] {
 			t.Errorf("no icon %s", n)
+		}
+	}
+}
+
+// Every icon is drawn in one style (design 4.7, wcicon2): the same 24-unit grid and the stroke of style.css (no symbol
+// sets its own width), the sprite holds no unused icon, and the CSS sizes an icon only to the four sizes of 4.7.
+func TestIconsShareOneStyle(t *testing.T) {
+	sprite, _ := fs.ReadFile(webFS, "web/icons.svg")
+	symbols := regexp.MustCompile(`<symbol id="i-([a-z-]+)"([^>]*)>(.*?)</symbol>`).FindAllStringSubmatch(string(sprite), -1)
+	if len(symbols) < 20 {
+		t.Fatalf("only %d symbols read", len(symbols))
+	}
+	used := map[string]bool{}
+	for _, kind := range []string{"folder", "file"} { // web.go names these from the mode
+		for _, mode := range []string{proto.ModeFree, proto.ModeSingle, proto.ModeExclusive} {
+			used[kind+"-"+mode] = true
+		}
+	}
+	named := regexp.MustCompile(`\{\{icon "([a-z-]+)"|\bicon\("([a-z-]+)"|\[rt\("[^"]+"\), "([a-z-]+)"`)
+	files := []string{"web/app.js"}
+	matches, _ := fs.Glob(webFS, "web/*.html")
+	for _, p := range append(files, matches...) {
+		b, _ := fs.ReadFile(webFS, p)
+		for _, m := range named.FindAllStringSubmatch(string(b), -1) {
+			used[m[1]+m[2]+m[3]] = true
+		}
+	}
+	gofiles, _ := filepath.Glob("*.go")
+	for _, p := range gofiles {
+		if strings.HasSuffix(p, "_test.go") {
+			continue
+		}
+		b, _ := os.ReadFile(p)
+		for _, m := range named.FindAllStringSubmatch(string(b), -1) {
+			used[m[1]+m[2]+m[3]] = true
+		}
+	}
+	for _, s := range symbols {
+		if s[2] != ` viewBox="0 0 24 24"` {
+			t.Errorf("i-%s: not on the 24-unit grid: %s", s[1], s[2])
+		}
+		if strings.Contains(s[3], "stroke-width") {
+			t.Errorf("i-%s sets its own stroke width", s[1])
+		}
+		if !used[s[1]] {
+			t.Errorf("i-%s is in the sprite but nothing uses it", s[1])
+		}
+	}
+	css, _ := fs.ReadFile(webFS, "web/style.css")
+	rule := regexp.MustCompile(`(?m)^([^{}]*\bsvg\b[^{}]*)\{([^}]*)\}`)
+	size := regexp.MustCompile(`\b(?:width|height): *(\d+)px`)
+	for _, r := range rule.FindAllStringSubmatch(string(css), -1) {
+		for _, m := range size.FindAllStringSubmatch(r[2], -1) {
+			if !map[string]bool{"12": true, "14": true, "16": true, "20": true}[m[1]] {
+				t.Errorf("%s sizes an icon to %spx, not one of 12, 14, 16, 20", strings.TrimSpace(r[1]), m[1])
+			}
 		}
 	}
 }

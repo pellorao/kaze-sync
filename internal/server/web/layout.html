@@ -52,7 +52,7 @@
 
 {{define "notif"}}<div class="notif-h"><h3>{{t "nav.notif"}}</h3>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</div>
 <div class="notif-b">
-{{range .Groups}}<div class="grp-h" id="ng-{{.ID}}"><a href="/folders/{{.ID}}">{{.Name}}</a>{{if .Errors}}<span class="cnt err">{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{.Warnings}}</span>{{end}}</div>
+{{range .Groups}}<div class="grp-h" id="ng-{{.ID}}"><a href="/folders/{{.ID}}">{{.Name}}</a>{{if .Errors}}<span class="cnt err">{{icon "err"}}{{.Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{.Warnings}}</span>{{end}}</div>
 {{range .Rows}}{{if .Fold}}<details class="nitem fold"><summary><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span><span class="msg">{{.Device}}: {{fold .FoldKind (len .Sub)}}</span><span class="meta">{{tm "notif.earliest" "time" (time .Since)}}</span><span class="expand">{{t "notif.expand"}}</span></summary>
 {{range .Sub}}{{template "notice-item" .}}{{end}}</details>
 {{else}}{{template "notice-item" .}}{{end}}{{end}}

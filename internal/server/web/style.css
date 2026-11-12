@@ -23,6 +23,8 @@ a:hover { text-decoration: underline; }
 .small { font-size: 12px; }
 svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -3px; }
 svg.i.lg { width: 20px; height: 20px; }
+/* icon sizes (design 4.7): 16 beside 13-14px text, 14 beside 12px text, 20 in the top bar and for write control, 12 for the inline arrows */
+.cnt svg.i, .tag svg.i, .note svg.i, .first-n svg.i, .btn.sm svg.i { width: 14px; height: 14px; }
 
 /* top bar */
 .bar { position: sticky; top: 0; z-index: 5; background: var(--bar); border-bottom: 1px solid var(--line); }
