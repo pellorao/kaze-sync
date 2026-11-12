@@ -74,6 +74,36 @@ func TestFolderHeadCountsCurrentDirectory(t *testing.T) {
 	}
 }
 
+// The sync status word (syncing, error, offline ...) describes the whole folder, so only the top level shows it; a
+// subdirectory head, which counts its own directory, has none and no stray separator (design 4.5, #437).
+func TestFolderHeadStateOnlyAtTop(t *testing.T) {
+	l := newLockEnv(t)
+	e := l.env
+	e.commit(l.f, e.sized("d/a", 0, "123", 100), e.sized("top", 0, "t", 10))
+	e.report(l.ta, l.f, proto.FileError{Path: "top", Kind: proto.KindInUse, Message: "busy", Since: 1})
+	head := func(q string) string {
+		_, page := e.get(l.web, "/folders/"+itoa(l.f)+q)
+		h := page[strings.Index(page, `<p class="sub">`):]
+		return h[:strings.Index(h, "</p>")]
+	}
+	stateSpan := regexp.MustCompile(`<span class="st-[a-z]+"`)
+	if top := head(""); !stateSpan.MatchString(top) {
+		t.Errorf("top head lacks the state word: %s", top)
+	}
+	for _, q := range []string{"?dir=d", "?dir=d&deleted=1", "?dir=d&file=d/a"} {
+		d := head(q)
+		if stateSpan.MatchString(d) {
+			t.Errorf("%s head shows the state word: %s", q, d)
+		}
+		if strings.Contains(d, `<span class="dot-sep"></span>`) {
+			t.Errorf("%s head has an empty separator: %s", q, d)
+		}
+		if !strings.Contains(d, "1 个文件") {
+			t.Errorf("%s head lacks the file count: %s", q, d)
+		}
+	}
+}
+
 func TestNoticeIn(t *testing.T) {
 	cases := []struct {
 		n    notice

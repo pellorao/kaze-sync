@@ -8,7 +8,7 @@
 <button type="button" class="btn ghost" data-menu="folder-head" data-maps="{{.Mapped}}" data-path="{{.Dir}}"{{template "wc-data" .WCHere}} aria-label="{{t "fo.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
 <p class="sub">{{if .Mapped}}<span class="devn" tabindex="0" data-tip="devs-tip" aria-describedby="devs-tip">{{t "fo.devices" "n" .Mapped}}<span class="tip-c" id="devs-tip" hidden><span class="tp">{{names .Devs}}</span></span></span>{{else}}<span>{{t "fo.noMapped"}}</span>{{end}}
 <span class="dot-sep num">{{t "fo.nFiles" "n" .Files}}</span><span class="dot-sep num">{{size .Bytes}}</span>
-<span class="dot-sep">{{template "folder-state" .}}</span>
+{{if not .Dir}}<span class="dot-sep">{{template "folder-state" .}}</span>{{end}}
 <span class="dot-sep wc-line">{{tm "fo.wc.line" "mode" .WCMode "from" .WCFrom}}{{if .WCOwner}}{{tm "fo.wc.owner" "device" .WCOwner "time" (time .WCUntil)}}{{end}}</span>
 {{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</button>{{end}}</p>
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
