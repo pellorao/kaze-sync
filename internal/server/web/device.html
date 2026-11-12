@@ -11,7 +11,7 @@
 <section class="card">
 <div class="card-h"><h2>{{t "dev.maps"}}</h2><span class="count">{{len .Mappings}}</span><span class="sp"></span>
 <button type="button" class="btn" data-dialog="dlg-map-add"{{if not .Free}} disabled title="{{t "dev.noFree"}}"{{end}}>{{icon "plus"}}{{t "ma.title"}}</button></div>
-<div data-live="maps"><table>
+<div class="tscroll" data-live="maps"><table>
 <thead><tr><th>{{t "ov.folders"}}</th><th>{{t "ma.path"}}</th><th class="hide-sm">{{t "dev.adopt"}}</th><th>{{t "ov.status"}}</th><th class="act"></th></tr></thead>
 <tbody>
 {{range .Mappings}}<tr data-folder="{{.FolderID}}" data-name="{{.Folder}}" data-path="{{.Path}}"{{if .Adopt}} data-adopt="1"{{end}}{{if .Locks}} data-locks="{{.Locks}}"{{end}}>

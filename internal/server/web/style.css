@@ -61,6 +61,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
 .card-h .count { color: var(--muted); font-size: 12px; }
 .card-h .sp { flex: 1; }
 .card-b { padding: 16px; }
+/* a table scrolls sideways inside its own box; the card keeps its rounded clip */
+.tscroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 0 12px; height: 40px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); vertical-align: middle; }
@@ -111,7 +113,7 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 table.files td { height: 36px; }
 table.files td.name { width: 100%; }
 .fname { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.fname a, .fname .t { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fname a, .fname .t { color: var(--fg); overflow-wrap: anywhere; }
 .fname a:hover { color: var(--accent); text-decoration: none; }
 .fname svg.file { color: var(--muted); }
 /* the write-control icon (design 2.8.11): shape and color carry the mode, a filled body a setting on the path itself */
@@ -190,7 +192,7 @@ dialog.dlg.restore { width: 900px; }
 .dlg-h h3 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
 .dlg-h .x { color: var(--muted); }
 .dlg-b { padding: 16px 20px; display: grid; gap: 14px; }
-.dlg-f { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.dlg-f { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--raised); } /* a tall dialog scrolls under its buttons, they stay in view */
 .dlg-f .sp { flex: 1; }
 .field { display: grid; gap: 6px; }
 .field > label, .field > .lbl { font-size: 13px; font-weight: 500; }
@@ -198,7 +200,7 @@ dialog.dlg.restore { width: 900px; }
 .field .err-msg { font-size: 12px; color: #f0a0a6; }
 input[type=text], input[type=password], input[type=number], select, textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; font: 14px var(--sans); padding: 6px 10px; height: 34px; }
 select[name=tz] { font-family: var(--mono); font-size: 13px; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+input:focus:not([type=radio]):not([type=checkbox]), select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 input.mono { font-family: var(--mono); font-size: 13px; }
 textarea { height: auto; width: 100%; resize: vertical; line-height: 1.55; }
 textarea.code { font-size: 13px; tab-size: 4; }
@@ -282,7 +284,8 @@ details.glob pre { margin: 0; padding: 8px 12px; border-top: 1px solid var(--lin
 
 /* settings */
 .set-grid { display: grid; gap: 16px; max-width: 860px; }
-.radio { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.radio { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 14px; }
+.radio select { min-width: 0; max-width: 100%; }
 .radio input { accent-color: var(--accent); }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .card-f { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }

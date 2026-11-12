@@ -3,7 +3,7 @@
 <section class="card">
 <div class="card-h"><h2>{{t "ov.folders"}}</h2><span class="count">{{len .Folders}}</span><span class="sp"></span>
 <button type="button" class="btn" data-dialog="dlg-new-folder">{{icon "plus"}}{{t "ov.newFolder"}}</button></div>
-<div data-live="folders"><table>
+<div class="tscroll" data-live="folders"><table>
 <thead><tr><th>{{t "ov.name"}}</th><th>{{t "ov.status"}}</th><th class="hide-sm">{{t "ov.devices"}}</th><th class="r">{{t "ov.files"}}</th><th class="r">{{t "ov.size"}}</th><th>{{t "nav.notif"}}</th></tr></thead>
 <tbody>
 {{range .Folders}}<tr><td><span class="fname">{{wcIcon .WC true 0 (printf "wf%d" .ID)}}<a href="/folders/{{.ID}}" aria-describedby="wf{{.ID}}">{{.Name}}</a></span></td>
@@ -19,7 +19,7 @@
 <section class="card">
 <div class="card-h"><h2>{{t "ov.devices"}}</h2><span class="count">{{len .Devices}}</span><span class="sp"></span>
 <button type="button" class="btn" data-dialog="dlg-add-device">{{icon "plus"}}{{t "ov.addDevice"}}</button></div>
-<div data-live="devices"><table>
+<div class="tscroll" data-live="devices"><table>
 <thead><tr><th>{{t "ov.name"}}</th><th class="hide-sm">{{t "ov.os"}}</th><th>{{t "ov.lastConn"}}</th><th>{{t "ov.folderStatus"}}</th><th class="hide-sm">{{t "ov.client"}}</th><th class="hide-sm">{{t "ov.config"}}</th></tr></thead>
 <tbody>
 {{range .Devices}}<tr><td class="top"><span class="dot{{if .Online}} ok{{end}}"></span><a href="/devices/{{.ID}}">{{.Name}}</a></td><td class="top hide-sm">{{.OS}}</td>

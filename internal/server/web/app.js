@@ -226,7 +226,7 @@
   };
 
   // openMenu shows the menu of a row (or of a button or an empty area) at a point of the viewport.
-  function openMenu(row, kind, x, y, from) {
+  function openMenu(row, kind, x, y, from, kbd) {
     const items = (MENUS[kind] || (() => []))({ row }).filter(Boolean);
     if (!items.length) return;
     menu.replaceChildren();
@@ -250,7 +250,7 @@
     const rowEl = row.closest("tr");
     if (rowEl) { rowEl.classList.add("menu-open"); const m = $(".more", rowEl); if (m) m.classList.add("on"); }
     const first = $(".mi:not(:disabled)", menu);
-    if (first) first.focus({ focusVisible: false });
+    if (first) first.focus({ focusVisible: !!kbd }); // a keyboard open shows the ring on the first item; a pointer open does not
   }
   menu.addEventListener("toggle", (e) => {
     if (e.newState !== "closed") return;
@@ -293,7 +293,7 @@
     const row = b.closest("tr[data-path], tr[data-folder]") || b;
     const kind = b.dataset.menu === "row" ? row.dataset.kind : b.dataset.menu;
     const r = b.getBoundingClientRect();
-    openMenu(row, kind, r.right - 200, r.bottom + 2, b);
+    openMenu(row, kind, r.right - 200, r.bottom + 2, b, e.detail === 0); // detail 0: Enter or Space on the button
   });
   document.addEventListener("keydown", (e) => { // Shift+F10 and the menu key open the menu of the row that has the focus
     if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
@@ -301,7 +301,7 @@
     if (!row) return;
     e.preventDefault();
     const r = $(".more", row).getBoundingClientRect();
-    openMenu(row, row.dataset.kind, r.right - 200, r.bottom + 2, $("a", row) || row);
+    openMenu(row, row.dataset.kind, r.right - 200, r.bottom + 2, $("a", row) || row, true);
   });
   // long press (touch screens that send no contextmenu event): 500 ms, moving less than 10 px
   let press = null;

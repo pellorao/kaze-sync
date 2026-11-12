@@ -13,7 +13,7 @@
 {{if or .Errors .Warnings}}<button type="button" class="dot-sep notice-link" data-notif="ng-{{.Folder.ID}}">{{if .Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Errors}}</span>{{end}}{{if .Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Warnings}}</span>{{end}}</button>{{end}}</p>
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
 <div class="list-h"><span>{{t "fo.items" "n" (len .Entries)}}</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}{{t "fo.reload"}}</button></div>
-{{if .Entries}}<table class="files">
+{{if .Entries}}<div class="tscroll"><table class="files">
 <thead><tr><th>{{t "ov.name"}}</th><th class="size r">{{t "fo.size"}}</th><th class="time">{{t "fo.modified"}}</th><th class="act"></th></tr></thead>
 <tbody>
 {{range $i, $_ := .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if not .Unsynced}}{{template "wc-data" .WC}}{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
@@ -26,7 +26,7 @@
 <td class="time">{{if and (not .Unsynced) (not (and .IsDir .Gone))}}{{if .Gone}}{{tm "fo.deletedAt" "time" (time .Time)}}{{else}}{{time .Time}}{{end}}{{end}}</td>
 <td class="act"><button type="button" class="more" data-menu="row" aria-label="{{t "fo.rowActions" "name" .Name}}" aria-haspopup="menu">{{icon "more"}}</button></td></tr>
 {{end}}
-</tbody></table>
+</tbody></table></div>
 {{else}}<div class="empty">{{if and (not .Dir) (not .Mapped)}}{{t "fo.emptyUnmapped"}}{{else if .Deleted}}{{t "fo.emptyDeleted"}}{{else}}{{t "fo.empty"}}{{end}}</div>{{end}}
 </section>
 {{end}}
