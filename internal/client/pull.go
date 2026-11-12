@@ -369,6 +369,7 @@ func (f *Folder) applyDeleted(e proto.Entry) (applied, error) {
 		if f.FS.Remove(d) != nil { // not empty
 			break
 		}
+		f.unwatch(d)
 	}
 	return done, f.DB.apply(nil, []string{e.Path})
 }

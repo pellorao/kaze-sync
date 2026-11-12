@@ -731,6 +731,14 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	return err
 }
 
+// unwatch forgets a root directory this client removed itself (a pull, a cleared directory): a directory created
+// later under that name is a new one with no watch, and only a root hint can find it (newdir).
+func (f *Folder) unwatch(d string) {
+	if !strings.Contains(d, "/") {
+		delete(f.watched, d)
+	}
+}
+
 // walkRoot examines the root for a hint "." (a change directly in it): its files, and the directories no scan has
 // entered yet (a new directory may hold files and has no watch yet). A change inside an entered directory comes
 // with that directory's own hint; the hourly scan covers a directory that cannot be watched. The rows in scope go

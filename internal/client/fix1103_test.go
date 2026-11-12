@@ -470,3 +470,25 @@ func TestRemovedTopDirectoryHintDoesNotHideTheNewOne(t *testing.T) {
 		t.Fatal("d/two.txt not uploaded")
 	}
 }
+
+// A top directory the client removed itself while applying the server's deletion is not watched any more either:
+// the directory the user creates under that name later is found by a root hint (newdir).
+func TestPulledRemovalOfTopDirectoryHidesNothing(t *testing.T) {
+	_, _, g1, g2, _ := pair(t)
+	g1.put("d/one.txt", []byte("1"))
+	g1.scan()
+	g2.scan()
+	g2.pull()
+	g2.scan() // enters d: it counts as watched
+	g1.fs.Remove("d/one.txt")
+	g1.fs.Remove("d")
+	g1.scan()
+	g2.pull()
+	if _, err := g2.fs.Stat("d"); !errorsIsNotExist(err) {
+		t.Fatalf("d kept: %v", err)
+	}
+	g2.put("d/two.txt", []byte("2"))
+	if rep := g2.scanHint("."); rep.Committed != 1 {
+		t.Fatalf("new directory with the removed one's name: %+v", rep)
+	}
+}

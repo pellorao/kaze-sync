@@ -149,7 +149,11 @@ func (f *Folder) removeEmptyTree(p string) error {
 			}
 		}
 	}
-	return f.FS.Remove(p)
+	err := f.FS.Remove(p)
+	if err == nil {
+		f.unwatch(p)
+	}
+	return err
 }
 
 // clearAncestors handles a file where a parent directory of p is needed, like clearDir.
