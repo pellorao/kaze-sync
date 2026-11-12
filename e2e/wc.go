@@ -146,8 +146,13 @@ func (g *wcGroup) setup(winDir string) error {
 		if err != nil {
 			return err
 		}
-		g.winWork = work
-		os.MkdirAll(filepath.Join(work, "state"), 0o755)
+		if err := requireEmptyDir(work); err != nil {
+			return err
+		}
+		g.winWork = work // set only after the check: removeWinWork must never touch a directory setup did not create empty
+		if err := os.MkdirAll(filepath.Join(work, "state"), 0o755); err != nil {
+			return err
+		}
 		exe, runExe := filepath.Join(work, "wct.exe"), filepath.Join(work, "wct-agent.exe")
 		for from, to := range map[string]string{d.bins.windows: exe, d.bins.winAgent: runExe} {
 			b, err := os.ReadFile(from)
@@ -500,17 +505,18 @@ func (g *wcGroup) offlineUnrelated() error {
 	stale := regexp.MustCompile(`name="r" value="([^"]*)"`).FindStringSubmatch(page)
 	g.put(g.b, f, "b.txt", "B edited again, longer")
 	time.Sleep(3 * time.Second)
-	if stale != nil {
-		if _, err := g.d.web.ok("/folders/"+id+"/resolve", url.Values{"device": {g.b.id}, "r": {html.UnescapeString(stale[1])}, "a": {"overwrite"}}); err != nil {
-			return err
-		}
-		g.clicks++
-		if _, err := until("the stale decision to be refused", wcSync, func() (bool, error) {
-			p, _, err := g.held(g.b, id)
-			return strings.Contains(p, "本机又改过"), err
-		}); err != nil {
-			return err
-		}
+	if stale == nil {
+		return fmt.Errorf("the held page has no decision form (name=\"r\"): the stale-decision check cannot run")
+	}
+	if _, err := g.d.web.ok("/folders/"+id+"/resolve", url.Values{"device": {g.b.id}, "r": {html.UnescapeString(stale[1])}, "a": {"overwrite"}}); err != nil {
+		return err
+	}
+	g.clicks++
+	if _, err := until("the stale decision to be refused", wcSync, func() (bool, error) {
+		p, _, err := g.held(g.b, id)
+		return strings.Contains(p, "本机又改过"), err
+	}); err != nil {
+		return err
 	}
 	if err := g.resolve(g.b, id, "overwrite", false); err != nil {
 		return err
@@ -732,4 +738,20 @@ func (g *wcGroup) removeWinWork() {
 		}
 	}
 	os.Remove(g.winWork)
+}
+
+// requireEmptyDir accepts a missing or empty directory and refuses anything else, so that the
+// cleanup (removeWinWork) only ever deletes what setup itself put there.
+func requireEmptyDir(dir string) error {
+	ents, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(ents) > 0 {
+		return fmt.Errorf("%s is not empty (%d entries): refusing to use it as the scratch directory", dir, len(ents))
+	}
+	return nil
 }

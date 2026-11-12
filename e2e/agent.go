@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -62,7 +61,7 @@ func (a *agent) start() error {
 	a.cmd = exec.Command(cmp.Or(a.runExe, a.exe), "run")
 	a.cmd.Env = a.environ()
 	a.cmd.Stdout, a.cmd.Stderr = f, f
-	a.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(a.cmd)
 	if err := a.cmd.Start(); err != nil {
 		return err
 	}
@@ -77,10 +76,8 @@ func (a *agent) stop(kill bool) {
 	}
 	if a.windows {
 		exec.Command("taskkill.exe", "/F", "/IM", filepath.Base(cmp.Or(a.runExe, a.exe))).Run()
-	} else if kill {
-		syscall.Kill(-a.cmd.Process.Pid, syscall.SIGKILL)
 	} else {
-		syscall.Kill(-a.cmd.Process.Pid, syscall.SIGTERM)
+		signalGroup(a.cmd, kill)
 	}
 	done := make(chan struct{})
 	go func() { a.cmd.Wait(); close(done) }()
