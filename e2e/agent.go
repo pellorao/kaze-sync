@@ -103,3 +103,6 @@ func (a *agent) stateLog() string {
 	b, _ := os.ReadFile(filepath.Join(dir, "kaze-sync", "kaze-syncc.log"))
 	return string(b)
 }
+
+// stateDir is the client's state directory (below the state root); ntfy.json goes here.
+func (a *agent) stateDir() string { return filepath.Join(a.state, "kaze-sync") }

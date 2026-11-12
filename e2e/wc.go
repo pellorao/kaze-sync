@@ -15,13 +15,17 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"kaze-sync/e2e/vmctl"
@@ -56,6 +60,67 @@ type wcGroup struct {
 	clicks  int
 	window  string // the window setting to restore
 	winWork string // the Windows-side directory made by setup (a path of the machine running the driver)
+	ntfy    *fakeNtfy
+}
+
+// fakeNtfy is a minimal ntfy server on 127.0.0.1 that both clients are pointed at (their ntfy.json), so the driver
+// sees when a push arrives. WSL2 forwards the port to the Windows host, so a Windows client reaches it too.
+type fakeNtfy struct {
+	ln   net.Listener
+	srv  *http.Server
+	mu   sync.Mutex
+	msgs []ntfyMsg
+}
+
+type ntfyMsg struct {
+	at    time.Time
+	title string
+}
+
+func startFakeNtfy() (*fakeNtfy, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	f := &fakeNtfy{ln: ln}
+	f.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.msgs = append(f.msgs, ntfyMsg{time.Now(), r.Header.Get("Title")})
+		f.mu.Unlock()
+	})}
+	go f.srv.Serve(ln)
+	return f, nil
+}
+
+func (f *fakeNtfy) stop() { f.srv.Close() }
+
+// firstProblem returns the first Problem push received after t0 (any side), or false.
+func (f *fakeNtfy) firstProblem(t0 time.Time) (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.msgs {
+		if m.at.After(t0) && strings.HasSuffix(m.title, "] Problem") {
+			return m.at, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// ntfyLatency waits a little for the push of a problem raised after t0 and describes how long it took.
+func (g *wcGroup) ntfyLatency(t0 time.Time) string {
+	if g.ntfy == nil {
+		return "ntfy not set up"
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if at, ok := g.ntfy.firstProblem(t0); ok {
+			return fmt.Sprintf("ntfy push %.1f s after the write", at.Sub(t0).Seconds())
+		}
+		if time.Now().After(deadline) {
+			return "ntfy push NOT received within 15 s"
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 // runWC is the entry point of the group; it reports success.
@@ -79,6 +144,12 @@ func runWC(base, fp, winDir string, local bool, only string) bool {
 		}
 	}
 	g := &wcGroup{d: d, folders: map[string]string{}}
+	if nt, err := startFakeNtfy(); err != nil {
+		log.Printf("no fake ntfy server: %v", err)
+	} else {
+		g.ntfy = nt
+		defer nt.stop()
+	}
 	defer func() {
 		g.cleanup()
 		g.removeWinWork()
@@ -178,6 +249,12 @@ func (g *wcGroup) setup(winDir string) error {
 		}
 		if s.id, err = d.web.idOf("devices", s.name); err != nil {
 			return err
+		}
+		if g.ntfy != nil {
+			cfg := fmt.Sprintf(`{"url": "http://%s", "topic": "wct"}`, g.ntfy.ln.Addr())
+			if err := os.WriteFile(filepath.Join(s.ag.stateDir(), "ntfy.json"), []byte(cfg), 0o600); err != nil {
+				return err
+			}
 		}
 		if err := s.ag.start(); err != nil {
 			return err
@@ -312,6 +389,7 @@ func (g *wcGroup) resolve(s *wcSide, folder, all string, save bool, rows ...stri
 
 // same checks that both sides hold the same files in the folder (the hash of every file).
 func (g *wcGroup) same(folder string) error {
+	var hashes string
 	_, err := until("equal trees of "+folder, wcSync, func() (bool, error) {
 		a, err := tree(g.a.dir(folder))
 		if err != nil {
@@ -336,15 +414,24 @@ func (g *wcGroup) same(folder string) error {
 				return false, fmt.Errorf("%s differs", p)
 			}
 		}
+		var hs []string
+		for p, h := range a {
+			hs = append(hs, p+" "+h[:8])
+		}
+		sort.Strings(hs)
+		hashes = strings.Join(hs, ", ")
 		return true, nil
 	})
+	if err == nil {
+		g.d.metric("WC hashes %s: A = B (sha256 prefix): %s; the server's own hash is not readable from the Web UI or API", folder, hashes)
+	}
 	return err
 }
 
 // report records a scenario's latency to the held page and, once decided, the clicks it took (call decided after).
 func (g *wcGroup) report(what string, clicks0 int, took time.Duration) func() {
 	return func() {
-		g.d.metric("WC %s: held page %.1f s after the write, %d clicks to decide", what, took.Seconds(), g.clicks-clicks0)
+		g.d.metric("WC %s: held page %.1f s after the write, %s, %d clicks to decide", what, took.Seconds(), g.ntfyLatency(time.Now().Add(-took-time.Second)), g.clicks-clicks0)
 	}
 }
 
@@ -588,7 +675,7 @@ func (g *wcGroup) webRestore() error {
 	if _, err := g.waitHeld(g.b, id, "r2.txt"); err != nil {
 		return err
 	}
-	g.d.metric("WC web restore: the write of the other side was held after %.1f s", time.Since(t0).Seconds())
+	g.d.metric("WC web restore: the write of the other side was held after %.1f s, %s", time.Since(t0).Seconds(), g.ntfyLatency(t0.Add(-time.Second)))
 	return g.resolve(g.b, id, "discard", false)
 }
 
