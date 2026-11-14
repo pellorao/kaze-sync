@@ -150,7 +150,7 @@ With the server running and the port open, open `https://<server>:<port>/` in a 
 
 You can run `admin-password` again at any time—for example, if you forget the password or get locked out. Each run generates a new random password (you cannot choose a custom password), prints it once, and restarts the service, which immediately signs out all active browser sessions and clears all failed-login lockouts. Run it as `<data>/kaze-syncd admin-password`, or run another copy of the binary with `--data DIR`.
 
-**Resource usage.** In normal operation, the server uses about 24 MB of memory, and daily garbage collection (section 13) adds a bounded amount on top. A machine with 512 MB of RAM can garbage-collect up to about 512 GB of stored data in a single pass; if you store more than that, garbage collection simply scans in multiple passes rather than using more memory.
+**Resource usage.** The server uses about 24 MB of memory on a small data set and 35 to 65 MB on the maintainer's own deployment of about 37,000 files, and daily garbage collection (section 13) adds a bounded amount on top. A machine with 512 MB of RAM can garbage-collect up to about 512 GB of stored data in a single pass; if you store more than that, garbage collection simply scans in multiple passes rather than using more memory.
 
 ### 2.6 Ports and firewall rules
 
