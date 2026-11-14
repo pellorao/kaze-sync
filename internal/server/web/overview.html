@@ -6,7 +6,7 @@
 <div class="tscroll" data-live="folders"><table>
 <thead><tr><th>{{t "ov.name"}}</th><th>{{t "ov.status"}}</th><th class="hide-sm">{{t "ov.devices"}}</th><th class="r">{{t "ov.files"}}</th><th class="r">{{t "ov.size"}}</th><th>{{t "nav.notif"}}</th></tr></thead>
 <tbody>
-{{range .Folders}}<tr><td><span class="fname">{{wcIcon .WC true 0 (printf "wf%d" .ID)}}<a href="/folders/{{.ID}}" aria-describedby="wf{{.ID}}">{{.Name}}</a></span></td>
+{{range .Folders}}<tr><td><span class="fname fo">{{wcIcon .WC true 0 (printf "wf%d" .ID)}}<a href="/folders/{{.ID}}" aria-describedby="wf{{.ID}}">{{.Name}}</a></span></td>
 {{if .Err}}<td colspan="5" class="st-err">{{t "ov.unreadable" "err" .Err}}</td>{{else}}
 <td>{{template "folder-state" .}}</td>
 <td class="hide-sm">{{range .Devs}}<span class="tag dev{{if not .Online}} off{{end}}">{{.Name}}</span> {{else}}<span class="muted small">{{t "ov.noDevices"}}</span>{{end}}</td>

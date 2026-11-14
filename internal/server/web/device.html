@@ -10,7 +10,8 @@
 {{if or .Head.Errors .Head.Warnings}}<button type="button" class="dot-sep notice-link" data-notif="">{{if .Head.Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Head.Errors}}</span>{{end}}{{if .Head.Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Head.Warnings}}</span>{{end}}</button>{{end}}</p></div>
 <section class="card">
 <div class="card-h"><h2>{{t "dev.maps"}}</h2><span class="count">{{len .Mappings}}</span><span class="sp"></span>
-<button type="button" class="btn" data-dialog="dlg-map-add"{{if not .Free}} disabled title="{{t "dev.noFree"}}"{{end}}>{{icon "plus"}}{{t "ma.title"}}</button></div>
+{{if .Free}}<button type="button" class="btn" data-dialog="dlg-map-add">{{icon "plus"}}{{t "ma.title"}}</button>
+{{else}}<button type="button" class="btn" aria-disabled="true" data-tip="ma-none" aria-describedby="ma-none">{{icon "plus"}}{{t "ma.title"}}<span class="tip-c" id="ma-none" hidden><span class="tp">{{t "dev.noFree"}}</span></span></button>{{end}}</div>
 <div class="tscroll" data-live="maps"><table>
 <thead><tr><th>{{t "ov.folders"}}</th><th>{{t "ma.path"}}</th><th class="hide-sm">{{t "dev.adopt"}}</th><th>{{t "ov.status"}}</th><th class="act"></th></tr></thead>
 <tbody>

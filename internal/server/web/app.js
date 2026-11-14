@@ -81,7 +81,15 @@
 
   // ---- dialogs and confirmations
   function openDialog(d) {
-    if (d && !d.open) d.showModal();
+    if (!d || d.open) return;
+    d.showModal();
+    // The browser focuses the first control; of a group of radios that is the first radio, not the chosen one, and a
+    // space on it would change the choice. The chosen one takes the focus.
+    const f = document.activeElement;
+    if (f && f.type === "radio") {
+      const on = d.querySelector('input[type=radio][name="' + f.name + '"]:checked');
+      if (on) on.focus();
+    }
   }
   document.addEventListener("click", (e) => {
     const t = e.target.closest("[data-dialog]");

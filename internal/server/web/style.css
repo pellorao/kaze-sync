@@ -82,7 +82,8 @@ td.top { vertical-align: top; padding-top: 10px; padding-bottom: 10px; }
 .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--fg); background: var(--hover); }
 .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
-.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.btn[aria-disabled="true"]:hover { border-color: var(--line); }
 .btn .n { color: var(--muted); font-weight: 400; }
 .more { width: 28px; height: 28px; border-radius: 6px; border: 0; background: none; color: var(--faint); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hover); }
@@ -114,6 +115,8 @@ table.files td { height: 36px; }
 table.files td.name { width: 100%; }
 .fname { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fname a, .fname .t { color: var(--fg); overflow-wrap: anywhere; }
+/* in a table that sizes its columns itself the name keeps room for about eight characters: with anywhere alone the column's minimum is one letter */
+.fname.fo a { min-width: 80px; }
 .fname a:hover { color: var(--accent); text-decoration: none; }
 .fname svg.file { color: var(--muted); }
 /* the write-control icon (design 2.8.11): shape and color carry the mode, a filled body a setting on the path itself */
