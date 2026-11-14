@@ -360,6 +360,7 @@
   tip.hidden = true;
   body.append(tip);
   let tipFor = null, tipTimer = 0, tipFocusAt = -1e9;
+  let tipMute = false; // set while a live update gives the focus back: that focus shows no tip
   // A modal dialog or a popover (the notifications) sits in the top layer, above anything kept in the body: the tip lives in the one its trigger is in.
   function tipHost(trigger) {
     const d = trigger.closest("dialog, [popover]") || body; // both are in the top layer
@@ -424,7 +425,7 @@
   });
   document.addEventListener("focusin", (e) => {
     const t = tipTrigger(e.target);
-    if (t && e.target.matches(":focus-visible")) { showTip(t); tipFocusAt = performance.now(); }
+    if (t && !tipMute && e.target.matches(":focus-visible")) { showTip(t); tipFocusAt = performance.now(); }
   });
   document.addEventListener("focusout", (e) => { if (tipFor && tipTrigger(e.target) === tipFor) hideTip(false); });
   document.addEventListener("keydown", (e) => {
@@ -478,11 +479,14 @@
   function focusSlot(region) {
     const f = document.activeElement;
     if (!f || f === document.body || !region.contains(f)) return null;
-    const i = $$(FOCUSABLE, region).indexOf(f), tag = f.tagName, text = f.textContent;
+    const id = (n) => [n.tagName, n.textContent, n.getAttribute("aria-label"), n.getAttribute("href")].join("|");
+    const i = $$(FOCUSABLE, region).indexOf(f), want = id(f);
     if (i < 0) return null;
-    return () => {
+    return () => { // no scroll and no tip: the focus is only given back, as if it had never left
       const n = $$(FOCUSABLE, region)[i];
-      if (n && n.tagName === tag && n.textContent === text) n.focus();
+      if (!n || id(n) !== want) return;
+      tipMute = true;
+      try { n.focus({ preventScroll: true }); } finally { tipMute = false; }
     };
   }
   async function refresh() {

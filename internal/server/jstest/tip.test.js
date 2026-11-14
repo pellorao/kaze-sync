@@ -246,19 +246,35 @@ test("a click inside the anchor of a script-built tip keeps the tip (the rule ed
   assert.strictEqual(p.api.tip.hidden, true, "a click elsewhere still hides it");
 });
 
-test("a live update gives the focus back to the same element of the replaced region", () => {
+test("a live update gives the focus back to the same element, without scrolling and without a tip", () => {
   const i = src.indexOf("const FOCUSABLE");
   assert.ok(i > 0, "no focusSlot");
-  const run = new Function("$$", "document", src.slice(i, src.indexOf("async function refresh()")) + "\nreturn focusSlot;");
-  const mk = (tag, text) => ({ tagName: tag, textContent: text, focused: 0, focus() { this.focused++; } });
-  let kids = [mk("A", "x"), mk("A", "y")];
+  const body = "let tipMute = false;\n";
+  const make = (code) => new Function("$$", "document", body + code + "\nreturn { focusSlot, muted: () => tipMute };");
+  const code = src.slice(i, src.indexOf("async function refresh()"));
+  const mk = (tag, text, label) => ({ tagName: tag, textContent: text, label, args: null, wasMuted: null, getAttribute(k) { return k === "aria-label" ? this.label : null; }, focus(o) { this.args = o; this.wasMuted = api.muted(); } });
+  let kids = [mk("A", "x"), mk("BUTTON", "", "Actions F")];
   const region = { contains: (n) => kids.includes(n) };
   const doc = { body: {}, activeElement: kids[1] };
-  const slot = run(() => kids, doc)(region);
+  let api = make(code)(() => kids, doc);
+  const slot = api.focusSlot(region);
   assert.ok(slot);
-  kids = [mk("A", "x"), mk("A", "y")];
+  kids = [mk("A", "x"), mk("BUTTON", "", "Actions F")];
   slot();
-  assert.strictEqual(kids[1].focused, 1);
+  assert.deepStrictEqual(kids[1].args, { preventScroll: true });
+  assert.strictEqual(kids[1].wasMuted, true, "the focus event must not show a tip");
+  assert.strictEqual(api.muted(), false);
+  // a row came in before it: the button at the same position belongs to another row
+  doc.activeElement = kids[1];
+  api = make(code)(() => kids, doc);
+  const slot2 = api.focusSlot({ contains: () => true });
+  kids = [mk("A", "x"), mk("BUTTON", "", "Actions Aaa1")];
+  slot2();
+  assert.strictEqual(kids[1].args, null, "the focus went to another row's button");
   doc.activeElement = doc.body;
-  assert.strictEqual(run(() => kids, doc)(region), null, "nothing focused: nothing to give back");
+  assert.strictEqual(api.focusSlot(region), null, "nothing focused: nothing to give back");
+});
+
+test("the focus event of a returned focus shows no tip", () => {
+  assert.match(src, /if \(t && !tipMute && e\.target\.matches\(":focus-visible"\)\)/);
 });

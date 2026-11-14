@@ -59,3 +59,11 @@ func TestTimeColumnsNameTheZoneInTheHeader(t *testing.T) {
 		t.Error("web.go: timeTag writes a tabindex")
 	}
 }
+
+// A long zone name wraps inside the header: a nowrap header would widen the version dialog past a 400 px screen.
+func TestZoneNameInHeaderWraps(t *testing.T) {
+	css, _ := fs.ReadFile(webFS, "web/style.css")
+	if !regexp.MustCompile(`(?m)^\.tzn \{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere`).Match(css) {
+		t.Error("style.css: .tzn must allow wrapping (white-space: normal, overflow-wrap: anywhere)")
+	}
+}

@@ -65,7 +65,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
 .tscroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.tzn { display: block; font-weight: 400; }
+.tzn { display: block; font-weight: 400; white-space: normal; overflow-wrap: anywhere; } /* a long zone name wraps inside the header instead of widening the table */
 td { padding: 0 12px; height: 40px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); vertical-align: middle; }
 tr:first-child td { border-top: 0; }
 tbody tr:hover td { background: color-mix(in srgb, var(--hover) 70%, transparent); }
