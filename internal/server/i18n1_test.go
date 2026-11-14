@@ -35,6 +35,36 @@ func TestJSDictNoForeignSingular(t *testing.T) {
 	}
 }
 
+// en keeps its own ".1" variants (the singular wording is the point of them).
+func TestJSDictEnglishKeepsSingular(t *testing.T) {
+	en := jsDictMap(t, "en")
+	n := 0
+	for k, v := range i18nOf(t, "en") {
+		if strings.HasSuffix(k, ".1") && strings.HasPrefix(k, "js.") {
+			n++
+			if en[k] != v {
+				t.Errorf("en: %q is %q, want %q", k, en[k], v)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("en has no js .1 keys: the test checks nothing")
+	}
+}
+
+// A language that writes its own ".1" keeps it, and the English one of the same key does not replace it.
+func TestJSDictKeepsOwnSingular(t *testing.T) {
+	dictMu.Lock()
+	dicts["ja"] = map[string]string{"js.go": "ja {n}", "js.go.1": "ja one {n}"}
+	dictMu.Unlock()
+	t.Cleanup(func() { dictMu.Lock(); delete(dicts, "ja"); dictMu.Unlock(); jsDicts.Delete("ja") })
+	jsDicts.Delete("ja")
+	m := jsDictMap(t, "ja")
+	if m["js.go"] != "ja {n}" || m["js.go.1"] != "ja one {n}" {
+		t.Fatalf("ja: %q %q", m["js.go"], m["js.go.1"])
+	}
+}
+
 func TestRtPlaceholdersReplacedOnce(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -46,4 +76,3 @@ func TestRtPlaceholdersReplacedOnce(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
-
