@@ -15,11 +15,11 @@
 :root:lang(ko) { --sans: "Source Sans 3", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; }
 /* English pages hold no embedded Han face (a Han file name falls to the machine's fonts). */
 :root:lang(en) { --sans: "Source Sans 3", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; }
-/* The language names in the settings list are each set in their own language. */
-option[lang=zh-CN] { font-family: "Source Sans 3", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
-option[lang=zh-TW] { font-family: "Source Sans 3", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
-option[lang=ja] { font-family: "Source Sans 3", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", sans-serif; }
-option[lang=ko] { font-family: "Source Sans 3", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
+/* The language names in the settings list are each set in their own language, from a face of only those few characters. */
+option[lang=zh-CN] { font-family: "Source Sans 3", "Kaze Name CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
+option[lang=zh-TW] { font-family: "Source Sans 3", "Kaze Name TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
+option[lang=ja] { font-family: "Source Sans 3", "Kaze Name JP", "Source Han Sans JP", "Noto Sans CJK JP", sans-serif; }
+option[lang=ko] { font-family: "Source Sans 3", "Kaze Name KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
 option[lang=en] { font-family: var(--sans); }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }

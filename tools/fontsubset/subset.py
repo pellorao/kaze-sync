@@ -84,7 +84,7 @@ def cmap_of(path_or_font):
 def build(src_font, unicodes, dest, features=None):
     opts = subset.Options()
     opts.flavor = "woff2"
-    opts.layout_features = features or ["kern", "liga", "locl", "mark", "mkmk", "ccmp", "vert", "vrt2", "calt", "ss01", "case", "tnum", "zero"]
+    opts.layout_features = features or ["kern", "liga", "locl", "mark", "mkmk", "ccmp", "vert", "vrt2", "case", "tnum", "zero"]  # no calt: JetBrains Mono ligatures would join characters of paths and glob rules
     opts.hinting = False
     opts.desubroutinize = True
     opts.name_IDs = [0, 1, 2, 3, 4, 5, 6, 13, 14]
@@ -168,6 +168,16 @@ def main():
                 got = cmap_of(dest)
                 (COV / f"{reg.lower()}.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
                 nosource |= {c for c in lang_chars(lang) if ord(c) not in cm and ord(c) not in sans_src}
+    # The language names of the settings list: one tiny face per region, so the list does not pull the big subsets.
+    names = dict(re.findall(r'\{"([A-Za-z-]+)", "([^"]+)"\}', (REPO / "internal/server/i18n.go").read_text(encoding="utf-8")))
+    for reg, lang in REGIONS.items():
+        f = TTFont(DL / f"source-han-sans-subset-otf/SourceHanSans{reg}-Regular.otf")
+        want = {ord(c) for c in names[lang]} & cmap_of(f)
+        dest = OUT / f"SourceHanSans{reg}-Name.woff2"
+        sizes["Name" + reg] = build(f, want, dest)
+        got = cmap_of(dest)
+        (COV / f"name-{reg.lower()}.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
+        css.append('@font-face { font-family: "Kaze Name %s"; font-style: normal; font-weight: 400; font-display: swap; src: url("/static/fonts/%s") format("woff2"); unicode-range: %s; }' % (reg, dest.name, ranges(got)))
     (COV / "nosource.txt").write_text("".join(sorted(nosource)) + "\n", encoding="utf-8")
     (OUT.parent / "fonts.css").write_text("\n".join(css) + "\n")
     for k, v in sizes.items():

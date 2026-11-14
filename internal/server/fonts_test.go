@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,7 @@ var fontFiles = []string{
 	"SourceHanSansTW-Regular-Subset.woff2", "SourceHanSansTW-Bold-Subset.woff2",
 	"SourceHanSansJP-Regular-Subset.woff2", "SourceHanSansJP-Bold-Subset.woff2",
 	"SourceHanSansKR-Regular-Subset.woff2", "SourceHanSansKR-Bold-Subset.woff2",
+	"SourceHanSansCN-Name.woff2", "SourceHanSansTW-Name.woff2", "SourceHanSansJP-Name.woff2", "SourceHanSansKR-Name.woff2",
 }
 
 const maxFaceBytes = 2 << 20 // low traffic is the first goal: one CJK face stays within 2 MB
@@ -144,8 +146,9 @@ func TestSubsetsCoverEveryInterfaceCharacter(t *testing.T) {
 		check(lang, string(b)+shared, cjk)
 	}
 	for _, l := range languages {
-		reg := map[string]string{"zh-CN": "cn", "zh-TW": "tw", "ja": "jp", "ko": "kr", "en": "cn"}[l.Code]
-		check("language name "+l.Code, l.Name, readCoverage(t, reg))
+		if reg, ok := map[string]string{"zh-CN": "cn", "zh-TW": "tw", "ja": "jp", "ko": "kr"}[l.Code]; ok {
+			check("language name "+l.Code, l.Name, readCoverage(t, "name-"+reg))
+		}
 	}
 }
 
@@ -177,5 +180,80 @@ func TestStackColumnMayShrink(t *testing.T) {
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	if !regexp.MustCompile(`(?m)^\.stack \{[^}]*grid-template-columns: minmax\(0, 1fr\)`).Match(css) {
 		t.Error(".stack has no minmax(0, 1fr) column")
+	}
+}
+
+// Each language's stacks name the Han face of its own region (the stack of ja once named the Traditional Chinese face
+// and still passed a substring check), and each language option is set in the name face of its region.
+func TestStacksMatchTheirLanguage(t *testing.T) {
+	css, _ := fs.ReadFile(webFS, "web/style.css")
+	region := map[string]string{"zh-TW": "TW", "ja": "JP", "ko": "KR"}
+	all := regexp.MustCompile(`Kaze Han Sans (CN|TW|JP|KR)`)
+	for lang, reg := range region {
+		m := regexp.MustCompile(`(?m)^:root:lang\(` + lang + `\) \{[^\n]*$`).FindString(string(css))
+		if m == "" {
+			t.Errorf("style.css has no :root:lang(%s) rule", lang)
+			continue
+		}
+		for _, f := range all.FindAllStringSubmatch(m, -1) {
+			if f[1] != reg {
+				t.Errorf(":root:lang(%s) names the %s face, want %s", lang, f[1], reg)
+			}
+		}
+		if !strings.Contains(m, "Kaze Han Sans "+reg) {
+			t.Errorf(":root:lang(%s) does not name the %s face", lang, reg)
+		}
+	}
+	for lang, reg := range map[string]string{"zh-CN": "CN", "zh-TW": "TW", "ja": "JP", "ko": "KR"} {
+		m := regexp.MustCompile(`(?m)^option\[lang=` + lang + `\] \{[^\n]*$`).FindString(string(css))
+		if !strings.Contains(m, `"Kaze Name `+reg+`"`) || strings.Contains(m, "Kaze Han Sans") {
+			t.Errorf("option[lang=%s] is not set in the name face of %s alone: %q", lang, reg, m)
+		}
+	}
+	root := regexp.MustCompile(`(?m)^:root \{[^}]*\}`).FindString(string(css))
+	if !strings.Contains(root, "Kaze Han Sans CN") || strings.Contains(root, "Kaze Han Sans TW") {
+		t.Error("the default :root stack is not the Simplified Chinese one")
+	}
+	if en := regexp.MustCompile(`(?m)^:root:lang\(en\) \{[^\n]*$`).FindString(string(css)); en == "" || strings.Contains(en, "Kaze Han Sans") {
+		t.Error("English pages must hold no embedded Han face")
+	}
+}
+
+// The unicode-range of every face holds every character its subset has (a character in the font but outside the range
+// would never be used).
+func TestFontsCSSRangesHoldTheCoverage(t *testing.T) {
+	fc, _ := fs.ReadFile(webFS, "web/fonts.css")
+	for _, c := range []struct{ file, cov string }{
+		{"SourceSans3-Latin.woff2", "latin"}, {"SourceHanSansCN-Regular-Subset.woff2", "cn"}, {"SourceHanSansTW-Regular-Subset.woff2", "tw"},
+		{"SourceHanSansJP-Regular-Subset.woff2", "jp"}, {"SourceHanSansKR-Regular-Subset.woff2", "kr"},
+		{"SourceHanSansCN-Name.woff2", "name-cn"}, {"SourceHanSansTW-Name.woff2", "name-tw"}, {"SourceHanSansJP-Name.woff2", "name-jp"}, {"SourceHanSansKR-Name.woff2", "name-kr"},
+	} {
+		m := regexp.MustCompile(`url\("/static/fonts/` + regexp.QuoteMeta(c.file) + `"\)[^}]*unicode-range: ([^;]*);`).FindSubmatch(fc)
+		if m == nil {
+			t.Errorf("%s: no unicode-range in fonts.css", c.file)
+			continue
+		}
+		var spans [][2]int64
+		for _, p := range strings.Split(string(m[1]), ",") {
+			p = strings.TrimPrefix(strings.TrimSpace(p), "U+")
+			lo, hi, _ := strings.Cut(p, "-")
+			a, _ := strconv.ParseInt(lo, 16, 32)
+			b := a
+			if hi != "" {
+				b, _ = strconv.ParseInt(hi, 16, 32)
+			}
+			spans = append(spans, [2]int64{a, b})
+		}
+		for r := range readCoverage(t, c.cov) {
+			ok := false
+			for _, s := range spans {
+				if int64(r) >= s[0] && int64(r) <= s[1] {
+					ok = true
+				}
+			}
+			if !ok {
+				t.Errorf("%s: U+%04X is in the font but outside its unicode-range", c.file, r)
+			}
+		}
 	}
 }
