@@ -59,8 +59,9 @@
     const p = parts(ms, zone || zoneName());
     return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
   }
-  // zoneTip: the zone is named in the page's tip (a native title would not show for the keyboard): the node takes the
-  // focus and points at a hidden content made once per zone (design 4.8).
+  // zoneTip: the zone is named in the page's tip on hover or tap (a native title would not show on touch): the node
+  // points at a hidden content made once per zone (design 4.8). It is neither a Tab stop (a page holds hundreds of times)
+  // nor described by the zone for a screen reader each time; both get the zone once, from the time column's header.
   const zoneIds = new Map();
   function zoneTip(node, zone) {
     let id = zoneIds.get(zone);
@@ -69,8 +70,6 @@
       body.append(el("span", { class: "tip-c", id, hidden: "" }, el("span", { class: "tp" }, zone)));
     }
     node.dataset.tip = id;
-    node.setAttribute("tabindex", "0");
-    node.setAttribute("aria-describedby", id);
   }
   function renderTimes(root) {
     const zone = zoneName();
@@ -78,6 +77,7 @@
       const d = Date.parse(t.getAttribute("datetime"));
       if (!isNaN(d)) { t.textContent = fmt(d, zone); zoneTip(t, zone); }
     });
+    $$("[data-tzname]", root).forEach((h) => { h.textContent = "(" + zone + ")"; });
   }
   // wall: the clock of the zone at instant ms, read as if it were UTC
   const wall = (ms, zone) => { const p = parts(ms, zone); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second); };
@@ -420,7 +420,7 @@
   document.addEventListener("click", (e) => {
     const t = e.target.closest("[data-tip]");
     if (t && e.pointerType !== "mouse") { if (tipFor === t && !tip.hidden) hideTip(false); else showTip(t); } // a tap
-    else if (!tip.contains(e.target) && !t) hideTip(false);
+    else if (!tip.contains(e.target) && !t && !(tipFor && tipFor.contains(e.target))) hideTip(false); // a click in the rule box keeps its line's tip
   });
   document.addEventListener("focusin", (e) => {
     const t = tipTrigger(e.target);
@@ -472,6 +472,19 @@
     renderTimes(d);
     dropStaleTip();
   }
+  // focusSlot: when the focus is inside a region about to be replaced, returns a function that gives it to the same
+  // place (the same position among the region's focusable elements, same tag and text) in the new content.
+  const FOCUSABLE = "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1'])";
+  function focusSlot(region) {
+    const f = document.activeElement;
+    if (!f || f === document.body || !region.contains(f)) return null;
+    const i = $$(FOCUSABLE, region).indexOf(f), tag = f.tagName, text = f.textContent;
+    if (i < 0) return null;
+    return () => {
+      const n = $$(FOCUSABLE, region)[i];
+      if (n && n.tagName === tag && n.textContent === text) n.focus();
+    };
+  }
   async function refresh() {
     if (busy()) { dirty = true; refreshHeld(); return; }
     dirty = false;
@@ -484,8 +497,10 @@
       const nu = $(`[data-live="${cur.dataset.live}"]`, doc);
       if (!nu) continue;
       if (cur === notif && notif.matches(":popover-open")) { dirty = true; continue; } // only the count changes while it is read
+      const keep = focusSlot(cur);
       cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
       renderTimes(cur);
+      if (keep) keep();
     }
     dropStaleTip();
   }
@@ -1110,6 +1125,7 @@
       tipLine = 0;
       if (tipFor && tipFor.ruleBox === ta) hideTip(true);
     });
+    ta.addEventListener("click", () => { tipLine = 0; lineTip(caretLine()); }); // a click (or tap) shows the tip again, also after Escape
     ta.addEventListener("keyup", (e) => { // the caret's line, after a key that moves it (Escape has just closed the tip)
       if (e.key !== "Escape") lineTip(caretLine());
     });

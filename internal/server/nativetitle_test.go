@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"os"
 	"os/exec"
 	"regexp"
 	"testing"
@@ -31,5 +32,30 @@ func TestTimeScript(t *testing.T) {
 	cmd.Dir = "jstest"
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// The zone is written once, in the header of each time column, as plain text with a UTC fallback for a page without the
+// script (nativetitle2); a <time> is not a Tab stop, since a page holds dozens to hundreds of them.
+func TestTimeColumnsNameTheZoneInTheHeader(t *testing.T) {
+	for _, c := range []struct{ file, key string }{{"web/folder.html", "fo.modified"}, {"web/folder.html", "rs.time"}, {"web/overview.html", "ov.lastConn"}} {
+		b, err := fs.ReadFile(webFS, c.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		re := regexp.MustCompile(`<th[^>]*>\{\{t "` + regexp.QuoteMeta(c.key) + `"\}\} <span class="tzn" data-tzname>\(UTC\)</span></th>`)
+		if !re.Match(b) {
+			t.Errorf("%s: the header %s does not carry the zone", c.file, c.key)
+		}
+	}
+	for _, f := range []string{"web/folder.html", "web/overview.html", "web/layout.html", "web/settings.html", "web/device.html"} {
+		b, _ := fs.ReadFile(webFS, f)
+		if regexp.MustCompile(`<time[^>]*tabindex`).Match(b) {
+			t.Errorf("%s: a <time> is a Tab stop", f)
+		}
+	}
+	web, _ := os.ReadFile("web.go")
+	if regexp.MustCompile(`<time[^>]*tabindex`).Match(web) {
+		t.Error("web.go: timeTag writes a tabindex")
 	}
 }

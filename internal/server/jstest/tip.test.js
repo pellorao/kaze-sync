@@ -139,7 +139,7 @@ test("a live update that removed the trigger takes the tip away (finding 2)", ()
 });
 
 test("refresh calls dropStaleTip after it replaced the live regions", () => {
-  assert.match(src, /renderTimes\(cur\);\s*\}\s*dropStaleTip\(\);/);
+  assert.match(src, /renderTimes\(cur\);\s*if \(keep\) keep\(\);\s*}\s*dropStaleTip\(\);/);
 });
 
 test("the tip is clamped to the visible viewport, which excludes the scrollbar", () => {
@@ -235,4 +235,30 @@ test("Esc closes the tip inside the notifications popover and keeps the popover"
   p.fire("keydown", { key: "Escape", preventDefault() { prevented = true; } });
   assert.strictEqual(p.api.tip.hidden, true);
   assert.strictEqual(prevented, true);
+});
+
+test("a click inside the anchor of a script-built tip keeps the tip (the rule editor's error line)", () => {
+  const p = setup(), anchor = new Node("textarea");
+  p.api.tipText(anchor, "error");
+  p.fire("click", { target: anchor, pointerType: "mouse" });
+  assert.strictEqual(p.api.tip.hidden, false);
+  p.fire("click", { target: new Node("p"), pointerType: "mouse" });
+  assert.strictEqual(p.api.tip.hidden, true, "a click elsewhere still hides it");
+});
+
+test("a live update gives the focus back to the same element of the replaced region", () => {
+  const i = src.indexOf("const FOCUSABLE");
+  assert.ok(i > 0, "no focusSlot");
+  const run = new Function("$$", "document", src.slice(i, src.indexOf("async function refresh()")) + "\nreturn focusSlot;");
+  const mk = (tag, text) => ({ tagName: tag, textContent: text, focused: 0, focus() { this.focused++; } });
+  let kids = [mk("A", "x"), mk("A", "y")];
+  const region = { contains: (n) => kids.includes(n) };
+  const doc = { body: {}, activeElement: kids[1] };
+  const slot = run(() => kids, doc)(region);
+  assert.ok(slot);
+  kids = [mk("A", "x"), mk("A", "y")];
+  slot();
+  assert.strictEqual(kids[1].focused, 1);
+  doc.activeElement = doc.body;
+  assert.strictEqual(run(() => kids, doc)(region), null, "nothing focused: nothing to give back");
 });

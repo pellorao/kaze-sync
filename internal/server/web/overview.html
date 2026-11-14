@@ -20,7 +20,7 @@
 <div class="card-h"><h2>{{t "ov.devices"}}</h2><span class="count">{{len .Devices}}</span><span class="sp"></span>
 <button type="button" class="btn" data-dialog="dlg-add-device">{{icon "plus"}}{{t "ov.addDevice"}}</button></div>
 <div class="tscroll" data-live="devices"><table>
-<thead><tr><th>{{t "ov.name"}}</th><th class="hide-sm">{{t "ov.os"}}</th><th>{{t "ov.lastConn"}}</th><th>{{t "ov.folderStatus"}}</th><th class="hide-sm">{{t "ov.client"}}</th><th class="hide-sm">{{t "ov.config"}}</th></tr></thead>
+<thead><tr><th>{{t "ov.name"}}</th><th class="hide-sm">{{t "ov.os"}}</th><th>{{t "ov.lastConn"}} <span class="tzn" data-tzname>(UTC)</span></th><th>{{t "ov.folderStatus"}}</th><th class="hide-sm">{{t "ov.client"}}</th><th class="hide-sm">{{t "ov.config"}}</th></tr></thead>
 <tbody>
 {{range .Devices}}<tr><td class="top"><span class="dot{{if .Online}} ok{{end}}"></span><a href="/devices/{{.ID}}">{{.Name}}</a></td><td class="top hide-sm">{{.OS}}</td>
 <td class="top">{{if .Online}}<span class="st-ok">{{t "st.online"}}</span>{{else}}<span class="muted num">{{time .LastSeen}}</span>{{end}}</td>
