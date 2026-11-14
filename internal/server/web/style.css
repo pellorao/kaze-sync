@@ -53,7 +53,7 @@ svg.i.lg { width: 20px; height: 20px; }
 .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }
 .icon-btn:hover, .icon-btn.on { color: var(--fg); background: var(--hover); }
 .icon-btn.on { border-color: var(--line); }
-/* the count badge sticks out 11px at the right of the bell, plus its 2px ring: 13px, more than the 8px gap, so the bell keeps 8px more room (always, so that the bar does not move when the count appears) */
+/* the count badge sticks out 11px at the right of the bell (measured from its padding box; the button has a 1px border, so 10px past the button), plus its 2px ring: 12px, more than the 8px gap, so the bell keeps 8px more room (always, so that the bar does not move when the count appears) */
 .icon-btn.bell { margin-right: 8px; }
 .badge { position: absolute; top: -5px; right: -11px; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; font: 600 var(--fs-xs)/20px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
 .badge.warn { background: var(--warn); }

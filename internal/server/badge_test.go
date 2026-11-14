@@ -27,7 +27,7 @@ func TestBadgeStaysOffTheNextButton(t *testing.T) {
 	ring := num(`(?m)^\.badge \{[^}]*box-shadow: 0 0 0 (\d+)px`)
 	gap := num(`(?m)^\.bar-in \{[^}]*gap: (\d+)px`)
 	extra := num(`(?m)^\.icon-btn\.bell \{[^}]*margin-right: (\d+)px`)
-	if over := right + ring; over >= gap+extra {
+	if over := right + ring - 1; over >= gap+extra { // right is measured from the padding box of the bell, inside its 1px border
 		t.Errorf("the badge (with its ring) sticks out %dpx at the right of the bell, the room to the next button is %dpx (gap %d + margin %d): it touches or overlaps the button", over, gap+extra, gap, extra)
 	}
 	if !regexp.MustCompile(`(?m)^\.badge \{[^}]*right: -\d+px`).MatchString(css) || strings.Contains(css, ".badge { position: absolute; top: -5px; left") {

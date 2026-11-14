@@ -12,7 +12,7 @@ Like earlier releases, this is a source-only release with no prebuilt binary dow
 
 - **Serif titles.** Page titles, card titles, dialog titles and the title line of the folder, device and settings pages are set in Source Serif 4 (Latin) and Source Han Serif (Han characters, kana, hangul; the regional version of the interface language), in one weight. Body text stays sans-serif and paths, rules and codes stay monospaced. The serif faces are renamed `Kaze Serif` and `Kaze Han Serif` in the font files (the SIL Open Font License reserves the name `Source`); the same renaming now also applies to the Source Han Sans faces, which carry the same reserved name.
 - **Cost.** The server binary grows by about 3.1 MB. The serif files add 0.05 MB to the first page in English and 0.4 to 1.3 MB in Korean, Japanese, Simplified and Traditional Chinese (cached for a week afterwards); the bold sans Han file, which every title used to pull in, is now downloaded only when other bold text is on the page.
-- **Count badge.** The count on the bell in the top bar (1 digit, 2 digits, `99+`; also on a narrow screen) keeps clear of the settings button; before, the ring of the badge reached 5 px into it.
+- **Count badge.** The count on the bell in the top bar (1 digit, 2 digits, `99+`; also on a narrow screen) keeps clear of the settings button; before, the ring of the badge reached 4 px into it.
 - Tests: `internal/server/fonts_test.go` (serif files, per-language stacks, coverage of every interface character, renamed faces).
 
 ## Upgrading

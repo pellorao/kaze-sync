@@ -15,8 +15,8 @@ Sets titles in a serif face like the status page and keeps the notification coun
 
 ### Fixed
 
-- The count badge on the bell in the top bar reached 5 px into the settings button next to it (the badge sticks out 13 px with its ring, the gap is 8 px). The bell now keeps 8 px more room, so the badge stays 4 px clear with 1 digit, 2 digits and `99+`, at any width.
-- Tests: `internal/server/fonts_test.go`, `internal/server/ui1114p1_test.go`.
+- The count badge on the bell in the top bar reached 4 px into the settings button next to it (the badge sticks out 12 px past the button with its ring, the gap is 8 px). The bell now keeps 8 px more room, so the badge stays 4 px clear with 1 digit, 2 digits and `99+`, at any width.
+- Tests: `internal/server/fonts_test.go`, `internal/server/badge_test.go`.
 
 ## v0.3.3 - 2026-11-15
 

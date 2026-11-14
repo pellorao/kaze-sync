@@ -15,8 +15,8 @@ kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMA
 
 ### 修复
 
-- 顶栏铃铛上的数量徽标伸进旁边设置按钮 5 px (徽标连描边伸出 13 px, 按钮间距只有 8 px). 现在铃铛多留 8 px 的位置, 1 位, 2 位和 `99+` 时徽标离设置按钮都有 4 px, 各种宽度一致.
-- 测试: `internal/server/fonts_test.go`, `internal/server/ui1114p1_test.go`.
+- 顶栏铃铛上的数量徽标伸进旁边设置按钮 4 px (徽标连描边伸出按钮 12 px, 按钮间距只有 8 px). 现在铃铛多留 8 px 的位置, 1 位, 2 位和 `99+` 时徽标离设置按钮都有 4 px, 各种宽度一致.
+- 测试: `internal/server/fonts_test.go`, `internal/server/badge_test.go`.
 
 ## v0.3.3 - 2026-11-15
 
