@@ -4,6 +4,20 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.3.0 - 2026-11-15
+
+Ships self-hosted Web UI fonts (Source Sans 3, per-language Source Han Sans subsets, and JetBrains Mono) so text renders consistently without missing CJK fonts or external requests, renders each option in the Settings language list with a tiny per-language font file, and fixes a narrow-screen overflow on the Settings page. For full details, see the [v0.3.0 release notes](RELEASE-NOTES.md).
+
+### Changed
+
+- The Web UI previously used the system font stack, so text looked poor on machines without suitable CJK fonts and Korean had no font at all on some machines. `kaze-syncd` now ships its own fonts from the Adobe Source family alongside `JetBrains Mono`: `Source Sans 3` for Latin, Greek, and Cyrillic text, `Source Han Sans` in the regional version matching the page language (Simplified Chinese, Traditional Chinese, Japanese, and Korean) for Han, kana, and hangul, and `JetBrains Mono` for paths, rules, commands, and fingerprints. All fonts are under the SIL Open Font License 1.1 (licenses and sources in `internal/server/web/fonts/`, `SOURCE.md`), and the page requests nothing from other sites. Embedding the fonts adds about 4.8 MB to the server binary (from 22.8 MB to 27.7 MB for x86-64 `kaze-syncd`); the client binary has no Web UI and does not change in behavior.
+- To keep traffic low, the Latin fonts are embedded in full (`Source Sans 3` about 94 KB; `JetBrains Mono` about 77 KB for two weights), while the Han, kana, and hangul fonts are subsetted per language to the common characters of each region (GB 2312 level 1, Big5 common, JIS X 0208 level 1 kanji plus all kana, and the 2350 common KS X 1001 hangul syllables) plus every character of the interface texts; each regular and bold file is about 630 KB (Simplified Chinese), 955 KB (Traditional Chinese), 513 KB (Japanese), and 195 KB (Korean), with bold a little larger. A browser downloads only the files of the page language and only when the page has characters in that range (English pages embed no Han font), so first opening a page costs about 94 KB in English, 0.5 MB in Korean, 1.1 MB in Japanese, 1.4 MB in Simplified Chinese, or 2.0 MB in Traditional Chinese in total, and caches font files for one week; characters outside the subset (such as a rare Han character in a file name) fall back to a `Source Han Sans` or `Noto Sans CJK` installed on the machine and then to a system font. `tools/fontsubset/subset.py` (requiring `fonttools` and `brotli`) rebuilds the subsets, `tools/fontsubset/coverage/` lists the characters each subset holds, and a test fails if new interface text uses a character outside the subsets.
+- Language names in the Settings language list are each shown in their own language's font from four tiny font files (about 2 KB each), so opening Settings does not download the large regional subsets.
+
+### Fixed
+
+- At 400 px width, the time zone list on the Settings page overflowed its card by about 19 px; it now shrinks to the card.
+
 ## v0.2.0 - 2026-11-14
 
 Adds Semantic Versioning across both binaries and the Web UI, checks custom TLS certificate permissions during `install`, and refines Web UI tips, time columns, and keyboard focus. For full details, see the [v0.2.0 release notes](RELEASE-NOTES.md).
