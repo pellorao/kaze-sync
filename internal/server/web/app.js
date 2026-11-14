@@ -59,11 +59,20 @@
     const p = parts(ms, zone || zoneName());
     return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
   }
+  // zoneTip: the zone is named in the page's tip (a native title would not show for the keyboard): the node takes the
+  // focus and points at a hidden content made once per zone (design 4.8).
+  function zoneTip(node, zone) {
+    const id = "tz-" + zone.replace(/[^A-Za-z0-9]/g, "_");
+    if (!document.getElementById(id)) body.append(el("span", { class: "tip-c", id, hidden: "" }, el("span", { class: "tp" }, zone)));
+    node.dataset.tip = id;
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("aria-describedby", id);
+  }
   function renderTimes(root) {
     const zone = zoneName();
     $$("time[datetime]", root).forEach((t) => {
       const d = Date.parse(t.getAttribute("datetime"));
-      if (!isNaN(d)) { t.textContent = fmt(d, zone); t.title = zone; }
+      if (!isNaN(d)) { t.textContent = fmt(d, zone); zoneTip(t, zone); }
     });
   }
   // wall: the clock of the zone at instant ms, read as if it were UTC
@@ -347,6 +356,11 @@
   tip.hidden = true;
   body.append(tip);
   let tipFor = null, tipTimer = 0, tipFocusAt = -1e9;
+  // A modal dialog sits in the top layer, above anything kept in the body: the tip lives in the dialog its trigger is in.
+  function tipHost(trigger) {
+    const d = trigger.closest("dialog") || body;
+    if (tip.parentNode !== d) d.append(tip);
+  }
   function showTip(trigger) {
     clearTimeout(tipTimer);
     if (tipFor === trigger && !tip.hidden) return;
@@ -354,6 +368,7 @@
     if (!c) return;
     tipFor = trigger;
     tip.replaceChildren(...Array.from(c.childNodes, (n) => n.cloneNode(true)));
+    tipHost(trigger);
     tip.hidden = false;
     placeTip(trigger);
   }
@@ -365,6 +380,16 @@
     const y = r.bottom + 6 + h > vh - 8 && r.top - 6 - h >= 8 ? r.top - 6 - h : r.bottom + 6;
     tip.style.setProperty("left", x + "px");
     tip.style.setProperty("top", y + "px");
+  }
+  // tipText shows a tip whose text the script builds, on an anchor that has getBoundingClientRect, isConnected,
+  // contains and closest (the rule editor's error line); hideTip closes it as for any tip.
+  function tipText(anchor, text) {
+    clearTimeout(tipTimer);
+    tipFor = anchor;
+    tip.replaceChildren(el("span", { class: "tp" }, text));
+    tipHost(anchor);
+    tip.hidden = false;
+    placeTip(anchor);
   }
   function hideTip(later) {
     clearTimeout(tipTimer);
@@ -1050,10 +1075,28 @@
     }
     ta.addEventListener("scroll", () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; });
     ["keyup", "click", "focus"].forEach((n) => ta.addEventListener(n, draw));
-    ta.addEventListener("mousemove", (e) => {
-      const line = Math.floor((e.clientY - ta.getBoundingClientRect().top + ta.scrollTop - PAD) / LH) + 1;
-      ta.title = errs.has(line) ? rt("js.ruleLine", { n: line, msg: errs.get(line) }) : "";
+    // The error of a line shows in the page's tip (design 4.8) while the pointer is over the line or the caret is in it.
+    // The anchor is the line's strip of the box; the list below the box carries the same text for a screen reader.
+    const lineTip = (line) => {
+      if (!errs.has(line)) { if (tipFor && tipFor.ruleBox === ta) hideTip(false); return; }
+      const anchor = {
+        ruleBox: ta,
+        get isConnected() { return ta.isConnected; },
+        contains: (n) => ta.contains(n),
+        closest: (s) => ta.closest(s),
+        getBoundingClientRect() {
+          const r = ta.getBoundingClientRect(), top = Math.min(Math.max(r.top + PAD + (line - 1) * LH - ta.scrollTop, r.top), r.bottom - LH);
+          return { left: r.left, right: r.right, top, bottom: top + LH };
+        },
+      };
+      tipText(anchor, rt("js.ruleLine", { n: line, msg: errs.get(line) }));
+    };
+    ta.addEventListener("mousemove", (e) => lineTip(Math.floor((e.clientY - ta.getBoundingClientRect().top + ta.scrollTop - PAD) / LH) + 1));
+    ta.addEventListener("pointerout", (e) => { if (!(e.relatedTarget && tip.contains(e.relatedTarget)) && tipFor && tipFor.ruleBox === ta) hideTip(true); });
+    ta.addEventListener("keyup", (e) => { // the caret's line, after a key that moves it (Escape has just closed the tip)
+      if (e.key !== "Escape") lineTip(ta.value.slice(0, ta.selectionStart).split("\n").length);
     });
+    ta.addEventListener("blur", () => { if (tipFor && tipFor.ruleBox === ta) hideTip(false); });
     draw();
     if (ta.value) validate();
   }
@@ -1086,7 +1129,7 @@
       sel.disabled = !fixed;
       const zone = fixed ? sel.value : browserTZ;
       sample.textContent = fmt(Date.now(), zone);
-      sample.title = zone;
+      zoneTip(sample, zone);
     };
     radios.forEach((r) => r.addEventListener("change", update));
     sel.addEventListener("change", update);

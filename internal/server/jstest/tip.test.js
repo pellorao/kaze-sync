@@ -22,7 +22,7 @@ class Node {
   cloneNode() { const c = new Node(this.tag); c.text = this.text; return c; }
   get isConnected() { return this.connected; }
   contains(n) { for (let x = n; x; x = x.parent) if (x === this) return true; return false; }
-  matches(sel) { return sel === "[data-tip]" ? "tip" in this.dataset : sel === ":focus-visible" ? !!this.focusVisible : false; }
+  matches(sel) { return sel === "dialog" ? this.tag === "dialog" : sel === "[data-tip]" ? "tip" in this.dataset : sel === ":focus-visible" ? !!this.focusVisible : false; }
   closest(sel) { for (let x = this; x; x = x.parent) if (x.matches(sel)) return x; return null; }
   getBoundingClientRect() { return this.rect; }
   get classList() { return { contains: (c) => this.classes.has(c) }; }
@@ -39,11 +39,11 @@ function setup() {
     documentElement: { clientWidth: 1000, offsetWidth: 1000, clientHeight: 800 }, // the visible viewport, without scrollbars
   };
   const body = new Node("body");
-  const el = (tag) => new Node(tag);
+  const el = (tag, attrs, ...kids) => { const n = new Node(tag); if (typeof kids[0] === "string") n.text = kids[0]; return n; };
   const setTimeout_ = (f, ms) => { timers.push({ f, at: clock + ms, id: timers.length + 1 }); return timers.length; };
   const clearTimeout_ = (id) => { const t = timers.find((x) => x.id === id); if (t) t.dead = true; };
   const run = new Function("el", "body", "document", "addEventListener", "performance", "setTimeout", "clearTimeout",
-    section + "\nreturn { tip, state: () => tipFor, dropStaleTip, placeTip };");
+    section + "\nreturn { tip, state: () => tipFor, dropStaleTip, placeTip, tipText };");
   const api = run(el, body, document, (t, f) => { (win[t] = win[t] || []).push(f); }, { now: () => now }, setTimeout_, clearTimeout_);
   const fire = (t, e) => { for (const f of listeners[t] || []) f(e); };
   const scroll = () => { for (const f of win.scroll || []) f({}); };
@@ -56,7 +56,7 @@ function setup() {
     return { icon, link, c };
   }
   const tipPos = () => { const pos = {}; api.tip.style = { setProperty(k, v) { pos[k] = parseFloat(v); } }; return pos; };
-  return { api, tipPos, root: document.documentElement, fire, scroll, tick, row, document, setNow: (v) => { now = v; }, advance: (ms) => { now += ms; } };
+  return { api, body, tipPos, root: document.documentElement, fire, scroll, tick, row, document, setNow: (v) => { now = v; }, advance: (ms) => { now += ms; } };
 }
 
 test("hovering shows the tip, leaving both trigger and tip hides it after the delay", () => {
@@ -164,4 +164,42 @@ test("a stable scrollbar gutter on a page too short to scroll narrows the viewpo
   r.icon.rect = { left: 960, top: 100, right: 980, bottom: 120 };
   p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
   assert.strictEqual(pos.left, 985 - 100 - 8);
+});
+
+// tipText: a tip whose text the script builds (the rule editor's error line), anchored on a rectangle of its own.
+function anchor(top) {
+  const a = new Node("anchor"); a.rect = { left: 10, top, right: 300, bottom: top + 20 };
+  return a;
+}
+
+test("tipText shows the given text on the anchor; Escape and a focusout-free hide close it", () => {
+  const p = setup(), a = anchor(100);
+  p.api.tipText(a, "Line 3: bad");
+  assert.strictEqual(p.api.tip.hidden, false);
+  assert.strictEqual(p.api.tip.children[0].text, "Line 3: bad");
+  assert.strictEqual(p.api.state(), a);
+  p.fire("keydown", { key: "Escape" });
+  assert.strictEqual(p.api.tip.hidden, true);
+});
+
+test("tipText on the same anchor with another text replaces the text", () => {
+  const p = setup(), a = anchor(100);
+  p.api.tipText(a, "Line 3: bad");
+  p.api.tipText(a, "Line 4: worse");
+  assert.strictEqual(p.api.tip.children[0].text, "Line 4: worse");
+});
+
+// A modal dialog is in the top layer: a tip kept in the body would be drawn behind it. The tip moves into the open
+// dialog of its trigger (and back to the body for a trigger outside).
+test("a tip of a trigger inside a dialog is drawn inside that dialog, one outside goes back to the body", () => {
+  const p = setup(), r = p.row(1, 100), dlg = new Node("dialog");
+  dlg.append(r.icon);
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  assert.strictEqual(p.api.tip.parent, dlg);
+  const o = p.row(2, 300);
+  p.fire("pointerover", { target: o.icon, pointerType: "mouse" });
+  assert.strictEqual(p.api.tip.parent, p.body);
+  const a = anchor(100); dlg.append(a);
+  p.api.tipText(a, "Line 3: bad");
+  assert.strictEqual(p.api.tip.parent, dlg);
 });
