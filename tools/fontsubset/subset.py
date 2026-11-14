@@ -3,10 +3,13 @@
 
 Usage: .tmp/fontvenv/bin/python tools/fontsubset/subset.py [downloads-dir]
 
-Needs fonttools and brotli (pip install fonttools brotli in a venv under .tmp/). Sources (see
+Needs fonttools and brotli (uv venv .tmp/fontvenv; uv pip install --python .tmp/fontvenv/bin/python fonttools brotli). Sources (see
 internal/server/web/fonts/SOURCE.md): Adobe Source Sans 3 (VF, renamed Kaze Sans), Adobe Source Han Sans (SubsetOTF, per region,
-Regular and Bold), JetBrains Mono 2.304. Every language's CJK face holds the common characters of its region
+Regular and Bold), Adobe Source Serif 4 (VF pinned to weight 600, renamed Kaze Serif) and Source Han Serif (SubsetOTF, per region,
+SemiBold) for the headings, JetBrains Mono 2.304. Every language's CJK face holds the common characters of its region
 (a legacy national standard read through the Python codecs) plus every non-ASCII character of the Web UI texts.
+The faces of Adobe's Source family carry the Reserved Font Name "Source" (OFL 1.1 clause 3), so every subset is shipped
+under a Kaze name (see rename_family and rename_han).
 """
 import io, os, re, sys, zipfile
 from pathlib import Path
@@ -98,24 +101,52 @@ def build(src_font, unicodes, dest, features=None):
 
 
 SANS_FAMILY = "Kaze Sans"
+SERIF_FAMILY = "Kaze Serif"
+SERIF_WEIGHT = 600  # the only weight of the headings (h1, h2, h3, the breadcrumb title); 500 and 700 take this face too
+SERIF_OPSZ = 20  # Source Serif 4's optical size axis default (the page title is 20 px, the card titles 16 px)
 
 
-def rename_family(font, family=SANS_FAMILY):
-    """Gives a Modified Version of Source Sans 3 a name without the Reserved Font Name "Source" (OFL 1.1 clause 3).
+def rename_family(font, family=SANS_FAMILY, olds=("SourceSans3VF", "SourceSans3", "Source Sans 3")):
+    """Gives a Modified Version of a Source face a name without the Reserved Font Name "Source" (OFL 1.1 clause 3).
 
     Every name record except the copyright (0), license (13) and license URL (14), which must stay, has the family
-    name replaced; the face is shipped as "Kaze Sans". The original names stay in the copyright record.
+    name replaced; the face is shipped as "Kaze Sans" or "Kaze Serif". The original names stay in the copyright record.
+    olds are the compact, then the spaced old names (the last one is the spaced form).
     """
     compact = family.replace(" ", "")
     for rec in font["name"].names:
         if rec.nameID in (0, 13, 14):
             continue
         text = rec.toUnicode()
-        new = text.replace("SourceSans3VF", compact).replace("SourceSans3", compact).replace("Source Sans 3", family)
+        new = text
+        for old in olds:
+            new = new.replace(old, family if " " in old else compact)
         if rec.nameID in (1, 4, 16):
             new = family
         if new != text:
             rec.string = new
+    return font
+
+
+def rename_han(font, old, new):
+    """The same for a Source Han face: "Source Han Sans CN" becomes "Kaze Han Sans CN" in every name record except 0, 13, 14.
+
+    The localized family names (the Chinese or Japanese ones) are dropped: they name the original family.
+    """
+    names = font["name"]
+    keep = []
+    for rec in names.names:
+        english = (rec.platformID == 3 and rec.langID == 0x409) or (rec.platformID == 1 and rec.langID == 0)
+        if rec.nameID in (1, 3, 4, 6, 16, 17, 21, 25) and not english:
+            continue
+        keep.append(rec)
+        if rec.nameID in (0, 13, 14):
+            continue
+        text = rec.toUnicode()
+        out = text.replace(old, new).replace(old.replace(" ", ""), new.replace(" ", ""))
+        if out != text:
+            rec.string = out
+    names.names = keep
     return font
 
 
@@ -160,6 +191,20 @@ def main():
     css.append('@font-face { font-family: "Kaze Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("/static/fonts/SourceSans3-Latin.woff2") format("woff2"); unicode-range: %s; }' % ranges(got))
     sans_src = src_cm
 
+    # Headings, Latin: Source Serif 4 variable, pinned to one weight and the default optical size (one static face)
+    sf = TTFont(DL / "source-serif-4/x/SourceSerif4Variable-Roman.ttf")
+    sf = instancer.instantiateVariableFont(sf, {"wght": SERIF_WEIGHT, "opsz": SERIF_OPSZ})
+    buf = io.BytesIO()
+    sf.save(buf)
+    sf = TTFont(io.BytesIO(buf.getvalue()))
+    rename_family(sf, SERIF_FAMILY, olds=("SourceSerif4Variable", "SourceSerif4", "Source Serif 4 Variable", "Source Serif 4"))
+    serif_src = cmap_of(sf)
+    want = {ord(c) for c in latin_want} & serif_src
+    sizes["serif"] = build(sf, want, OUT / "SourceSerif4-SemiBold-Latin.woff2")
+    got = cmap_of(OUT / "SourceSerif4-SemiBold-Latin.woff2")
+    (COV / "serif-latin.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
+    css.append('@font-face { font-family: "Kaze Serif"; font-style: normal; font-weight: %d; font-display: swap; src: url("/static/fonts/SourceSerif4-SemiBold-Latin.woff2") format("woff2"); unicode-range: %s; }' % (SERIF_WEIGHT, ranges(got)))
+
     # Monospace: JetBrains Mono Regular and Bold
     z = zipfile.ZipFile(DL / "JetBrainsMono-2.304.zip")
     mono_src = set()
@@ -179,6 +224,7 @@ def main():
         for name, w in (("Regular", 400), ("Bold", 700)):
             f = TTFont(DL / f"source-han-sans-subset-otf/SourceHanSans{reg}-{name}.otf")
             cm = cmap_of(f)
+            rename_han(f, "Source Han Sans", "Kaze Han Sans")
             # Han, kana and hangul, and any other character of the texts that Source Sans 3 lacks (such as the dots of the row menu)
             text = lang_chars(lang) | text_chars(REPO / "internal/server/i18n.go")
             want = {ord(c) for c in common | text if is_cjk(c)} | {ord(c) for c in text if ord(c) not in sans_src}
@@ -191,10 +237,28 @@ def main():
                 got = cmap_of(dest)
                 (COV / f"{reg.lower()}.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
                 nosource |= {c for c in lang_chars(lang) if ord(c) not in cm and ord(c) not in sans_src}
+    # CJK headings: Source Han Serif SemiBold, one face per region (the same character range as the sans faces)
+    nosource_serif = set()
+    for reg, lang in REGIONS.items():
+        common = COMMON[reg]()
+        f = TTFont(DL / f"source-han-serif-subset-otf/SourceHanSerif{reg}-SemiBold.otf")
+        cm = cmap_of(f)
+        rename_han(f, "Source Han Serif", "Kaze Han Serif")
+        text = lang_chars(lang) | text_chars(REPO / "internal/server/i18n.go")
+        want = {ord(c) for c in common | text if is_cjk(c)} | {ord(c) for c in text if ord(c) not in serif_src}
+        want &= cm
+        extra = sorted(c for c in want if not any(a <= c <= b for a, b in CJK_BLOCKS))
+        dest = OUT / f"SourceHanSerif{reg}-SemiBold-Subset.woff2"
+        sizes["Serif" + reg] = build(f, want, dest)
+        css.append('@font-face { font-family: "Kaze Han Serif %s"; font-style: normal; font-weight: %d; font-display: swap; src: url("/static/fonts/%s") format("woff2"); unicode-range: %s; }' % (reg, SERIF_WEIGHT, dest.name, CJK_RANGE + ("," + ranges(extra) if extra else "")))
+        (COV / f"serif-{reg.lower()}.txt").write_text("".join(chr(c) for c in sorted(cmap_of(dest))) + "\n", encoding="utf-8")
+        nosource_serif |= {c for c in lang_chars(lang) if ord(c) not in cm and ord(c) not in serif_src}
+    (COV / "nosource-serif.txt").write_text("".join(sorted(nosource_serif)) + "\n", encoding="utf-8")
     # The language names of the settings list: one tiny face per region, so the list does not pull the big subsets.
     names = dict(re.findall(r'\{"([A-Za-z-]+)", "([^"]+)"\}', (REPO / "internal/server/i18n.go").read_text(encoding="utf-8")))
     for reg, lang in REGIONS.items():
         f = TTFont(DL / f"source-han-sans-subset-otf/SourceHanSans{reg}-Regular.otf")
+        rename_han(f, "Source Han Sans", "Kaze Han Sans")
         want = {ord(c) for c in names[lang]} & cmap_of(f)
         dest = OUT / f"SourceHanSans{reg}-Name.woff2"
         sizes["Name" + reg] = build(f, want, dest)

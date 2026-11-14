@@ -4,6 +4,20 @@
 
 kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMAJOR.MINOR.PATCH` 格式.
 
+## v0.3.4 - 2026-11-15
+
+标题改用衬线字体 (与状态页一致), 并让顶栏通知数量徽标不再压到设置按钮上. 完整说明见 [v0.3.4 发布说明](RELEASE-NOTES.zh-CN.md).
+
+### 变更
+
+- Web UI 的页面标题, 卡片标题, 对话框标题以及文件夹, 设备和设置页的标题行改用衬线字体 (拉丁字母用 Source Serif 4, 汉字, 假名和谚文用界面语言所属地区的思源宋体; 只用一个字重 600), 与状态页一致; 正文仍是无衬线. 服务端二进制增大约 3.1 MB, 衬线字体文件使首次打开页面多下载 0.05 到 1.3 MB (见 `docs/design.md` 4.7).
+- 衬线字体以 `Kaze Serif` 和 `Kaze Han Serif` 的名称发布 (SIL Open Font License, 保留字体名 `Source`). 思源黑体带有同样的保留名, 所以它的字体文件里也改名为 `Kaze Han Sans`. 由 `tools/fontsubset/subset.py` 完成 (`rename_family`, `rename_han`).
+
+### 修复
+
+- 顶栏铃铛上的数量徽标伸进旁边设置按钮 5 px (徽标连描边伸出 13 px, 按钮间距只有 8 px). 现在铃铛多留 8 px 的位置, 1 位, 2 位和 `99+` 时徽标离设置按钮都有 4 px, 各种宽度一致.
+- 测试: `internal/server/fonts_test.go`, `internal/server/ui1114p1_test.go`.
+
 ## v0.3.3 - 2026-11-15
 
 修复日文, 韩文和中文界面在数量为 1 时出现英文句子的问题, 以及文件夹名含字面占位符时在对话框中被改写的问题. 完整说明见 [v0.3.3 发布说明](RELEASE-NOTES.zh-CN.md).

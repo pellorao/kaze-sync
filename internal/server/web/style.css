@@ -5,18 +5,19 @@
   --accent: #61afef; --ok: #98c379; --warn: #e5c07b; --danger: #e06c75; --code: #56b6c2;
   --sans: "Kaze Sans", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
+  --serif: "Kaze Serif", "Kaze Han Serif CN", "Source Han Serif CN", "Noto Serif CJK SC", "Songti SC", "SimSun", serif;
   --shadow: 0 8px 24px rgb(0 0 0 / 0.45);
   /* type scale of the status page (Primer): 12, 14, 16, 20 px; font-size on :root scales the whole page. Mono (JetBrains Mono, larger x-height) sits beside the 16px sans at 14px. */
   --fs-xs: 0.75rem; --fs-sm: 0.875rem; --fs-md: 1rem; --fs-lg: 1.25rem;
 }
-/* Fonts: Kaze Sans (a renamed subset of an Adobe Source face, see fonts/SOURCE.md) and JetBrains Mono for Latin text, the embedded Source Han Sans subset of the page language
+/* Fonts: Kaze Sans (a renamed subset of an Adobe Source face, see fonts/SOURCE.md) and JetBrains Mono for Latin text, Kaze Serif for the headings (like the status page: sans body, serif titles), the embedded Source Han Sans (Serif for headings) subset of the page language
    (<html lang>) for Han, kana and hangul, so that Han characters take the shapes of that language; a character outside
    the subset falls to a Source Han Sans or Noto Sans CJK installed on the machine, then to a system font (fonts.css). */
-:root:lang(zh-TW) { --sans: "Kaze Sans", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei", monospace; }
-:root:lang(ja) { --sans: "Kaze Sans", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic", monospace; }
-:root:lang(ko) { --sans: "Kaze Sans", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; }
+:root:lang(zh-TW) { --sans: "Kaze Sans", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei", monospace; --serif: "Kaze Serif", "Kaze Han Serif TW", "Source Han Serif TW", "Noto Serif CJK TC", "PMingLiU", serif; }
+:root:lang(ja) { --sans: "Kaze Sans", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic", monospace; --serif: "Kaze Serif", "Kaze Han Serif JP", "Source Han Serif JP", "Noto Serif CJK JP", "Yu Mincho", serif; }
+:root:lang(ko) { --sans: "Kaze Sans", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; --serif: "Kaze Serif", "Kaze Han Serif KR", "Source Han Serif KR", "Noto Serif CJK KR", "Batang", serif; }
 /* English pages hold no embedded Han face (a Han file name falls to the machine's fonts). */
-:root:lang(en) { --sans: "Kaze Sans", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; }
+:root:lang(en) { --sans: "Kaze Sans", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; --serif: "Kaze Serif", "Source Han Serif", "Noto Serif CJK SC", "Songti SC", "SimSun", serif; }
 /* The language names in the settings list are each set in their own language, from a face of only those few characters. */
 option[lang=zh-CN] { font-family: "Kaze Sans", "Kaze Name CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
 option[lang=zh-TW] { font-family: "Kaze Sans", "Kaze Name TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
@@ -30,6 +31,8 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .mono, code, pre, textarea.code { font-family: var(--mono); }
+/* titles are serif like the status page (user 2026-11-15); the face has one weight, 600 */
+h1, h2, h3, .crumbs { font-family: var(--serif); font-weight: 600; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 .small { font-size: var(--fs-sm); }
@@ -50,6 +53,8 @@ svg.i.lg { width: 20px; height: 20px; }
 .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }
 .icon-btn:hover, .icon-btn.on { color: var(--fg); background: var(--hover); }
 .icon-btn.on { border-color: var(--line); }
+/* the count badge sticks out 11px at the right of the bell, plus its 2px ring: 13px, more than the 8px gap, so the bell keeps 8px more room (always, so that the bar does not move when the count appears) */
+.icon-btn.bell { margin-right: 8px; }
 .badge { position: absolute; top: -5px; right: -11px; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 10px; font: 600 var(--fs-xs)/20px var(--sans); text-align: center; color: #1d2026; background: var(--danger); box-shadow: 0 0 0 2px var(--bar); }
 .badge.warn { background: var(--warn); }
 

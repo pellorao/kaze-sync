@@ -1,24 +1,25 @@
-# kaze-sync v0.3.3 发布说明
+# kaze-sync v0.3.4 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.3.3` (发布于 2026-11-15) 是 kaze-sync 的一次 Web UI 补丁版本. kaze-sync 是面向 Linux 和 Windows 电脑的自托管文件同步服务, 自带历史版本保留. 本次更新修复日文, 韩文和中文界面在数量为 1 时出现英文句子的问题, 以及文件夹名含字面占位符时被改写的问题. 关于同步, 写入控制与历史恢复等完整功能介绍, 请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md)或保存在 Git 标签 `v0.1.0` 中的 `v0.1.0` 发布说明.
+`v0.3.4` (发布于 2026-11-15) 是 kaze-sync 的一次 Web UI 补丁版本. kaze-sync 是面向 Linux 和 Windows 电脑的自托管文件同步服务, 自带历史版本保留. 本次更新让页面, 卡片和对话框的标题改用衬线字体 (与状态页一致), 并修复顶栏通知数量徽标压到旁边设置按钮上的问题. 关于同步, 写入控制与历史恢复等完整功能介绍, 请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md)或保存在 Git 标签 `v0.1.0` 中的 `v0.1.0` 发布说明.
 
-与此前版本一样, 本次发布仅提供源码, 没有预编译二进制包下载: 请按[用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)的步骤, 在任意装有 Go 的机器上编译静态链接的二进制文件. 可通过 `kaze-syncd --version` 和 `kaze-syncc --version` (或登录 Web UI 后查看左上角) 以及 Git 标签 `v0.3.3` 标识构建版本.
+与此前版本一样, 本次发布仅提供源码, 没有预编译二进制包下载: 请按[用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)的步骤, 在任意装有 Go 的机器上编译静态链接的二进制文件. 可通过 `kaze-syncd --version` 和 `kaze-syncc --version` (或登录 Web UI 后查看左上角) 以及 Git 标签 `v0.3.4` 标识构建版本.
 
 ## 主要更新
 
-- **非英文界面在数量为 1 时不再出现英文句子.** 数量为 1 时另有写法的文本 (例如映射行恰有 1 个独占锁时删除映射确认框的末句) 在日文, 韩文和中文界面中曾显示为英文, 现在显示界面语言.
-- **占位符一次性填入.** 含字面 `{path}` 的文件夹名在对话框中按原样显示.
-- 测试: `internal/server/i18n1_test.go`, `internal/server/jstest/rt.test.js`; 已在日文, 韩文和简体中文下核对截图.
+- **标题用衬线字体.** 页面标题, 卡片标题, 对话框标题以及文件夹, 设备和设置页的标题行, 拉丁字母用 Source Serif 4, 汉字, 假名和谚文用思源宋体 (Source Han Serif, 取界面语言的地区版), 只用一个字重. 正文仍是无衬线, 路径, 规则和代码仍是等宽. 衬线字体在字体文件里改名为 `Kaze Serif` 和 `Kaze Han Serif` (SIL Open Font License 保留了 `Source` 这个名称); 思源黑体 (Source Han Sans) 带有同样的保留名, 现在也同样改名.
+- **代价.** 服务端二进制增大约 3.1 MB. 衬线字体使首次打开页面时英文多下载 0.05 MB, 韩文, 日文, 简体中文, 繁体中文多下载 0.4 到 1.3 MB (之后一周内由浏览器缓存); 此前每个标题都会带出的无衬线粗体汉字文件, 现在只在页面上另有粗体文字时才下载.
+- **数量徽标.** 顶栏铃铛上的数量 (1 位, 2 位, `99+`, 窄屏也一样) 不再压到旁边的设置按钮; 此前徽标的描边伸进该按钮 5 px.
+- 测试: `internal/server/fonts_test.go` (衬线字体文件, 各语言字体栈, 界面全部字符的覆盖, 字体改名).
 
 ## 升级
 
 同步协议仍为版本 6, 服务端数据库与客户端本地状态库的表结构及客户端行为均未变化. 本次升级不涉及数据迁移; 由于客户端没有 Web UI, 只有升级服务端二进制才会看到本次变化, 客户端无需升级 (如仍需升级, 服务端与客户端可按任意顺序升级; 完整升级步骤见[用户手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级)):
 
-- **服务端 (`kaze-syncd`)**: 编译 `v0.3.3` 二进制文件 ([手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)), 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一目录>`. 原有的监听端口, TLS 证书和管理员密码均保持不变, `install` 会把新二进制复制进 `<data>/` 并重启服务.
+- **服务端 (`kaze-syncd`)**: 编译 `v0.3.4` 二进制文件 ([手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)), 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一目录>`. 原有的监听端口, TLS 证书和管理员密码均保持不变, `install` 会把新二进制复制进 `<data>/` 并重启服务.
 - **客户端 (`kaze-syncc`)**: 在每台 Linux 或 Windows 电脑上停止正在运行的 agent, 替换二进制文件 (Linux 为 `kaze-syncc`, Windows 为 `kaze-syncc.exe` 及带 `-H=windowsgui` 编译的 `kaze-syncc-agent.exe`), 再重新启动 agent.
 
 ## 已知限制

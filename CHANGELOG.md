@@ -4,6 +4,20 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.3.4 - 2026-11-15
+
+Sets titles in a serif face like the status page and keeps the notification count badge off the settings button. For full details, see the [v0.3.4 release notes](RELEASE-NOTES.md).
+
+### Changed
+
+- Page titles, card titles, dialog titles and the title line of the folder, device and settings pages in the Web UI are set in a serif face (Source Serif 4 for Latin text, Source Han Serif of the interface language's region for Han characters, kana and hangul; one weight, 600), as on the status page; body text stays sans-serif. The server binary grows by about 3.1 MB and the serif files add 0.05 to 1.3 MB to the first page of an interface (see `docs/design.md` 4.7).
+- The serif faces are shipped as `Kaze Serif` and `Kaze Han Serif` (SIL Open Font License, reserved font name `Source`). Source Han Sans carries the same reserved name, so its faces are now renamed `Kaze Han Sans` in the font files too. `tools/fontsubset/subset.py` does it (`rename_family`, `rename_han`).
+
+### Fixed
+
+- The count badge on the bell in the top bar reached 5 px into the settings button next to it (the badge sticks out 13 px with its ring, the gap is 8 px). The bell now keeps 8 px more room, so the badge stays 4 px clear with 1 digit, 2 digits and `99+`, at any width.
+- Tests: `internal/server/fonts_test.go`, `internal/server/ui1114p1_test.go`.
+
 ## v0.3.3 - 2026-11-15
 
 Fixes the Web UI showing English sentences in the Japanese, Korean and Chinese interfaces when a count is 1, and a folder name that contains a literal placeholder being rewritten in dialogs. For full details, see the [v0.3.3 release notes](RELEASE-NOTES.md).

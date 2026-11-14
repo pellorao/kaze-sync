@@ -15,7 +15,7 @@
 <a class="logo" href="/">{{icon "logo" "lg"}}Kaze Sync <span class="ver">{{.Version}}</span></a>
 <span class="sp"></span>
 <span class="conn" data-conn>{{t "nav.conn"}}</span>
-<button class="icon-btn" type="button" popovertarget="notif" aria-label="{{t "nav.notif"}}" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>
+<button class="icon-btn bell" type="button" popovertarget="notif" aria-label="{{t "nav.notif"}}" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>
 <a class="icon-btn{{if eq .Page "settings"}} on{{end}}" href="/settings" aria-label="{{t "nav.settings"}}">{{icon "gear" "lg"}}</a>
 <form method="post" action="/logout"><button class="icon-btn" aria-label="{{t "nav.logout"}}">{{icon "logout" "lg"}}</button></form>
 </div></header>
