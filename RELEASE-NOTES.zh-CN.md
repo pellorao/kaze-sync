@@ -62,7 +62,7 @@
 
 ## 已知限制
 
-**重要提示: `install` 不会检查服务用户对自定义 `--cert` 和 `--key` 的读取权限.** 当你传入自己的 TLS 证书 (`--cert` 和 `--key`) 安装服务端时, `install` 以 root 身份运行, 不会检查非特权服务用户 `kaze-sync` 能否读取这两个文件. 如果 `kaze-sync` 无权读取, `install` 虽然成功返回, 但服务每次启动都会立即退出, 并在日志中报错 `permission denied`. 解决方法: 赋予服务用户 `kaze-sync` 对这两个文件以及每一级上层目录的读取权限 (例如执行 `chgrp kaze-sync key.pem && chmod 640 key.pem`), 然后重启服务; 详见[用户手册 2.4 节](docs/manuals/user-manual.zh-CN.md#24-端口-证书与防火墙)和[第 17 节排查表](docs/manuals/user-manual.zh-CN.md#17-排查问题). 下一个版本计划在 `install` 中加入该检查.
+**重要提示: `install` 不会检查服务用户对自定义 `--cert` 和 `--key` 的读取权限.** 当你传入自己的 TLS 证书 (`--cert` 和 `--key`) 安装服务端时, `install` 以 root 身份运行, 不会检查非特权服务用户 `kaze-sync` 能否读取这两个文件. 如果 `kaze-sync` 无权读取, `install` 虽然成功返回, 但服务每次启动都会立即退出, 并在日志中报错 `permission denied`. 解决方法: 赋予服务用户 `kaze-sync` 对这两个文件以及每一级上层目录的读取权限 (例如执行 `chgrp kaze-sync key.pem && chmod 640 key.pem`), 然后重启服务; 详见[用户手册 2.4 节](docs/manuals/user-manual.zh-CN.md#24-端口-证书与防火墙)和[第 17 节排查表](docs/manuals/user-manual.zh-CN.md#17-排查问题). 本版本之后已修复: `install` 现在会输出警告, 写明是哪个文件或目录以及修复方法 (见[更新日志](CHANGELOG.zh-CN.md)).
 
 `v0.1.0` 的其他已知限制:
 

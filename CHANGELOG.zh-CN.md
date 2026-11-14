@@ -4,6 +4,12 @@
 
 kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMAJOR.MINOR.PATCH` 格式.
 
+## 未发布
+
+### 变更
+
+- `install` 现在会检查服务用户 `kaze-sync` 能否读取自定义的 `--cert` 和 `--key` 文件, 以及能否进入它们上层的每一级目录 (按权限位核对, 含该用户的附加组; 不检查 ACL). 读不了或文件不存在时, 输出一行以 `warning:` 开头的警告, 写明是哪个文件或目录, 并给出[手册 2.4 节](docs/manuals/user-manual.zh-CN.md#24-端口-证书与防火墙)中的 `chgrp`/`chmod` 修复命令, 安装仍然完成. 重复运行 `install` 时也会检查已保存的文件. 这消除了下面 v0.1.0 的第一条已知限制.
+
 ## v0.1.0 - 2026-11-14
 
 第一个公开版本, 涵盖 2026-11-02 至 2026-11-14 的开发. 完整说明见 [v0.1.0 发布说明](RELEASE-NOTES.zh-CN.md).
@@ -19,5 +25,5 @@ kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMA
 
 ### 已知限制
 
-- `install` 不会检查服务用户 `kaze-sync` 能否读取自定义的 `--cert` 和 `--key` 文件; 启动服务前需赋予 `kaze-sync` 对这两个文件及其上层目录的读取权限 ([手册 2.4 节](docs/manuals/user-manual.zh-CN.md#24-端口-证书与防火墙)).
+- `install` 不会检查服务用户 `kaze-sync` 能否读取自定义的 `--cert` 和 `--key` 文件; 启动服务前需赋予 `kaze-sync` 对这两个文件及其上层目录的读取权限 (本版本之后已修复, 见上面的未发布一节; [手册 2.4 节](docs/manuals/user-manual.zh-CN.md#24-端口-证书与防火墙)).
 - 服务端安装与 CA 续期需要 root; 仅提供源码构建 (无预编译二进制, 无版本号输出, 无自动更新); 仅支持 x86-64 服务端与 Linux/Windows 客户端; 未开启开发人员模式的 Windows 不创建同步的符号链接并折叠显示一行提醒; 服务端数据不是备份且采用块存储 (需用 `kaze-syncd export` 导出普通文件). 完整列表见 [v0.1.0 发布说明](RELEASE-NOTES.zh-CN.md#已知限制)和[手册第 18 节](docs/manuals/user-manual.zh-CN.md#18-kaze-sync-不做什么).

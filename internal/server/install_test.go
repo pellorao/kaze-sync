@@ -544,3 +544,170 @@ func TestInstallDoesNotFollowSymbolicLinks(t *testing.T) {
 		t.Fatalf("the link target was written to: %v", entries)
 	}
 }
+
+// openDirs makes dir and the temporary parent that t.TempDir created (both 0700) enterable by everyone, so
+// that the permission bits of the files in it decide what the service user can read.
+func openDirs(t *testing.T, dir string) {
+	t.Helper()
+	for _, d := range []string{dir, filepath.Dir(dir)} {
+		if err := os.Chmod(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// otherUID is an id that owns none of the files the test just made.
+func otherUID(t *testing.T, path string) int {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, _, ok := fileOwner(fi)
+	if !ok {
+		t.Skip("file owners are not known on this platform")
+	}
+	return uid + 1000
+}
+
+func TestCertProblems(t *testing.T) {
+	dir := t.TempDir()
+	openDirs(t, dir)
+	_, key := writeCertPair(t, dir)
+	uid := otherUID(t, key)
+	fi, _ := os.Stat(key)
+	_, gid, _ := fileOwner(fi)
+
+	// Unreadable: key mode 0600 and the account is neither owner nor in the group.
+	ps := certProblems(key, uid, []int{uid})
+	if len(ps) != 1 || ps[0].path != key || ps[0].isDir || ps[0].missing || ps[0].mode != 0o600 {
+		t.Fatalf("0600 key: %+v", ps)
+	}
+	// Readable by group (also a supplementary one) or by everyone.
+	if err := os.Chmod(key, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if ps := certProblems(key, uid, []int{uid}); len(ps) != 1 {
+		t.Fatalf("0640 key, other group: %+v", ps)
+	}
+	if ps := certProblems(key, uid, []int{uid, gid}); len(ps) != 0 {
+		t.Fatalf("0640 key, member of the group: %+v", ps)
+	}
+	os.Chmod(key, 0o644)
+	if ps := certProblems(key, uid, []int{uid}); len(ps) != 0 {
+		t.Fatalf("0644 key: %+v", ps)
+	}
+	// The owner's bits apply to the owner alone: mode 0044 locks the owner out even though others may read.
+	os.Chmod(key, 0o044)
+	if ps := certProblems(key, uid-1000, nil); len(ps) != 1 {
+		t.Fatalf("owner with 0044: %+v", ps)
+	}
+	os.Chmod(key, 0o644)
+	// A directory above the file without search permission.
+	sub := filepath.Join(dir, "private")
+	os.Mkdir(sub, 0o700)
+	moved := filepath.Join(sub, "k.pem")
+	os.Rename(key, moved)
+	ps = certProblems(moved, uid, []int{uid})
+	if len(ps) != 1 || ps[0].path != sub || !ps[0].isDir || ps[0].mode != 0o700 {
+		t.Fatalf("private directory: %+v", ps)
+	}
+	// A symbolic link is followed: the problem lies where it points.
+	link := filepath.Join(dir, "link.pem")
+	if err := os.Symlink(moved, link); err != nil {
+		t.Fatal(err)
+	}
+	if ps := certProblems(link, uid, []int{uid}); len(ps) != 1 || ps[0].path != sub {
+		t.Fatalf("link into the private directory: %+v", ps)
+	}
+	// Missing file.
+	gone := filepath.Join(dir, "gone.pem")
+	if ps := certProblems(gone, uid, nil); len(ps) != 1 || !ps[0].missing || ps[0].path != gone {
+		t.Fatalf("missing file: %+v", ps)
+	}
+	// The service user root is never refused.
+	if ps := certProblems(moved, 0, nil); len(ps) != 0 {
+		t.Fatalf("root: %+v", ps)
+	}
+}
+
+func TestInstallWarnsWhenServiceUserCannotReadCertificate(t *testing.T) {
+	f := newFakeSystem(t)
+	dir := t.TempDir()
+	openDirs(t, dir)
+	cert, key := writeCertPair(t, dir) // key is 0600 and owned by the test user, not by the fake service user
+	if _, _, ok := func() (int, int, bool) { fi, _ := os.Stat(key); return fileOwner(fi) }(); !ok {
+		t.Skip("file owners are not known on this platform")
+	}
+
+	// Unreadable key: a warning that names the file, the service user and the fix; the installation goes on.
+	if err := f.install(InstallOptions{Cert: cert, Key: key}); err != nil {
+		t.Fatal(err)
+	}
+	out := f.out.String()
+	for _, want := range []string{"warning: the service user kaze-sync cannot read the private key file " + key,
+		"chgrp kaze-sync " + key + " && chmod 640 " + key, "permission denied", "then restart the service with: /etc/init.d/kaze-sync restart"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "certificate file "+cert) || !strings.Contains(out, "installed in") {
+		t.Fatalf("certificate is readable and the install must finish:\n%s", out)
+	}
+	if !f.hasCmd("/etc/init.d/kaze-sync restart") {
+		t.Fatal("the warning stopped the installation")
+	}
+
+	// Readable by the service user's group: no warning, also on a repeated install.
+	fi, _ := os.Stat(key)
+	_, gid, _ := fileOwner(fi)
+	f.in.Groups = func(string) []int { return []int{gid} }
+	os.Chmod(key, 0o640)
+	f.out.Reset()
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.out.String(), "warning") {
+		t.Fatalf("readable key:\n%s", f.out.String())
+	}
+
+	// The stored file has disappeared: a repeated install says so and still succeeds.
+	os.Remove(cert)
+	f.out.Reset()
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "warning: the certificate file " + cert + " does not exist"; !strings.Contains(f.out.String(), want) {
+		t.Fatalf("missing %q in:\n%s", want, f.out.String())
+	}
+}
+
+func TestInstallWarnsAboutClosedDirectory(t *testing.T) {
+	f := newFakeSystem(t)
+	dir := t.TempDir()
+	openDirs(t, dir)
+	cert, key := writeCertPair(t, dir)
+	os.Chmod(key, 0o644)
+	closed := filepath.Join(dir, "closed")
+	os.Mkdir(closed, 0o700)
+	for _, p := range []string{cert, key} {
+		os.Rename(p, filepath.Join(closed, filepath.Base(p)))
+	}
+	if err := f.install(InstallOptions{Cert: filepath.Join(closed, "c.pem"), Key: filepath.Join(closed, "k.pem")}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "cannot enter the directory " + closed; !strings.Contains(f.out.String(), want) ||
+		!strings.Contains(f.out.String(), "chgrp kaze-sync "+closed+" && chmod 750 "+closed) {
+		t.Fatalf("missing %q in:\n%s", want, f.out.String())
+	}
+}
+
+func TestInstallWithoutCertificateFilesDoesNotWarn(t *testing.T) {
+	f := newFakeSystem(t)
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.out.String(), "warning") {
+		t.Fatalf("self-signed install:\n%s", f.out.String())
+	}
+}

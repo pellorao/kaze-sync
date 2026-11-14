@@ -32,6 +32,7 @@ type Installer struct {
 	SameDevice func(path string) (bool, error)             // is path on the root file system?
 	Lookup     func(name string) (uid, gid int, err error) // the service user's ids
 	Chown      func(path string, uid, gid int) error       // must not follow symbolic links: the service user can plant them below var/
+	Groups     func(name string) []int                     // the user's supplementary group ids; nil means none
 }
 
 type InstallOptions struct {
@@ -74,6 +75,17 @@ func NewInstaller() *Installer {
 			uid, _ := strconv.Atoi(u.Uid)
 			gid, _ := strconv.Atoi(u.Gid)
 			return uid, gid, nil
+		},
+		Groups: func(name string) (gids []int) {
+			if u, err := user.Lookup(name); err == nil {
+				ids, _ := u.GroupIds()
+				for _, id := range ids {
+					if n, err := strconv.Atoi(id); err == nil {
+						gids = append(gids, n)
+					}
+				}
+			}
+			return gids
 		},
 	}
 }
@@ -229,6 +241,9 @@ func (in *Installer) Install(o InstallOptions) error {
 		return err
 	}
 	if err := in.chownData(data); err != nil {
+		return err
+	}
+	if err := in.warnCertAccess(svc, certFiles); err != nil {
 		return err
 	}
 	if err := in.writeService(svc, data, certFiles); err != nil {
@@ -550,4 +565,116 @@ func (in *Installer) AdminPassword(data string) error {
 		return nil
 	}
 	return in.runAll(svc.restart)
+}
+
+// accessProblem is one reason the service user cannot use a certificate file: path is the file or a directory
+// above it, missing says it does not exist.
+type accessProblem struct {
+	path    string
+	isDir   bool
+	missing bool
+	mode    os.FileMode
+}
+
+// canUse reports whether an account with the user id uid and the group ids gids may read the file (want 4) or
+// enter the directory (want 1) described by fi, by the owner, group and other permission bits as the kernel
+// applies them. It does not see ACLs, SELinux or mount options; when the owner cannot be known it says yes.
+func canUse(fi os.FileInfo, uid int, gids []int, want os.FileMode) bool {
+	owner, group, ok := fileOwner(fi)
+	if !ok || uid == 0 {
+		return true
+	}
+	perm := fi.Mode().Perm()
+	switch {
+	case uid == owner:
+		perm >>= 6
+	case slices.Contains(gids, group):
+		perm >>= 3
+	}
+	return perm&want != 0
+}
+
+// certProblems lists what keeps the account from reading file: itself, and every directory above it, both as
+// written and after resolving symbolic links, outermost first.
+func certProblems(file string, uid int, gids []int) []accessProblem {
+	resolved, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		return []accessProblem{{path: file, missing: true}}
+	}
+	var out []accessProblem
+	seen := map[string]bool{}
+	for _, p := range []string{file, resolved} {
+		var dirs []string
+		for d := filepath.Dir(p); ; d = filepath.Dir(d) {
+			dirs = append([]string{d}, dirs...)
+			if d == filepath.Dir(d) {
+				break
+			}
+		}
+		for _, d := range dirs {
+			if seen[d] {
+				continue
+			}
+			seen[d] = true
+			if fi, err := os.Stat(d); err == nil && !canUse(fi, uid, gids, 1) {
+				out = append(out, accessProblem{path: d, isDir: true, mode: fi.Mode().Perm()})
+			}
+		}
+	}
+	if fi, err := os.Stat(resolved); err != nil {
+		out = append(out, accessProblem{path: file, missing: true})
+	} else if !canUse(fi, uid, gids, 4) {
+		out = append(out, accessProblem{path: file, mode: fi.Mode().Perm()})
+	}
+	return out
+}
+
+var plainArg = regexp.MustCompile(`^[A-Za-z0-9._/@%+=:,-]+$`)
+
+func shellQuote(s string) string {
+	if plainArg.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// warnCertAccess warns, without stopping the installation, about certificate and key files (the stored paths, so
+// a repeated install checks them too) that the service user cannot use. install runs as root, which can read
+// anything, so only this check can tell before the service exits at its first start with "permission denied".
+func (in *Installer) warnCertAccess(svc *service, files []string) error {
+	if files[0] == "" && files[1] == "" {
+		return nil
+	}
+	uid, gid, err := in.Lookup(serviceName)
+	if err != nil {
+		return err
+	}
+	gids := []int{gid}
+	if in.Groups != nil {
+		gids = append(gids, in.Groups(serviceName)...)
+	}
+	restart := "restart the service"
+	if len(svc.restart) > 0 {
+		restart = "restart the service with: " + strings.Join(svc.restart[0], " ")
+	}
+	for i, f := range files {
+		if f == "" {
+			continue
+		}
+		what := [...]string{"certificate file", "private key file"}[i]
+		for _, p := range certProblems(f, uid, gids) {
+			q := shellQuote(p.path)
+			switch {
+			case p.missing:
+				in.say("warning: the %s %s does not exist; the service cannot start until it does", what, p.path)
+			case p.isDir:
+				in.say("warning: the service user %s cannot enter the directory %s (mode %04o), which holds the %s %s, so the service would exit at every start with \"permission denied\". Fix: chgrp %s %s && chmod 750 %s, then %s",
+					serviceName, p.path, p.mode, what, f, serviceName, q, q, restart)
+			default:
+				in.say("warning: the service user %s cannot read the %s %s (mode %04o), so the service would exit at every start with \"permission denied\". Fix: chgrp %s %s && chmod 640 %s, then %s",
+					serviceName, what, p.path, p.mode, serviceName, q, q, restart)
+			}
+		}
+	}
+	return nil
 }

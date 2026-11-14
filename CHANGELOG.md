@@ -4,6 +4,12 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Changed
+
+- `install` now checks that the service user `kaze-sync` can read the custom `--cert` and `--key` files and enter every directory above them (permission bits, including the user's supplementary groups; ACLs are not examined). If not, or if a file is missing, it prints a `warning:` line that names the file or directory and the `chgrp`/`chmod` fix from [manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall), and still completes the installation. A repeated `install` checks the stored files too. This removes the first known limitation of v0.1.0 below.
+
 ## v0.1.0 - 2026-11-14
 
 First public release, covering the development from 2026-11-02 to 2026-11-14. For full details, see the [v0.1.0 release notes](RELEASE-NOTES.md).
@@ -19,5 +25,5 @@ First public release, covering the development from 2026-11-02 to 2026-11-14. Fo
 
 ### Known limitations
 
-- `install` does not check that the service user `kaze-sync` can read custom `--cert` and `--key` files; grant `kaze-sync` read access to both files and their parent directories before starting the service ([manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall)).
+- `install` does not check that the service user `kaze-sync` can read custom `--cert` and `--key` files; grant `kaze-sync` read access to both files and their parent directories before starting the service (fixed after this release: see Unreleased above) ([manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall)).
 - Server installation and CA renewal require root; source-only build (no prebuilt binaries, version string, or auto-update); x86-64 server and Linux/Windows clients only; Windows without Developer Mode skips creating synced symbolic links with one folded warning; server data is not a backup and uses block storage (`kaze-syncd export` writes plain files). See the [v0.1.0 release notes](RELEASE-NOTES.md#known-limitations) and [manual section 18](docs/manuals/user-manual.md#18-what-kaze-sync-does-not-do) for the full list.
