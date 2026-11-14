@@ -442,3 +442,8 @@ table.held-rows { width: 100%; border-collapse: collapse; margin-top: 8px; font-
 table.held-rows th, table.held-rows td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.held-rows .num { font-variant-numeric: tabular-nums; }
 .held-go { margin-top: 8px; text-align: right; }
+/* version history: a time never breaks inside itself; a narrow dialog scrolls the table in its own box */
+table.vers { min-width: 27rem; }
+table.vers td.num, table.vers th .tzn { white-space: nowrap; }
+/* stand-alone controls keep a 24px target (WCAG 2.5.8) at the larger text */
+.cnt, .toggle, .notice-link, .linkbtn, button.cnt, details.glob summary, .held-grp summary, .check, .held-acts .chk { min-height: 24px; }
