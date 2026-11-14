@@ -11,7 +11,7 @@
 </head>
 <body data-tz="{{.TZ}}"{{if .LiveURL}} data-live-url="{{.LiveURL}}"{{end}}>
 {{if .Auth}}<header class="bar"><div class="bar-in">
-<a class="logo" href="/">{{icon "logo" "lg"}}Kaze Sync<span class="ver">{{.Version}}</span></a>
+<a class="logo" href="/">{{icon "logo" "lg"}}Kaze Sync <span class="ver">{{.Version}}</span></a>
 <span class="sp"></span>
 <span class="conn" data-conn>{{t "nav.conn"}}</span>
 <button class="icon-btn" type="button" popovertarget="notif" aria-label="{{t "nav.notif"}}" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>

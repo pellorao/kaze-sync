@@ -26,7 +26,7 @@ func TestTopBarShowsNameAndVersion(t *testing.T) {
 	}
 	e.login(c, "pw")
 	_, body := e.get(c, "/")
-	want := `Kaze Sync<span class="ver">` + version.Version + `</span></a>`
+	want := `Kaze Sync <span class="ver">` + version.Version + `</span></a>`
 	if !strings.Contains(body, want) || !strings.Contains(body, "<title>") || !strings.Contains(body, "- Kaze Sync</title>") {
 		t.Errorf("the top bar lacks %q", want)
 	}

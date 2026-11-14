@@ -123,7 +123,7 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 版本号遵循 Semantic Versioning (`MAJOR.MINOR.PATCH`), 只有一个来源: `internal/version/VERSION` (构建时嵌入, 服务端和客户端共用). 它显示在管理页左上角 `Kaze Sync <版本号>` (登录页不显示, 未登录的人不必知道版本), 也可用 `kaze-syncd --version` 和 `kaze-syncc --version` 查看. 在本工程里 "发布" 就是部署到正式服务端的那次构建, 每次发布变更版本号:
 
 - 升哪一位: 只含修复升 PATCH; 有用户可见的新功能升 MINOR; 1.0.0 之前, 协议或数据不兼容的变化也升 MINOR; 1.0.0 之后不兼容的变化升 MAJOR.
-- 流程: 改 `VERSION` -> 把 `CHANGELOG.md` / `CHANGELOG.zh-CN.md` 的 "Unreleased" / "未发布" 一节改为 `## vX.Y.Z - YYYY-MM-DD` 并补全, 重写 `RELEASE-NOTES.md` / `RELEASE-NOTES.zh-CN.md` (标题 `# kaze-sync vX.Y.Z release notes` / `# kaze-sync vX.Y.Z 发布说明`; 旧版本的发布说明留在它的 tag 里; 用户文档由 Antigravity 写, 见用户级规则) -> `go test ./internal/version` (核对 `VERSION` 与四份文档最新一条一致) 和相应的全部测试 -> 提交 -> 打 tag `vX.Y.Z` -> 构建并部署 (见 "部署" 和 "升级") -> 部署后核对 (服务状态, 日志, `restore-check.py`, `.kaze-test` 双向同步; 正式页的静态资源和模板输出含新版本号).
+- 流程: 改 `VERSION` -> 把 `CHANGELOG.md` / `CHANGELOG.zh-CN.md` 的 "Unreleased" / "未发布" 一节改为 `## vX.Y.Z - YYYY-MM-DD` 并补全, 重写 `RELEASE-NOTES.md` / `RELEASE-NOTES.zh-CN.md` (标题 `# kaze-sync vX.Y.Z release notes` / `# kaze-sync vX.Y.Z 发布说明`; 旧版本的发布说明留在它的 tag 里; 用户文档由 Antigravity 写, 见用户级规则) -> `go test ./internal/version` (核对 `VERSION` 与四份文档最新一条一致) 和相应的全部测试 -> 提交 -> 打 tag `vX.Y.Z` -> 构建并部署 (见 "部署" 和 "升级") -> 部署后核对 (服务状态, 日志, `restore-check.py`, `.kaze-test` 双向同步; 登录后的页面左上角显示新版本号, 登录页不显示 (静态资源不含版本号), 不用登录就能核对的是服务端二进制的 sha256 和 `--version` 输出).
 - 两次发布之间的提交不改 `VERSION`; 它们的用户可见改动先记在 changelog 的 "Unreleased" 一节.
 
 ## 升级
