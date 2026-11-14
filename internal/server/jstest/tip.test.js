@@ -226,3 +226,13 @@ test("Esc closes the tip of a dialog and keeps the dialog (default prevented); o
   assert.strictEqual(p.api.tip.hidden, true);
   assert.strictEqual(prevented, false);
 });
+
+test("Esc closes the tip inside the notifications popover and keeps the popover", () => {
+  const p = setup(), r = p.row(1, 100), pop = new Node("popover");
+  pop.append(r.icon);
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  let prevented = false;
+  p.fire("keydown", { key: "Escape", preventDefault() { prevented = true; } });
+  assert.strictEqual(p.api.tip.hidden, true);
+  assert.strictEqual(prevented, true);
+});

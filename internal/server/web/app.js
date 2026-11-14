@@ -429,7 +429,7 @@
   document.addEventListener("focusout", (e) => { if (tipFor && tipTrigger(e.target) === tipFor) hideTip(false); });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || tip.hidden) return;
-    if (tip.closest("dialog")) e.preventDefault(); // the Esc that closes the tip does not also close the dialog
+    if (tip.closest("dialog, [popover]")) e.preventDefault(); // the Esc that closes the tip does not also close the dialog or popover
     hideTip(false);
   }, true);
   // Scrolling hides the tip, except the scroll the browser makes to bring a just-focused element into view: that one
