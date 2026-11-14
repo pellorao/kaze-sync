@@ -32,6 +32,7 @@ svg.i.lg { width: 20px; height: 20px; }
 .logo { display: flex; align-items: center; gap: 8px; color: var(--fg); font-weight: 600; font-size: 15px; letter-spacing: 0.2px; }
 .logo:hover { text-decoration: none; }
 .logo svg { color: var(--accent); }
+.logo .ver { color: var(--muted); font-weight: 400; font-size: 12px; letter-spacing: 0; }
 .bar .sp { flex: 1; }
 .conn { display: none; font-size: 12px; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 4px; padding: 0 6px; }
 .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }

@@ -25,6 +25,7 @@ import (
 
 	"kaze-sync/internal/ignore"
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/version"
 )
 
 //go:embed web
@@ -317,6 +318,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 			data["Notif"] = s.notifications()
 		}
 		data["TZ"] = MetaString(s.db, "time_zone")
+		data["Version"] = version.Version
 	}
 	for _, k := range []string{"Errs", "Vals"} {
 		if _, ok := data[k]; !ok {

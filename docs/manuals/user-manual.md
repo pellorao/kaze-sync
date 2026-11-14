@@ -53,6 +53,8 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 
 The fourth command compiles the exact same Windows client without a console window so that Windows can run it silently at sign-in. Always keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. Note that the server (`kaze-syncd`) is supported only on x86-64.
 
+Both binaries embed the release version at build time: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.2.0` and `kaze-syncc 0.2.0` (for the `0.2.0` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
+
 ### 2.2 OpenWrt
 
 If your server is an OpenWrt router, you must store data on a mounted data disk rather than on the root file system (overlay). `install` refuses a data directory on the root file system because synced files would quickly fill the router's small flash storage and a system upgrade would erase them. If your router has only a single disk, create a dedicated data partition on it first; see "OpenWrt 只有一块盘: 新建数据分区" in [`docs/operations.md`](../operations.md).

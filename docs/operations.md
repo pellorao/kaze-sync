@@ -118,6 +118,14 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 不带 `--folder` 时每个文件夹导出到 `DIR/<名称>`; 带 `--folder` 时直接导出到 `DIR`. 不带 `--at` 导出当前状态, 带 `--at` 导出 UTC 该时刻的状态 (与目录恢复同一套查询). 每个文件写完后校验哈希; 缺块或损坏的文件报告并跳过, 其余照常导出, 命令以非零状态退出. 文件内容, 可执行位和修改时间与客户端上的一致.
 
+## 发布与版本号
+
+版本号遵循 Semantic Versioning (`MAJOR.MINOR.PATCH`), 只有一个来源: `internal/version/VERSION` (构建时嵌入, 服务端和客户端共用). 它显示在管理页左上角 `Kaze Sync <版本号>` (登录页不显示, 未登录的人不必知道版本), 也可用 `kaze-syncd --version` 和 `kaze-syncc --version` 查看. 在本工程里 "发布" 就是部署到正式服务端的那次构建, 每次发布变更版本号:
+
+- 升哪一位: 只含修复升 PATCH; 有用户可见的新功能升 MINOR; 1.0.0 之前, 协议或数据不兼容的变化也升 MINOR; 1.0.0 之后不兼容的变化升 MAJOR.
+- 流程: 改 `VERSION` -> 把 `CHANGELOG.md` / `CHANGELOG.zh-CN.md` 的 "Unreleased" / "未发布" 一节改为 `## vX.Y.Z - YYYY-MM-DD` 并补全, 重写 `RELEASE-NOTES.md` / `RELEASE-NOTES.zh-CN.md` (标题 `# kaze-sync vX.Y.Z release notes` / `# kaze-sync vX.Y.Z 发布说明`; 旧版本的发布说明留在它的 tag 里; 用户文档由 Antigravity 写, 见用户级规则) -> `go test ./internal/version` (核对 `VERSION` 与四份文档最新一条一致) 和相应的全部测试 -> 提交 -> 打 tag `vX.Y.Z` -> 构建并部署 (见 "部署" 和 "升级") -> 部署后核对 (服务状态, 日志, `restore-check.py`, `.kaze-test` 双向同步; 正式页的静态资源和模板输出含新版本号).
+- 两次发布之间的提交不改 `VERSION`; 它们的用户可见改动先记在 changelog 的 "Unreleased" 一节.
+
 ## 升级
 
 服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (可重复执行, 端口, 证书和密码不变); 它复制新二进制并重启服务. 库表迁移 (按 `schema_version` 逐库, 先全局库, 再每个文件夹库) 在服务启动时自动进行, `install` 也会在重启前执行同一迁移; 版本低于当前的库先被复制到 `var/backups/` (`<库>-v<旧版本>-<时间>.db`, 每个库留最近 3 份), 迁移失败时服务不启动, 日志和 `install` 输出指明原因, 库不被改动. 回滚见设计 9.3 "库表迁移"; 回滚客户端二进制前先备份该客户端的各 `folder-*.db` (在客户端的状态目录: Linux 是 `~/.local/state/kaze-sync`, Windows 是 `%LOCALAPPDATA%\kaze-sync`; 先停 agent 再复制), 回滚时和二进制一起还原. 先升级服务端, 再逐台升级客户端: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 服务端升级后, 版本过旧 (低于服务端的 `MinAgentVersion`, 设计 9.3) 的客户端不再同步: 它的日志 (Linux 在 `~/.local/state/kaze-sync/kaze-syncc.log`) 里每分钟一条 `client too old ... upgrade kaze-syncc`, 总览页该设备的版本列显示 "N (过旧, 请升级客户端)"; 按上面的步骤替换这台客户端的二进制并重启 agent 即可, 数据不受影响, 升级后自动继续同步. 只有协议变得不兼容的改动才会提高 `MinAgentVersion`, 其余升级不要求同步升级客户端. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1). 普通 Linux 上执行 `install` 同样会复制新二进制, 迁移数据库 (同上, 先备份) 并重启服务 (systemd 先 `daemon-reload`).

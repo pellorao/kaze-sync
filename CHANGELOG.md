@@ -4,15 +4,23 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.2.0 - 2026-11-14
+
+Adds Semantic Versioning across both binaries and the Web UI, checks custom TLS certificate permissions during `install`, and refines Web UI tips, time columns, and keyboard focus. For full details, see the [v0.2.0 release notes](RELEASE-NOTES.md).
+
+### Added
+
+- kaze-sync now has a single Semantic Versioning number (`0.2.0`), embedded at build time into both binaries. `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.2.0` and `kaze-syncc 0.2.0`. After sign-in, the top-left of the Web UI reads `Kaze Sync` followed by the version in muted grey (5.3:1 contrast on the top bar), and the browser tab title reads `... - Kaze Sync`; the login page reads `Kaze Sync` and deliberately omits the version so that someone who is not signed in learns nothing about the server version. Every release from now on raises this number (`PATCH` for fixes, `MINOR` for user-visible features and, before `1.0.0`, incompatible protocol or data changes).
 
 ### Changed
 
 - `install` now checks that the service user `kaze-sync` can read the custom `--cert` and `--key` files and enter every directory above them (permission bits, including the user's supplementary groups; ACLs are not examined). If not, or if a file is missing, it prints a `warning:` line that names the file or directory and the `chgrp`/`chmod` fix from [manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall), and still completes the installation. A repeated `install` checks the stored files too. This removes the first known limitation of v0.1.0 below.
+- Web UI hints—the time zone of a timestamp, the error of an exclusion-rule line, the time zone sample, and the explanation of the disabled **Add mapping** (`添加映射`) button (shown when no folder is left to map)—now appear in the page's own tip (opens on hover, focus, or click; `Esc` closes it; the pointer can move onto it; works inside dialogs and the notification popover) instead of the browser's native tooltip. The time zone is written once in the header of each time column (with long zone names wrapping in the header) instead of per timestamp, timestamps are not keyboard `Tab` stops, and live updates keep keyboard focus.
+- On narrow screens, folder names in the Web UI overview keep a minimum width of about eight characters instead of shrinking to one letter per line; opening the write-control dialog puts keyboard focus on the currently chosen option; and the greyed **Add mapping** (`添加映射`) button keeps a visible focus ring.
 
 ## v0.1.0 - 2026-11-14
 
-First public release, covering the development from 2026-11-02 to 2026-11-14. For full details, see the [v0.1.0 release notes](RELEASE-NOTES.md).
+First public release, covering the development from 2026-11-02 to 2026-11-14. For full details, see the v0.1.0 release notes (kept in the Git tag `v0.1.0`).
 
 ### Added
 
@@ -25,5 +33,5 @@ First public release, covering the development from 2026-11-02 to 2026-11-14. Fo
 
 ### Known limitations
 
-- `install` does not check that the service user `kaze-sync` can read custom `--cert` and `--key` files; grant `kaze-sync` read access to both files and their parent directories before starting the service (fixed after this release: see Unreleased above) ([manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall)).
-- Server installation and CA renewal require root; source-only build (no prebuilt binaries, version string, or auto-update); x86-64 server and Linux/Windows clients only; Windows without Developer Mode skips creating synced symbolic links with one folded warning; server data is not a backup and uses block storage (`kaze-syncd export` writes plain files). See the [v0.1.0 release notes](RELEASE-NOTES.md#known-limitations) and [manual section 18](docs/manuals/user-manual.md#18-what-kaze-sync-does-not-do) for the full list.
+- `install` does not check that the service user `kaze-sync` can read custom `--cert` and `--key` files; grant `kaze-sync` read access to both files and their parent directories before starting the service (fixed in v0.2.0) ([manual section 2.4](docs/manuals/user-manual.md#24-port-certificate-and-firewall)).
+- Server installation and CA renewal require root; source-only build (no prebuilt binaries, version string (fixed in v0.2.0), or auto-update); x86-64 server and Linux/Windows clients only; Windows without Developer Mode skips creating synced symbolic links with one folded warning; server data is not a backup and uses block storage (`kaze-syncd export` writes plain files). See the the v0.1.0 release notes (kept in the Git tag `v0.1.0`) and [manual section 18](docs/manuals/user-manual.md#18-what-kaze-sync-does-not-do) for the full list.

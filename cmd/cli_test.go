@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"kaze-sync/internal/version"
 )
 
 func build(t *testing.T, name string) string {
@@ -83,6 +85,16 @@ func TestCommandLines(t *testing.T) {
 			if code != 2 || !strings.Contains(errOut, "usage:") {
 				t.Errorf("%s %v: code %d, stderr %q; want usage on stderr and exit 2", c.bin, args, code, errOut)
 			}
+		}
+	}
+}
+
+// --version prints the one version both binaries are built with and starts nothing.
+func TestVersionFlag(t *testing.T) {
+	for _, bin := range []string{"kaze-syncc", "kaze-syncd"} {
+		out, _, code := execute(t, build(t, bin), "--version")
+		if code != 0 || strings.TrimSpace(out) != bin+" "+version.Version {
+			t.Errorf("%s --version: code %d, %q", bin, code, out)
 		}
 	}
 }

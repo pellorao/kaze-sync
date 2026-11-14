@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} - kaze-sync</title>
+<title>{{.Title}} - Kaze Sync</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/i18n/{{.Lang}}" defer></script>
@@ -11,7 +11,7 @@
 </head>
 <body data-tz="{{.TZ}}"{{if .LiveURL}} data-live-url="{{.LiveURL}}"{{end}}>
 {{if .Auth}}<header class="bar"><div class="bar-in">
-<a class="logo" href="/">{{icon "logo" "lg"}}kaze-sync</a>
+<a class="logo" href="/">{{icon "logo" "lg"}}Kaze Sync<span class="ver">{{.Version}}</span></a>
 <span class="sp"></span>
 <span class="conn" data-conn>{{t "nav.conn"}}</span>
 <button class="icon-btn" type="button" popovertarget="notif" aria-label="{{t "nav.notif"}}" aria-haspopup="dialog">{{icon "bell" "lg"}}<span data-live="badge" aria-live="polite">{{template "badge" .Notif}}</span></button>

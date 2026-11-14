@@ -53,6 +53,8 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 
 第四行命令用同一份客户端源码编译出无控制台窗口的版本, 供 Windows 登录自启动时在后台静默运行. 请务必把 `kaze-syncc-agent.exe` 与 `kaze-syncc.exe` 放在同一个目录下. 注意服务端 (`kaze-syncd`) 只支持 x86-64 架构.
 
+两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.2.0` 和 `kaze-syncc 0.2.0` (以 `0.2.0` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
+
 ### 2.2 OpenWrt
 
 如果服务端运行在 OpenWrt 路由器上, 数据目录必须放在已挂载的独立数据盘上, 不能放在根文件系统 (overlay) 上. `install` 会拒绝根文件系统上的路径, 因为路由器的闪存很小, 很快就会被同步文件写满, 而且升级固件时根文件系统上的数据会被抹掉. 如果路由器只有一块磁盘, 请先在这块盘上划分并挂载一个数据分区, 具体步骤见 [`docs/operations.md`](../operations.md) 的 "OpenWrt 只有一块盘: 新建数据分区" 一节.

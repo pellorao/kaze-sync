@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"kaze-sync/internal/server"
+	"kaze-sync/internal/version"
 )
 
 const usage = `usage:
@@ -27,6 +28,10 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		exitUsage("")
+	}
+	if args[0] == "--version" {
+		fmt.Println("kaze-syncd " + version.Version)
+		return
 	}
 	// Help and unknown commands are decided before anything is opened.
 	if args[0] == "help" || hasHelp(args) {

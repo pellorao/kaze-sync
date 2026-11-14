@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"kaze-sync/internal/ntfy"
+	"kaze-sync/internal/version"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -36,6 +37,10 @@ func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
 		exitUsage("")
+	}
+	if args[0] == "--version" {
+		fmt.Println("kaze-syncc " + version.Version)
+		return
 	}
 	// Help and unknown commands are decided before anything touches the state directory.
 	if args[0] == "help" || hasHelp(args) {
