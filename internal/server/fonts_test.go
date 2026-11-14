@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The Web UI ships its fonts (Source Sans 3, JetBrains Mono, Source Han Sans per language); tools/fontsubset/subset.py
+// The Web UI ships its fonts (Source Sans 3 as "Kaze Sans", JetBrains Mono, Source Han Sans per language); tools/fontsubset/subset.py
 // builds them, and writes beside them the characters each subset holds (tools/fontsubset/coverage).
 var fontFiles = []string{
 	"SourceSans3-Latin.woff2", "JetBrainsMono-Regular-Latin.woff2", "JetBrainsMono-Bold-Latin.woff2",
@@ -61,7 +61,7 @@ func TestFontsCSSAndStacks(t *testing.T) {
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	root := regexp.MustCompile(`(?m)^:root[^{]*\{[^}]*\}`).FindAllString(string(css), -1)
 	all := strings.Join(root, "\n")
-	for _, want := range []string{"Source Sans 3", "JetBrains Mono", "Kaze Han Sans CN", "Kaze Han Sans TW", "Kaze Han Sans JP", "Kaze Han Sans KR", "Noto Sans CJK KR", "Source Han Sans"} {
+	for _, want := range []string{"Kaze Sans", "JetBrains Mono", "Kaze Han Sans CN", "Kaze Han Sans TW", "Kaze Han Sans JP", "Kaze Han Sans KR", "Noto Sans CJK KR", "Source Han Sans"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("the :root font stacks of style.css do not name %q", want)
 		}

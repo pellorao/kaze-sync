@@ -3,25 +3,25 @@
   --bg: #282c34; --bar: #21252b; --surface: #2c313a; --raised: #323842; --hover: #353b45; --line: #3e4451;
   --fg: #dcdfe4; --muted: #9198a4; --faint: #5c6370;
   --accent: #61afef; --ok: #98c379; --warn: #e5c07b; --danger: #e06c75; --code: #56b6c2;
-  --sans: "Source Sans 3", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --sans: "Kaze Sans", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
   --shadow: 0 8px 24px rgb(0 0 0 / 0.45);
   /* type scale of the status page (Primer): 12, 14, 16, 20 px; font-size on :root scales the whole page. Mono (JetBrains Mono, larger x-height) sits beside the 16px sans at 14px. */
   --fs-xs: 0.75rem; --fs-sm: 0.875rem; --fs-md: 1rem; --fs-lg: 1.25rem;
 }
-/* Fonts: Source Sans 3 and JetBrains Mono for Latin text, the embedded Source Han Sans subset of the page language
+/* Fonts: Kaze Sans (a renamed subset of an Adobe Source face, see fonts/SOURCE.md) and JetBrains Mono for Latin text, the embedded Source Han Sans subset of the page language
    (<html lang>) for Han, kana and hangul, so that Han characters take the shapes of that language; a character outside
    the subset falls to a Source Han Sans or Noto Sans CJK installed on the machine, then to a system font (fonts.css). */
-:root:lang(zh-TW) { --sans: "Source Sans 3", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei", monospace; }
-:root:lang(ja) { --sans: "Source Sans 3", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic", monospace; }
-:root:lang(ko) { --sans: "Source Sans 3", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; }
+:root:lang(zh-TW) { --sans: "Kaze Sans", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei", monospace; }
+:root:lang(ja) { --sans: "Kaze Sans", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic", monospace; }
+:root:lang(ko) { --sans: "Kaze Sans", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; }
 /* English pages hold no embedded Han face (a Han file name falls to the machine's fonts). */
-:root:lang(en) { --sans: "Source Sans 3", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; }
+:root:lang(en) { --sans: "Kaze Sans", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; }
 /* The language names in the settings list are each set in their own language, from a face of only those few characters. */
-option[lang=zh-CN] { font-family: "Source Sans 3", "Kaze Name CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
-option[lang=zh-TW] { font-family: "Source Sans 3", "Kaze Name TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
-option[lang=ja] { font-family: "Source Sans 3", "Kaze Name JP", "Source Han Sans JP", "Noto Sans CJK JP", sans-serif; }
-option[lang=ko] { font-family: "Source Sans 3", "Kaze Name KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
+option[lang=zh-CN] { font-family: "Kaze Sans", "Kaze Name CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
+option[lang=zh-TW] { font-family: "Kaze Sans", "Kaze Name TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
+option[lang=ja] { font-family: "Kaze Sans", "Kaze Name JP", "Source Han Sans JP", "Noto Sans CJK JP", sans-serif; }
+option[lang=ko] { font-family: "Kaze Sans", "Kaze Name KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
 option[lang=en] { font-family: var(--sans); }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
@@ -58,12 +58,15 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
 .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .head h1 { font-size: var(--fs-lg); line-height: 1.3; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: var(--fs-lg); font-weight: 600; margin: 0; }
-.crumbs a { color: var(--muted); font-weight: 500; }
+.crumbs a { color: var(--muted); font-weight: 500; display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; }
 .crumbs a:hover { color: var(--fg); text-decoration: none; }
 .crumbs .sep { color: var(--faint); margin: 0 4px; font-weight: 400; }
 .head .sp { flex: 1; }
-.sub { color: var(--muted); font-size: var(--fs-sm); margin: 0 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
-.sub .dot-sep::before { content: "·"; color: var(--faint); margin-right: 14px; }
+/* The summary line: each item keeps a margin on its left and its "·" hangs in that margin, so a line that wraps does not
+   begin with a lone "·": the box starts one margin to the left of the column and clip-path cuts the margin of the line start off. */
+.sub { --sep: 28px; color: var(--muted); font-size: var(--fs-sm); margin: 0 0 16px calc(-1 * var(--sep)); display: flex; flex-wrap: wrap; gap: 4px 0; align-items: center; clip-path: inset(-4px -4px -4px calc(var(--sep) - 4px)); }
+.sub > * { margin-left: var(--sep); position: relative; }
+.sub .dot-sep::before { content: "·"; color: var(--faint); position: absolute; left: calc(-1 * var(--sep)); width: var(--sep); text-align: center; }
 .notice-link { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--fg); background: none; border: 0; font: inherit; padding: 0; }
 .notice-link:hover { text-decoration: underline; }
 
@@ -135,6 +138,7 @@ table.files td.name { width: 100%; }
 .fname a, .fname .t { color: var(--fg); overflow-wrap: anywhere; }
 /* in a table that sizes its columns itself the name keeps room for about eight characters: with anywhere alone the column's minimum is one letter */
 .fname.fo a { min-width: 88px; }
+.fname a { min-height: 24px; min-width: 24px; } /* a short name such as ".git" is still a 24px target (WCAG 2.5.8) */
 .fname a:hover { color: var(--accent); text-decoration: none; }
 .fname svg.file { color: var(--muted); }
 /* the write-control icon (design 2.8.11): shape and color carry the mode, a filled body a setting on the path itself */
@@ -154,7 +158,7 @@ table.files td.name { width: 100%; }
 .tag[data-tip] { cursor: default; }
 a.tag.lnk { cursor: pointer; text-decoration: none; height: 24px; padding: 0 8px; } /* a click target: at least 24px (WCAG 2.2) */
 a.tag.lnk:hover { text-decoration: underline; }
-.devn { cursor: default; }
+.devn { cursor: default; display: inline-flex; align-items: center; min-height: 24px; }
 .updown { display: inline-flex; align-items: center; gap: 2px; }
 .updown svg.i { width: 12px; height: 12px; }
 details.disc > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; }
@@ -337,10 +341,14 @@ th.act { width: 44px; }
   .fname .tags { flex-wrap: wrap; }
   .list-h { flex-wrap: wrap; }
   .crumbs, .head h1 { font-size: var(--fs-md); }
-  .sub { gap: 2px 10px; }
-  .sub .dot-sep::before { margin-right: 10px; }
+  .sub { --sep: 20px; gap: 2px 0; }
 }
 .sm-meta { padding-left: 28px; }
+/* the device page: the path of a mapping sits under the folder name on a narrow screen (its own column is hidden there) */
+table.maps td.mono { overflow-wrap: anywhere; } /* a long local path wraps instead of widening the table */
+@media (max-width: 640px) {
+  table.maps .sm-meta { display: block; padding-left: 0; overflow-wrap: anywhere; }
+}
 
 /* additions of the real pages */
 [hidden] { display: none !important; }
@@ -445,6 +453,10 @@ table.held-rows .num { font-variant-numeric: tabular-nums; }
 /* version history: a time never breaks inside itself; a narrow dialog scrolls the table in its own box */
 table.vers { min-width: 27rem; }
 table.vers td.num, table.vers th .tzn { white-space: nowrap; }
+/* links of the notice list, device names and group heads are targets of their own */
+td > a.dn { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; }
+.nitem a { display: inline-block; min-height: 24px; line-height: 24px; }
+.grp-h a { display: inline-block; min-height: 24px; line-height: 24px; }
 /* stand-alone controls keep a 24px target (WCAG 2.5.8) at the larger text */
 .cnt, .toggle, .notice-link, .linkbtn, button.cnt, details.glob summary, .held-grp summary, .check, .held-acts .chk { min-height: 24px; }
 /* the action column (Restore, Current) stays in view while a narrow dialog scrolls the table */

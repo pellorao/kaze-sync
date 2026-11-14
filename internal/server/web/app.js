@@ -237,9 +237,9 @@
       openDialog(d);
     },
     "del-map": (c) => {
-      const f = $("#f-del-map"), n = +c.row.dataset.locks || 0;
-      f.elements.folder.value = c.row.dataset.folder;
-      f.dataset.confirm = f.dataset.base + (n ? " " + rt("js.locks.release", { n }) : "");
+      const f = $("#f-del-map"), r = c.row.dataset, n = +r.locks || 0;
+      f.elements.folder.value = r.folder;
+      f.dataset.confirm = rt("js.delMapConfirm", { name: r.name, path: r.path }) + (n ? " " + rt("js.locks.release", { n }) : "");
       f.requestSubmit();
     },
     revoke: () => $("#f-revoke").requestSubmit(),

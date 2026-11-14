@@ -4,6 +4,21 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.3.2 - 2026-11-15
+
+Names the folder and local path when confirming mapping deletion, renames the embedded Latin font subset to `Kaze Sans` to comply with the SIL Open Font License, fixes device-page mapping table wrapping, undersized click targets, and narrow-screen summary-line wrapping in the Web UI, and adds corresponding tests. For full details, see the [v0.3.2 release notes](RELEASE-NOTES.md).
+
+### Changed
+
+- Choosing `"Delete mapping..."` from a row menu on the device page previously asked for confirmation without stating which mapping would be deleted; it now asks `"Delete the mapping of folder <name> on <path>? ..."`, naming the folder and the local path just as the revoke-device confirmation names the device.
+- Because the embedded Latin text face is a subset made by us—making it a modified version—and clause 3 of the SIL Open Font License forbids a modified version from using the reserved font name `"Source"`, the face is renamed from `Source Sans 3` to `Kaze Sans` in both the font file and the CSS. `tools/fontsubset/subset.py` performs the renaming (`rename_family`) while keeping the copyright and license records in the font file, and the look and size (about 93 KB) do not change. Sync protocol, database schemas, and `kaze-syncc` client behavior are unchanged; only the server binary shows these changes.
+
+### Fixed
+
+- On a narrow screen (640 px and narrower), the mapping table on the device page now puts the local path on a second line under the folder name instead of in a column of its own, so the row's `"..."` menu button stays on screen and the table no longer scrolls sideways to hide it. On wider screens, a long local path now wraps inside its column, so the table does not scroll sideways at 650 to 800 px either.
+- Several Web UI controls were 18 to 22 px high or under 24 px wide—the device name links in the overview's device table, the links in the breadcrumb, short folder or file names in lists (such as `.git`), the links and group heads in the notifications list, and the `"N devices"` hint button on the folder page—and now have click targets of at least 24 px (WCAG 2.2 target size).
+- When the summary line under a page title (for example `"linux · Client version 0.3 · Configuration ..."` on the device page) wraps on a narrow screen, it no longer shows a lone `"·"` at the start of a line. Tests were added for all of the above (`internal/server/ui1114p1_test.go`, `jstest/delmap.test.js`), and screenshots of the pages and dialogs were checked in five languages (English, Simplified Chinese, Traditional Chinese, Japanese, and Korean) at 400, 800, and 1280 px width, showing no overflow, cut text, or sideways page scroll.
+
 ## v0.3.1 - 2026-11-15
 
 Raises the Web UI type scale and matching control, row, and dialog sizes so pages read comfortably without browser zoom, fixes narrow-screen wrapping and table scrolling, and adds a stylesheet size test. For full details, see the [v0.3.1 release notes](RELEASE-NOTES.md).

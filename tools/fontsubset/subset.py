@@ -4,7 +4,7 @@
 Usage: .tmp/fontvenv/bin/python tools/fontsubset/subset.py [downloads-dir]
 
 Needs fonttools and brotli (pip install fonttools brotli in a venv under .tmp/). Sources (see
-internal/server/web/fonts/SOURCE.md): Adobe Source Sans 3 (VF), Adobe Source Han Sans (SubsetOTF, per region,
+internal/server/web/fonts/SOURCE.md): Adobe Source Sans 3 (VF, renamed Kaze Sans), Adobe Source Han Sans (SubsetOTF, per region,
 Regular and Bold), JetBrains Mono 2.304. Every language's CJK face holds the common characters of its region
 (a legacy national standard read through the Python codecs) plus every non-ASCII character of the Web UI texts.
 """
@@ -97,6 +97,28 @@ def build(src_font, unicodes, dest, features=None):
     return dest.stat().st_size
 
 
+SANS_FAMILY = "Kaze Sans"
+
+
+def rename_family(font, family=SANS_FAMILY):
+    """Gives a Modified Version of Source Sans 3 a name without the Reserved Font Name "Source" (OFL 1.1 clause 3).
+
+    Every name record except the copyright (0), license (13) and license URL (14), which must stay, has the family
+    name replaced; the face is shipped as "Kaze Sans". The original names stay in the copyright record.
+    """
+    compact = family.replace(" ", "")
+    for rec in font["name"].names:
+        if rec.nameID in (0, 13, 14):
+            continue
+        text = rec.toUnicode()
+        new = text.replace("SourceSans3VF", compact).replace("SourceSans3", compact).replace("Source Sans 3", family)
+        if rec.nameID in (1, 4, 16):
+            new = family
+        if new != text:
+            rec.string = new
+    return font
+
+
 def ranges(cps):
     cps = sorted(cps)
     out, lo, prev = [], None, None
@@ -129,12 +151,13 @@ def main():
     buf = io.BytesIO()
     vf.save(buf)  # reload: the instanced font keeps lazily loaded tables that the subsetter trips over
     vf = TTFont(io.BytesIO(buf.getvalue()))
+    rename_family(vf)
     src_cm = cmap_of(vf)
     want = {ord(c) for c in latin_want} & src_cm
     sizes["sans"] = build(vf, want, OUT / "SourceSans3-Latin.woff2")
     got = cmap_of(OUT / "SourceSans3-Latin.woff2")
     (COV / "latin.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
-    css.append('@font-face { font-family: "Source Sans 3"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("/static/fonts/SourceSans3-Latin.woff2") format("woff2"); unicode-range: %s; }' % ranges(got))
+    css.append('@font-face { font-family: "Kaze Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("/static/fonts/SourceSans3-Latin.woff2") format("woff2"); unicode-range: %s; }' % ranges(got))
     sans_src = src_cm
 
     # Monospace: JetBrains Mono Regular and Bold
@@ -185,4 +208,5 @@ def main():
     print("total", sum(sizes.values()))
 
 
-main()
+if __name__ == "__main__":
+    main()
