@@ -82,7 +82,9 @@ td.top { vertical-align: top; padding-top: 10px; padding-bottom: 10px; }
 .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--fg); background: var(--hover); }
 .btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
-.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+/* focusable, so greyed by colour: opacity would dim its focus ring below 3:1 */
+.btn[aria-disabled="true"] { color: var(--faint); cursor: default; }
 .btn[aria-disabled="true"]:hover { border-color: var(--line); }
 .btn .n { color: var(--muted); font-weight: 400; }
 .more { width: 28px; height: 28px; border-radius: 6px; border: 0; background: none; color: var(--faint); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }

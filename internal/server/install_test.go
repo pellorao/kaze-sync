@@ -599,8 +599,10 @@ func TestCertProblems(t *testing.T) {
 	}
 	// The owner's bits apply to the owner alone: mode 0044 locks the owner out even though others may read.
 	os.Chmod(key, 0o044)
-	if ps := certProblems(key, uid-1000, nil); len(ps) != 1 {
-		t.Fatalf("owner with 0044: %+v", ps)
+	if uid-1000 != 0 { // root (uid 0) may read anything, so the owner check needs an owner that is not root
+		if ps := certProblems(key, uid-1000, nil); len(ps) != 1 {
+			t.Fatalf("owner with 0044: %+v", ps)
+		}
 	}
 	os.Chmod(key, 0o644)
 	// A directory above the file without search permission.

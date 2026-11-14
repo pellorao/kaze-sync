@@ -38,8 +38,11 @@ func TestOverviewFolderNameKeepsAMinimumWidth(t *testing.T) {
 	}
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	m := regexp.MustCompile(`(?m)^\.fname\.fo a[^{]*\{[^}]*min-width: *(\d+)px`).FindSubmatch(css)
-	if n, _ := strconv.Atoi(string(m[1])); m == nil || n < 64 {
-		t.Fatalf("style.css has no min-width of at least 64px for .fname.fo a: %s", m)
+	if m == nil {
+		t.Fatal("style.css has no min-width in px for .fname.fo a")
+	}
+	if n, _ := strconv.Atoi(string(m[1])); n < 64 {
+		t.Fatalf("style.css gives .fname.fo a a min-width of only %dpx, not 64px", n)
 	}
 	if !regexp.MustCompile(`\.fname a, \.fname \.t \{[^}]*overflow-wrap: anywhere`).Match(css) {
 		t.Error("a long name no longer wraps anywhere")
@@ -86,5 +89,19 @@ func TestTemplatesHaveNoNativeTitle(t *testing.T) {
 		if regexp.MustCompile(`<[a-z][^>]*\stitle=`).Match(b) {
 			t.Errorf("%s has a title attribute", p)
 		}
+	}
+}
+
+// The add-mapping button that explains itself can take the keyboard focus, so its focus ring must not be dimmed with
+// the rest of the button: it is greyed by colour, not by opacity (ui.md: focus ring at least 3:1).
+func TestAriaDisabledButtonIsNotDimmedByOpacity(t *testing.T) {
+	css, _ := fs.ReadFile(webFS, "web/style.css")
+	for _, r := range regexp.MustCompile(`(?m)^([^{}\n]*aria-disabled[^{}\n]*)\{([^}]*)\}`).FindAllStringSubmatch(string(css), -1) {
+		if strings.Contains(r[2], "opacity") {
+			t.Errorf("%s dims the focus ring with opacity", strings.TrimSpace(r[1]))
+		}
+	}
+	if !regexp.MustCompile(`\.btn\[aria-disabled="true"\][^{]*\{[^}]*color:`).Match(css) {
+		t.Error("the aria-disabled button has no colour of its own")
 	}
 }
