@@ -4,6 +4,16 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.3.3 - 2026-11-15
+
+Fixes the Web UI showing English sentences in the Japanese, Korean and Chinese interfaces when a count is 1, and a folder name that contains a literal placeholder being rewritten in dialogs. For full details, see the [v0.3.3 release notes](RELEASE-NOTES.md).
+
+### Fixed
+
+- In the Japanese, Korean and Chinese interfaces, texts that have a separate wording for the count 1 (for example the ending of the delete-mapping confirmation when the row holds exactly 1 exclusive lock) were shown in English, because the server merged the English-only singular variants into every language's dictionary. A singular variant is now served only from the language that wrote the text.
+- A dialog text is now filled in one pass, so a folder name that contains a literal `{path}` (or another placeholder name) is shown as typed instead of being replaced.
+- Tests: `internal/server/i18n1_test.go`, `internal/server/jstest/rt.test.js`.
+
 ## v0.3.2 - 2026-11-15
 
 Names the folder and local path when confirming mapping deletion, renames the embedded Latin font subset to `Kaze Sans` to comply with the SIL Open Font License, fixes device-page mapping table wrapping, undersized click targets, and narrow-screen summary-line wrapping in the Web UI, and adds corresponding tests. For full details, see the [v0.3.2 release notes](RELEASE-NOTES.md).

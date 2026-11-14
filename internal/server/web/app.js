@@ -15,8 +15,7 @@
     let n;
     for (const k in args || {}) if (typeof args[k] === "number") { n = args[k]; break; }
     let s = (n === 1 && I18N[key + ".1"]) || I18N[key] || key;
-    for (const k in args || {}) s = s.split("{" + k + "}").join(args[k]);
-    return s;
+    return s.replace(/\{([^{}]+)\}/g, (m, k) => (args && Object.prototype.hasOwnProperty.call(args, k) ? String(args[k]) : m));
   };
 
   function el(tag, attrs, ...kids) {

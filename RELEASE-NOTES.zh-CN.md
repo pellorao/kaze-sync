@@ -1,26 +1,24 @@
-# kaze-sync v0.3.2 发布说明
+# kaze-sync v0.3.3 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.3.2` (发布于 2026-11-15) 是 kaze-sync 的一次 Web UI 补丁版本. kaze-sync 是面向 Linux 和 Windows 电脑的自托管文件同步服务, 自带历史版本保留 (`kaze-syncd` 运行在 OpenWrt 或使用 systemd, OpenRC 的 x86-64 Linux 上, `kaze-syncc` 客户端运行在 Linux 和 Windows 上并集中在 Web UI 中配置). 本次更新在删除映射确认框中写明文件夹与本地路径, 为遵守 `SIL Open Font License` 将内嵌拉丁字体子集从 `Source Sans 3` 改名为 `Kaze Sans`, 并修复设备页映射表格横向滚动, 多处点击区域不足 24 px 以及窄屏下页面摘要行行首出现孤立分隔符的问题. 关于同步, 写入控制与历史恢复等完整功能介绍, 请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md)或保存在 Git 标签 `v0.1.0` 中的 `v0.1.0` 发布说明.
+`v0.3.3` (发布于 2026-11-15) 是 kaze-sync 的一次 Web UI 补丁版本. kaze-sync 是面向 Linux 和 Windows 电脑的自托管文件同步服务, 自带历史版本保留. 本次更新修复日文, 韩文和中文界面在数量为 1 时出现英文句子的问题, 以及文件夹名含字面占位符时被改写的问题. 关于同步, 写入控制与历史恢复等完整功能介绍, 请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md)或保存在 Git 标签 `v0.1.0` 中的 `v0.1.0` 发布说明.
 
-与此前版本一样, 本次发布仅提供源码, 没有预编译二进制包下载: 请按[用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)的步骤, 在任意装有 Go 的机器上编译静态链接的二进制文件. 可通过 `kaze-syncd --version` 和 `kaze-syncc --version` (或登录 Web UI 后查看左上角) 以及 Git 标签 `v0.3.2` 标识构建版本.
+与此前版本一样, 本次发布仅提供源码, 没有预编译二进制包下载: 请按[用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)的步骤, 在任意装有 Go 的机器上编译静态链接的二进制文件. 可通过 `kaze-syncd --version` 和 `kaze-syncc --version` (或登录 Web UI 后查看左上角) 以及 Git 标签 `v0.3.3` 标识构建版本.
 
 ## 主要更新
 
-- **删除映射确认框写明文件夹与本地路径.** 此前在设备页行菜单中点击 `删除映射…` 时, 确认提示未说明将删除哪一条映射. 现在确认框会提示 `删除文件夹 <名称> 在 <路径> 的映射? ...`, 与吊销设备的确认提示写明设备名称一样, 同时写明文件夹名称和本地路径.
-- **设备页映射表格换行与窄屏布局.** 在窄屏 (640 px 及以下) 上, 设备页的映射表格不再为本地路径单独分列, 而是将其排在文件夹名称下方的第二行, 使每行的 `"..."` 菜单按钮始终留在屏幕内, 表格不再横向滚动将其隐藏. 在更宽的屏幕上, 较长的本地路径现在会在所在列内自动换行, 650 至 800 px 宽度下表格同样不再横向滚动.
-- **内嵌拉丁字体子集改名为 `Kaze Sans`.** 由于内嵌的拉丁正文字体是我们自行裁剪的子集 (属于修改版), 而 `SIL Open Font License` 第 3 条禁止修改版使用保留字体名 `"Source"`, 该字体在字体文件和 CSS 中均从 `Source Sans 3` 改名为 `Kaze Sans`, 由 `tools/fontsubset/subset.py` 中的 `rename_family` 完成改名. 字体文件内的版权和许可证记录保留不变, 字形外观与文件大小 (约 93 KB) 均无变化.
-- **点击区域统一不小于 24 px.** 为符合 WCAG 2.2 至少 24 px 的目标尺寸要求, 此前高度为 18 至 22 px 或宽度不足 24 px 的多处交互元素已调大至至少 24 px, 包括总览页设备表格中的设备名链接, 面包屑导航中的链接, 列表中的短文件夹名或短文件名 (例如 `.git`), 通知列表中的链接与分组标题, 以及文件夹页的 `"N devices"` 提示按钮.
-- **窄屏页面摘要行换行与多语言截图核查.** 页面标题下方的摘要行 (例如设备页的 `"linux · Client version 0.3 · Configuration ..."`) 在窄屏下换行时, 行首不再出现单独的 `"·"` 分隔符. 已新增覆盖上述全部改动的测试 (`internal/server/ui1114p1_test.go`, `jstest/delmap.test.js`), 并在英文, 简体中文, 繁体中文, 日文和韩文五种语言及 400, 800, 1280 px 三种宽度下检查各页面与对话框截图, 无溢出, 无文字裁切, 无页面横向滚动.
+- **非英文界面在数量为 1 时不再出现英文句子.** 数量为 1 时另有写法的文本 (例如映射行恰有 1 个独占锁时删除映射确认框的末句) 在日文, 韩文和中文界面中曾显示为英文, 现在显示界面语言.
+- **占位符一次性填入.** 含字面 `{path}` 的文件夹名在对话框中按原样显示.
+- 测试: `internal/server/i18n1_test.go`, `internal/server/jstest/rt.test.js`; 已在日文, 韩文和简体中文下核对截图.
 
 ## 升级
 
 同步协议仍为版本 6, 服务端数据库与客户端本地状态库的表结构及客户端行为均未变化. 本次升级不涉及数据迁移; 由于客户端没有 Web UI, 只有升级服务端二进制才会看到本次变化, 客户端无需升级 (如仍需升级, 服务端与客户端可按任意顺序升级; 完整升级步骤见[用户手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级)):
 
-- **服务端 (`kaze-syncd`)**: 编译 `v0.3.2` 二进制文件 ([手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)), 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一目录>`. 原有的监听端口, TLS 证书和管理员密码均保持不变, `install` 会把新二进制复制进 `<data>/` 并重启服务.
+- **服务端 (`kaze-syncd`)**: 编译 `v0.3.3` 二进制文件 ([手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-构建二进制)), 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一目录>`. 原有的监听端口, TLS 证书和管理员密码均保持不变, `install` 会把新二进制复制进 `<data>/` 并重启服务.
 - **客户端 (`kaze-syncc`)**: 在每台 Linux 或 Windows 电脑上停止正在运行的 agent, 替换二进制文件 (Linux 为 `kaze-syncc`, Windows 为 `kaze-syncc.exe` 及带 `-H=windowsgui` 编译的 `kaze-syncc-agent.exe`), 再重新启动 agent.
 
 ## 已知限制

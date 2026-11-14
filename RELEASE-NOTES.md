@@ -1,26 +1,24 @@
-# kaze-sync v0.3.2 release notes
+# kaze-sync v0.3.3 release notes
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## What this release is
 
-`v0.3.2` (released on 2026-11-15) is a Web UI patch release of kaze-sync, a self-hosted file sync service with version history for Linux and Windows computers (`kaze-syncd` on OpenWrt or x86-64 Linux with systemd or OpenRC, and `kaze-syncc` clients on Linux and Windows configured centrally in the Web UI). `kaze-syncd` now names the folder and local path in the delete-mapping confirmation dialog, renames the embedded Latin font subset from `Source Sans 3` to `Kaze Sans` to comply with the SIL Open Font License, and fixes mapping-table wrapping on the device page, undersized click targets, and narrow-screen wrapping of page summary lines. For the full overview of kaze-sync's sync, write-control, and restore features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`.
+`v0.3.3` (released on 2026-11-15) is a Web UI patch release of kaze-sync, a self-hosted file sync service with version history for Linux and Windows computers. `kaze-syncd` now shows the Japanese, Korean and Chinese interfaces in their own language when a count is 1, and no longer rewrites a folder name that contains a literal placeholder. For the full overview of kaze-sync's sync, write-control, and restore features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`.
 
-Like earlier releases, this is a source-only release with no prebuilt binary downloads: build the static binaries from source with Go on any machine as described in [section 2.1 of the user manual](docs/manuals/user-manual.md#21-build-the-binaries). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` (or in the top-left of the Web UI after signing in) and by the Git tag `v0.3.2`.
+Like earlier releases, this is a source-only release with no prebuilt binary downloads: build the static binaries from source with Go on any machine as described in [section 2.1 of the user manual](docs/manuals/user-manual.md#21-build-the-binaries). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` (or in the top-left of the Web UI after signing in) and by the Git tag `v0.3.3`.
 
 ## Highlights
 
-- **Folder and path in delete-mapping confirmation.** Choosing `"Delete mapping..."` from a row menu on the device page previously asked for confirmation without saying which mapping would be deleted. The prompt now asks `"Delete the mapping of folder <name> on <path>? ..."`, naming both the folder and the local path just as the revoke-device confirmation names the device.
-- **Device-page mapping table wrapping without sideways scroll.** On a narrow screen (640 px and narrower), the mapping table on the device page puts the local path on a second line under the folder name instead of in a column of its own, so the row's `"..."` menu button stays on screen and the table no longer scrolls sideways to hide it. On wider screens, a long local path now wraps inside its column, so the table does not scroll sideways at 650 to 800 px either.
-- **Embedded Latin font subset renamed to `Kaze Sans`.** Because the embedded Latin face is a subset made by us—making it a modified version—clause 3 of the SIL Open Font License forbids using the reserved font name `"Source"`. The face is therefore renamed from `Source Sans 3` to `Kaze Sans` in both the font file and the CSS via `rename_family` in `tools/fontsubset/subset.py`. The copyright and license records stay in the font file, and its look and size (about 93 KB) do not change.
-- **At least 24 px click targets.** Controls that were previously 18 to 22 px high or under 24 px wide now have click targets of at least 24 px (WCAG 2.2 target size): the device name links in the overview's device table, the links in the breadcrumb, short folder or file names in lists (such as `.git`), the links and group heads in the notifications list, and the `"N devices"` hint button on the folder page.
-- **Page summary line wrapping and UI checks.** Wrapping the summary line under a page title on a narrow screen (for example `"linux · Client version 0.3 · Configuration ..."` on the device page) no longer leaves a lone `"·"` at the start of a line. Tests covering all of the changes above were added (`internal/server/ui1114p1_test.go`, `jstest/delmap.test.js`), and screenshots of the pages and dialogs were checked in five languages (English, Simplified Chinese, Traditional Chinese, Japanese, and Korean) at 400, 800, and 1280 px width, showing no overflow, cut text, or sideways page scroll.
+- **No English sentences at count 1 in non-English interfaces.** Texts with a separate wording for the count 1 (for example the end of the delete-mapping confirmation when the row holds exactly 1 exclusive lock) were shown in English in the Japanese, Korean and Chinese interfaces. They now appear in the interface language.
+- **Placeholders filled in one pass.** A folder name that contains a literal `{path}` is shown as typed in dialogs.
+- Tests: `internal/server/i18n1_test.go`, `internal/server/jstest/rt.test.js`; screenshots were checked in Japanese, Korean and Simplified Chinese.
 
 ## Upgrading
 
 The sync protocol remains at version 6, and database schemas and client behavior are unchanged. No data migration runs during this upgrade; because clients have no Web UI, only the server binary shows the change and clients need no upgrade (though you can still upgrade them in any order; for the full upgrade procedure, see [section 15 of the user manual](docs/manuals/user-manual.md#15-upgrading)):
 
-- **Server (`kaze-syncd`)**: build the `v0.3.2` binary ([manual section 2.1](docs/manuals/user-manual.md#21-build-the-binaries)), copy it to the server, and run `./kaze-syncd install --data <same dir>` as root. Your listening port, TLS certificate, and admin password remain unchanged, and `install` copies the new binary into `<data>/` and restarts the service.
+- **Server (`kaze-syncd`)**: build the `v0.3.3` binary ([manual section 2.1](docs/manuals/user-manual.md#21-build-the-binaries)), copy it to the server, and run `./kaze-syncd install --data <same dir>` as root. Your listening port, TLS certificate, and admin password remain unchanged, and `install` copies the new binary into `<data>/` and restarts the service.
 - **Clients (`kaze-syncc`)**: on each Linux or Windows computer, stop the running agent, replace the binary (`kaze-syncc` on Linux; both `kaze-syncc.exe` and the `-H=windowsgui` `kaze-syncc-agent.exe` on Windows), and start the agent again.
 
 ## Known limitations

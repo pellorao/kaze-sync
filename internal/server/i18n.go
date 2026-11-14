@@ -203,6 +203,11 @@ func jsDict(code string) (script, etag string) {
 		for k, v := range d {
 			if strings.HasPrefix(k, "js.") || strings.HasPrefix(k, "common.") || strings.HasPrefix(k, "nav.") {
 				out[k] = v
+				if !strings.HasSuffix(k, ".1") {
+					if _, ok := d[k+".1"]; !ok {
+						delete(out, k+".1") // a ".1" variant belongs to the language that wrote the text, not to one that overrides it
+					}
+				}
 			}
 		}
 	}
