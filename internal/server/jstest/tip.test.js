@@ -22,7 +22,7 @@ class Node {
   cloneNode() { const c = new Node(this.tag); c.text = this.text; return c; }
   get isConnected() { return this.connected; }
   contains(n) { for (let x = n; x; x = x.parent) if (x === this) return true; return false; }
-  matches(sel) { return sel === "dialog" ? this.tag === "dialog" : sel === "[data-tip]" ? "tip" in this.dataset : sel === ":focus-visible" ? !!this.focusVisible : false; }
+  matches(sel) { return sel === "dialog, [popover]" ? (this.tag === "dialog" || this.tag === "popover") : sel === "dialog" ? this.tag === "dialog" : sel === "[data-tip]" ? "tip" in this.dataset : sel === ":focus-visible" ? !!this.focusVisible : false; }
   closest(sel) { for (let x = this; x; x = x.parent) if (x.matches(sel)) return x; return null; }
   getBoundingClientRect() { return this.rect; }
   get classList() { return { contains: (c) => this.classes.has(c) }; }
@@ -202,4 +202,27 @@ test("a tip of a trigger inside a dialog is drawn inside that dialog, one outsid
   const a = anchor(100); dlg.append(a);
   p.api.tipText(a, "Line 3: bad");
   assert.strictEqual(p.api.tip.parent, dlg);
+});
+
+test("a tip of a trigger inside the notifications popover is drawn inside it", () => {
+  const p = setup(), r = p.row(1, 100), pop = new Node("popover");
+  pop.append(r.icon);
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  assert.strictEqual(p.api.tip.parent, pop);
+});
+
+test("Esc closes the tip of a dialog and keeps the dialog (default prevented); outside a dialog it is left alone", () => {
+  const p = setup(), r = p.row(1, 100), dlg = new Node("dialog");
+  dlg.append(r.icon);
+  p.fire("pointerover", { target: r.icon, pointerType: "mouse" });
+  let prevented = false;
+  p.fire("keydown", { key: "Escape", preventDefault() { prevented = true; } });
+  assert.strictEqual(p.api.tip.hidden, true);
+  assert.strictEqual(prevented, true);
+  const o = p.row(2, 300);
+  p.fire("pointerover", { target: o.icon, pointerType: "mouse" });
+  prevented = false;
+  p.fire("keydown", { key: "Escape", preventDefault() { prevented = true; } });
+  assert.strictEqual(p.api.tip.hidden, true);
+  assert.strictEqual(prevented, false);
 });

@@ -61,9 +61,13 @@
   }
   // zoneTip: the zone is named in the page's tip (a native title would not show for the keyboard): the node takes the
   // focus and points at a hidden content made once per zone (design 4.8).
+  const zoneIds = new Map();
   function zoneTip(node, zone) {
-    const id = "tz-" + zone.replace(/[^A-Za-z0-9]/g, "_");
-    if (!document.getElementById(id)) body.append(el("span", { class: "tip-c", id, hidden: "" }, el("span", { class: "tp" }, zone)));
+    let id = zoneIds.get(zone);
+    if (!id) { // a number, not the name: "Etc/GMT+1" and "Etc/GMT-1" must not share an id
+      zoneIds.set(zone, id = "tz-" + (zoneIds.size + 1));
+      body.append(el("span", { class: "tip-c", id, hidden: "" }, el("span", { class: "tp" }, zone)));
+    }
     node.dataset.tip = id;
     node.setAttribute("tabindex", "0");
     node.setAttribute("aria-describedby", id);
@@ -356,9 +360,9 @@
   tip.hidden = true;
   body.append(tip);
   let tipFor = null, tipTimer = 0, tipFocusAt = -1e9;
-  // A modal dialog sits in the top layer, above anything kept in the body: the tip lives in the dialog its trigger is in.
+  // A modal dialog or a popover (the notifications) sits in the top layer, above anything kept in the body: the tip lives in the one its trigger is in.
   function tipHost(trigger) {
-    const d = trigger.closest("dialog") || body;
+    const d = trigger.closest("dialog, [popover]") || body; // both are in the top layer
     if (tip.parentNode !== d) d.append(tip);
   }
   function showTip(trigger) {
@@ -423,7 +427,11 @@
     if (t && e.target.matches(":focus-visible")) { showTip(t); tipFocusAt = performance.now(); }
   });
   document.addEventListener("focusout", (e) => { if (tipFor && tipTrigger(e.target) === tipFor) hideTip(false); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !tip.hidden) hideTip(false); }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || tip.hidden) return;
+    if (tip.closest("dialog")) e.preventDefault(); // the Esc that closes the tip does not also close the dialog
+    hideTip(false);
+  }, true);
   // Scrolling hides the tip, except the scroll the browser makes to bring a just-focused element into view: that one
   // moves the tip along with its trigger.
   addEventListener("scroll", () => {
@@ -462,6 +470,7 @@
     const cur = $(".dlg-b", d);
     if (nu && cur && d.open) cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
     renderTimes(d);
+    dropStaleTip();
   }
   async function refresh() {
     if (busy()) { dirty = true; refreshHeld(); return; }
@@ -975,7 +984,7 @@
   function ruleEditor(box) {
     const ta = $("textarea", box), pre = $("pre", box), list = box.nextElementSibling;
     const LH = 20, PAD = 6;
-    let errs = new Map(), seq = 0;
+    let errs = new Map(), seq = 0, tipLine = 0; // tipLine: the line the tip was last asked for (Esc closes it until the line changes)
     box.classList.add("js");
     function draw() {
       const cur = ta.value.slice(0, ta.selectionStart).split("\n").length;
@@ -998,6 +1007,7 @@
       list.replaceChildren(...out.errors.map((x) => el("div", { class: "err-msg", "data-line": x.line }, rt("js.ruleLine", { n: x.line, msg: x.msg }))));
       ta.setAttribute("aria-invalid", errs.size ? "true" : "false");
       draw();
+      if (document.activeElement === ta) { tipLine = 0; lineTip(caretLine()); } // the tip follows the new errors
     }, 300);
     ta.addEventListener("input", () => { draw(); validate(); preview.edited(); });
     // One main button: "Preview" while the rules differ from what was previewed, then "Save" (or "Save and delete N files").
@@ -1077,7 +1087,10 @@
     ["keyup", "click", "focus"].forEach((n) => ta.addEventListener(n, draw));
     // The error of a line shows in the page's tip (design 4.8) while the pointer is over the line or the caret is in it.
     // The anchor is the line's strip of the box; the list below the box carries the same text for a screen reader.
-    const lineTip = (line) => {
+    const caretLine = () => ta.value.slice(0, ta.selectionStart).split("\n").length;
+    function lineTip(line) {
+      if (line === tipLine) return;
+      tipLine = line;
       if (!errs.has(line)) { if (tipFor && tipFor.ruleBox === ta) hideTip(false); return; }
       const anchor = {
         ruleBox: ta,
@@ -1090,13 +1103,17 @@
         },
       };
       tipText(anchor, rt("js.ruleLine", { n: line, msg: errs.get(line) }));
-    };
+    }
     ta.addEventListener("mousemove", (e) => lineTip(Math.floor((e.clientY - ta.getBoundingClientRect().top + ta.scrollTop - PAD) / LH) + 1));
-    ta.addEventListener("pointerout", (e) => { if (!(e.relatedTarget && tip.contains(e.relatedTarget)) && tipFor && tipFor.ruleBox === ta) hideTip(true); });
-    ta.addEventListener("keyup", (e) => { // the caret's line, after a key that moves it (Escape has just closed the tip)
-      if (e.key !== "Escape") lineTip(ta.value.slice(0, ta.selectionStart).split("\n").length);
+    ta.addEventListener("pointerout", (e) => {
+      if (e.relatedTarget && tip.contains(e.relatedTarget)) return;
+      tipLine = 0;
+      if (tipFor && tipFor.ruleBox === ta) hideTip(true);
     });
-    ta.addEventListener("blur", () => { if (tipFor && tipFor.ruleBox === ta) hideTip(false); });
+    ta.addEventListener("keyup", (e) => { // the caret's line, after a key that moves it (Escape has just closed the tip)
+      if (e.key !== "Escape") lineTip(caretLine());
+    });
+    ta.addEventListener("blur", () => { tipLine = 0; if (tipFor && tipFor.ruleBox === ta) hideTip(false); });
     draw();
     if (ta.value) validate();
   }

@@ -42,3 +42,17 @@ test("the content of a zone is made once", () => {
   p.api.renderTimes(); p.api.renderTimes();
   assert.strictEqual(p.body.appended.length, 1);
 });
+
+test("zones that differ only in a sign get different contents", () => {
+  const p = setup("Etc/GMT+1"), q = p.api;
+  const n1 = { dataset: {}, setAttribute() {} }, n2 = { dataset: {}, setAttribute() {} };
+  q.zoneTip(n1, "Etc/GMT+1"); q.zoneTip(n2, "Etc/GMT-1");
+  assert.notStrictEqual(n1.dataset.tip, n2.dataset.tip);
+});
+
+test("the settings sample names its zone the same way", () => {
+  const p = setup("Asia/Tokyo"), n = { dataset: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+  p.api.zoneTip(n, "Europe/Paris");
+  assert.ok(n.dataset.tip && n.attrs.tabindex === "0" && !("title" in n.attrs));
+  assert.strictEqual(p.body.appended[0].kids[0].kids[0], "Europe/Paris");
+});
