@@ -44,7 +44,7 @@
 <label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
 <details class="disc"><summary>{{icon "open" "chev"}}{{t "dlg.held.expand"}}</summary>
 <p class="note warn" data-mixwarn hidden>{{icon "warn"}}<span>{{t "dlg.held.mixed"}}</span></p>
-<table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
+<div class="tscroll"><table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
 {{range .Rows}}<tr><td class="mono">{{.Path}}</td>
 <td>{{t (printf "held.kind.%s" .Kind)}}{{if ne .Kind "delete"}} · {{size .Size}} · {{time .Mtime}}{{end}}</td>
 <td class="num">#{{.BaseSeq}}</td>
@@ -52,7 +52,7 @@
 <td>{{if .Waiting}}<span class="muted">{{t "dlg.held.waiting" "device" $.HeldView.Device}}</span>{{else}}<input type="hidden" name="r" value="{{.Field}}"><select name="a" aria-label="{{t "dlg.held.action"}}"><option value="">-</option>
 <option value="upload"{{if not .CanUpload}} disabled{{end}}>{{t "dlg.held.upload"}}</option><option value="overwrite">{{t "dlg.held.overwrite"}}</option><option value="discard">{{t "dlg.held.discard"}}</option></select>
 {{if .Note}}<span class="err-msg">{{t (printf "held.note.%s" .Note)}}</span>{{else if not .CanUpload}}<span class="help">{{if eq .Reason "type"}}{{t "dlg.held.whyType"}}{{else}}{{t "dlg.held.whyChanged"}}{{end}}</span>{{end}}{{end}}</td></tr>
-{{end}}</tbody></table>
+{{end}}</tbody></table></div>
 {{if gt .Total (len .Rows)}}<p class="muted small">{{t "dlg.held.more" "n" (len .Rows) "m" .Total}}</p>{{end}}
 <div class="held-go"><button class="btn primary">{{t "dlg.held.apply"}}</button></div>
 </details></form>
@@ -130,7 +130,7 @@
 <div class="dlg-h">{{icon "history"}}<h3 id="vh-t">{{t "ver.title"}} <span class="mono muted small">{{.File}}</span></h3><button type="button" class="icon-btn x" data-close aria-label="{{t "common.close"}}">{{icon "x"}}</button></div>
 <div class="dlg-b">
 {{if .Restored}}<div class="okbar">{{icon "check"}}{{tm "ver.restoredTo" "time" (time .Restored)}}</div>{{end}}
-<table class="vers">
+<div class="tscroll"><table class="vers">
 <thead><tr><th>{{t "rs.time"}} <span class="tzn" data-tzname>(UTC)</span></th><th class="r">{{t "fo.size"}}</th><th>{{t "ver.device"}}</th><th class="r"></th></tr></thead>
 <tbody>
 {{range .Versions}}<tr>
@@ -139,7 +139,7 @@
 <form method="post" action="/folders/{{$.Folder.ID}}/restore" class="ask" hidden><span class="q">{{t "ver.ask"}}</span> <button type="button" class="btn sm" data-ask-cancel>{{t "common.cancel"}}</button> <button class="btn sm primary">{{t "common.restore"}}</button>
 <input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"></form>{{end}}</td>
 </tr>{{else}}<tr><td colspan="4" class="muted">{{t "ver.none"}}</td></tr>{{end}}
-</tbody></table>
+</tbody></table></div>
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.close"}}</button></div>
 </dialog>{{end}}
