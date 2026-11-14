@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Rebuilds the Web UI fonts (internal/server/web/fonts/*.woff2, web/fonts.css and coverage/*.txt).
+
+Usage: .tmp/fontvenv/bin/python tools/fontsubset/subset.py [downloads-dir]
+
+Needs fonttools and brotli (pip install fonttools brotli in a venv under .tmp/). Sources (see
+internal/server/web/fonts/SOURCE.md): Adobe Source Sans 3 (VF), Adobe Source Han Sans (SubsetOTF, per region,
+Regular and Bold), JetBrains Mono 2.304. Every language's CJK face holds the common characters of its region
+(a legacy national standard read through the Python codecs) plus every non-ASCII character of the Web UI texts.
+"""
+import io, os, re, sys, zipfile
+from pathlib import Path
+from fontTools.ttLib import TTFont
+from fontTools import subset
+from fontTools.varLib import instancer
+
+REPO = Path(__file__).resolve().parents[2]
+DL = Path(sys.argv[1] if len(sys.argv) > 1 else Path.home() / "projects/.downloads")
+WEB = REPO / "internal/server/web"
+OUT = WEB / "fonts"
+COV = Path(__file__).resolve().parent / "coverage"
+
+# Latin faces: these blocks plus every non-CJK character used by the UI texts.
+LATIN_BLOCKS = [(0x20, 0x24F), (0x2B0, 0x2FF), (0x300, 0x36F), (0x370, 0x3FF), (0x400, 0x4FF), (0x1E00, 0x1EFF),
+                (0x2000, 0x206F), (0x20A0, 0x20CF), (0x2100, 0x214F), (0x2190, 0x21FF), (0x2200, 0x22FF), (0x25A0, 0x25FF)]
+# A CJK face declares these blocks; a character of them that the subset lacks falls to the next family of the stack.
+CJK_RANGE = "U+1100-11FF,U+2E80-2FDF,U+3000-30FF,U+3130-318F,U+31F0-33FF,U+3400-4DBF,U+4E00-9FFF,U+A960-A97F,U+AC00-D7FF,U+F900-FAFF,U+FE30-FE4F,U+FF00-FFEF"
+REGIONS = {"CN": "zh-CN", "TW": "zh-TW", "JP": "ja", "KR": "ko"}
+
+
+CJK_BLOCKS = [(0x1100, 0x11FF), (0x2E80, 0x2FDF), (0x3000, 0x30FF), (0x3130, 0x318F), (0x31F0, 0x33FF), (0x3400, 0x4DBF),
+              (0x4E00, 0x9FFF), (0xA960, 0xA97F), (0xAC00, 0xD7FF), (0xF900, 0xFAFF), (0xFE30, 0xFE4F), (0xFF00, 0xFFEF)]
+
+
+def is_cjk(c):
+    return any(a <= ord(c) <= b for a, b in CJK_BLOCKS)
+
+
+def codec_chars(codec, spans):
+    out = set()
+    for lo, hi in spans:
+        for hi_b in range(lo >> 8, (hi >> 8) + 1):
+            for lo_b in range(0xA1, 0xFF) if codec != "big5" else list(range(0x40, 0x7F)) + list(range(0xA1, 0xFF)):
+                code = (hi_b << 8) | lo_b
+                if not lo <= code <= hi:
+                    continue
+                try:
+                    out.add(bytes([hi_b, lo_b]).decode(codec))
+                except UnicodeDecodeError:
+                    pass
+    return out
+
+
+COMMON = {
+    # GB 2312 symbols (rows 1-9) and level-1 hanzi (3755)
+    "CN": lambda: codec_chars("gb2312", [(0xA1A1, 0xA9FE), (0xB0A1, 0xD7F9)]),
+    # Big5 symbols and the 5401 most common traditional hanzi
+    "TW": lambda: codec_chars("big5", [(0xA140, 0xA3BF), (0xA440, 0xC67E)]),
+    # JIS X 0208 symbols, kana and level-1 kanji (2965)
+    "JP": lambda: codec_chars("euc_jp", [(0xA1A1, 0xA8FE), (0xB0A1, 0xCFD3)]),
+    # KS X 1001 symbols and the 2350 common hangul syllables
+    "KR": lambda: codec_chars("euc_kr", [(0xA1A1, 0xACFE), (0xB0A1, 0xC8FE)]),
+}
+
+
+def text_chars(*paths):
+    s = set()
+    for p in paths:
+        s |= {c for c in Path(p).read_text(encoding="utf-8") if ord(c) >= 0x80}
+    return s
+
+
+def lang_chars(lang):
+    srv = REPO / "internal/server"
+    files = [srv / f"i18n/{lang}.json", srv / "i18n.go", *sorted(WEB.glob("*.html")), WEB / "app.js"]
+    return text_chars(*files)
+
+
+def cmap_of(path_or_font):
+    f = path_or_font if isinstance(path_or_font, TTFont) else TTFont(path_or_font)
+    return set(f.getBestCmap())
+
+
+def build(src_font, unicodes, dest, features=None):
+    opts = subset.Options()
+    opts.flavor = "woff2"
+    opts.layout_features = features or ["kern", "liga", "locl", "mark", "mkmk", "ccmp", "vert", "vrt2", "calt", "ss01", "case", "tnum", "zero"]
+    opts.hinting = False
+    opts.desubroutinize = True
+    opts.name_IDs = [0, 1, 2, 3, 4, 5, 6, 13, 14]
+    opts.notdef_outline = True
+    sub = subset.Subsetter(opts)
+    sub.populate(unicodes=sorted(unicodes))
+    sub.subset(src_font)
+    src_font.flavor = "woff2"
+    src_font.save(dest)
+    return dest.stat().st_size
+
+
+def ranges(cps):
+    cps = sorted(cps)
+    out, lo, prev = [], None, None
+    for c in cps:
+        if lo is None:
+            lo = prev = c
+        elif c == prev + 1:
+            prev = c
+        else:
+            out.append((lo, prev)); lo = prev = c
+    if lo is not None:
+        out.append((lo, prev))
+    return ",".join("U+%04X" % a if a == b else "U+%04X-%04X" % (a, b) for a, b in out)
+
+
+def main():
+    OUT.mkdir(parents=True, exist_ok=True)
+    COV.mkdir(parents=True, exist_ok=True)
+    all_text = set()
+    for lang in REGIONS.values():
+        all_text |= lang_chars(lang)
+    all_text |= lang_chars("en")
+    latin_want = {c for c in all_text if not is_cjk(c)} | {chr(c) for a, b in LATIN_BLOCKS for c in range(a, b + 1)}
+    css = ["/* Generated by tools/fontsubset/subset.py; do not edit. */"]
+    sizes = {}
+
+    # Latin text: Source Sans 3 variable (weights 400-700 only)
+    vf = TTFont(DL / "source-sans-3-vf/x/VF/SourceSans3VF-Upright.ttf")
+    vf = instancer.instantiateVariableFont(vf, {"wght": (400, 700)})
+    buf = io.BytesIO()
+    vf.save(buf)  # reload: the instanced font keeps lazily loaded tables that the subsetter trips over
+    vf = TTFont(io.BytesIO(buf.getvalue()))
+    src_cm = cmap_of(vf)
+    want = {ord(c) for c in latin_want} & src_cm
+    sizes["sans"] = build(vf, want, OUT / "SourceSans3-Latin.woff2")
+    got = cmap_of(OUT / "SourceSans3-Latin.woff2")
+    (COV / "latin.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
+    css.append('@font-face { font-family: "Source Sans 3"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("/static/fonts/SourceSans3-Latin.woff2") format("woff2"); unicode-range: %s; }' % ranges(got))
+    sans_src = src_cm
+
+    # Monospace: JetBrains Mono Regular and Bold
+    z = zipfile.ZipFile(DL / "JetBrainsMono-2.304.zip")
+    mono_src = set()
+    for name, w in (("Regular", 400), ("Bold", 700)):
+        f = TTFont(io.BytesIO(z.read(f"fonts/ttf/JetBrainsMono-{name}.ttf")))
+        mono_src = cmap_of(f)
+        want = {ord(c) for c in latin_want} & mono_src
+        sizes["mono" + name] = build(f, want, OUT / f"JetBrainsMono-{name}-Latin.woff2")
+        got = cmap_of(OUT / f"JetBrainsMono-{name}-Latin.woff2")
+        css.append('@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: %d; font-display: swap; src: url("/static/fonts/JetBrainsMono-%s-Latin.woff2") format("woff2"); unicode-range: %s; }' % (w, name, ranges(got)))
+    (COV / "mono.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
+
+    # CJK: Source Han Sans, one face pair per region
+    nosource = set()
+    for reg, lang in REGIONS.items():
+        common = COMMON[reg]()
+        for name, w in (("Regular", 400), ("Bold", 700)):
+            f = TTFont(DL / f"source-han-sans-subset-otf/SourceHanSans{reg}-{name}.otf")
+            cm = cmap_of(f)
+            # Han, kana and hangul, and any other character of the texts that Source Sans 3 lacks (such as the dots of the row menu)
+            text = lang_chars(lang) | text_chars(REPO / "internal/server/i18n.go")
+            want = {ord(c) for c in common | text if is_cjk(c)} | {ord(c) for c in text if ord(c) not in sans_src}
+            want &= cm
+            extra = sorted(c for c in want if not any(a <= c <= b for a, b in CJK_BLOCKS))
+            dest = OUT / f"SourceHanSans{reg}-{name}-Subset.woff2"
+            sizes[reg + name] = build(f, want, dest)
+            css.append('@font-face { font-family: "Kaze Han Sans %s"; font-style: normal; font-weight: %d; font-display: swap; src: url("/static/fonts/%s") format("woff2"); unicode-range: %s; }' % (reg, w, dest.name, CJK_RANGE + ("," + ranges(extra) if extra else "")))
+            if name == "Regular":
+                got = cmap_of(dest)
+                (COV / f"{reg.lower()}.txt").write_text("".join(chr(c) for c in sorted(got)) + "\n", encoding="utf-8")
+                nosource |= {c for c in lang_chars(lang) if ord(c) not in cm and ord(c) not in sans_src}
+    (COV / "nosource.txt").write_text("".join(sorted(nosource)) + "\n", encoding="utf-8")
+    (OUT.parent / "fonts.css").write_text("\n".join(css) + "\n")
+    for k, v in sizes.items():
+        print("%-14s %8d bytes" % (k, v))
+    print("total", sum(sizes.values()))
+
+
+main()

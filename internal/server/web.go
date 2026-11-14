@@ -187,7 +187,12 @@ func staticFiles(static fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if tag := etags[strings.TrimPrefix(r.URL.Path, "/")]; tag != "" {
 			w.Header().Set("ETag", tag)
-			w.Header().Set("Cache-Control", "no-cache")
+			if strings.HasPrefix(strings.TrimPrefix(r.URL.Path, "/"), "fonts/") && strings.HasSuffix(r.URL.Path, ".woff2") {
+				// Fonts change only with a release and are the heaviest files: a browser reuses them for a week without asking.
+				w.Header().Set("Cache-Control", "public, max-age=604800")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 		}
 		files.ServeHTTP(w, r)
 	})

@@ -15,7 +15,7 @@
 
 <form class="card" method="post" action="/settings/language">
 <div class="card-h"><h2>{{t "set.lang"}}</h2><span class="muted small">{{t "set.langNote"}}</span></div>
-<div class="card-b"><select name="lang" aria-label="{{t "set.lang"}}"><option value=""{{if not .LangSetting}} selected{{end}}>{{t "set.follow"}}</option>{{range .Langs}}<option value="{{.Code}}"{{if eq .Code $.LangSetting}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+<div class="card-b"><select name="lang" aria-label="{{t "set.lang"}}"><option value=""{{if not .LangSetting}} selected{{end}}>{{t "set.follow"}}</option>{{range .Langs}}<option value="{{.Code}}"{{if eq .Code $.LangSetting}} selected{{end}} lang="{{.Code}}">{{.Name}}</option>{{end}}</select></div>
 <div class="card-f"><button class="btn primary">{{t "common.save"}}</button></div>
 </form>
 

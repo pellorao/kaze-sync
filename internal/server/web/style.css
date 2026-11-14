@@ -3,14 +3,24 @@
   --bg: #282c34; --bar: #21252b; --surface: #2c313a; --raised: #323842; --hover: #353b45; --line: #3e4451;
   --fg: #dcdfe4; --muted: #9198a4; --faint: #5c6370;
   --accent: #61afef; --ok: #98c379; --warn: #e5c07b; --danger: #e06c75; --code: #56b6c2;
-  --sans: system-ui, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  --mono: "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+  --sans: "Source Sans 3", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
   --shadow: 0 8px 24px rgb(0 0 0 / 0.45);
 }
-/* The CJK fallback fonts follow the page language (<html lang>), so that Han characters take the shapes of that language. */
-:root:lang(zh-TW) { --sans: system-ui, "Segoe UI", "Microsoft JhengHei UI", "PingFang TC", sans-serif; --mono: "Cascadia Mono", Consolas, "Microsoft JhengHei", monospace; }
-:root:lang(ja) { --sans: system-ui, "Segoe UI", "Yu Gothic UI", "Hiragino Sans", sans-serif; --mono: "Cascadia Mono", Consolas, "Yu Gothic", monospace; }
-:root:lang(ko) { --sans: system-ui, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; --mono: "Cascadia Mono", Consolas, "Malgun Gothic", monospace; }
+/* Fonts: Source Sans 3 and JetBrains Mono for Latin text, the embedded Source Han Sans subset of the page language
+   (<html lang>) for Han, kana and hangul, so that Han characters take the shapes of that language; a character outside
+   the subset falls to a Source Han Sans or Noto Sans CJK installed on the machine, then to a system font (fonts.css). */
+:root:lang(zh-TW) { --sans: "Source Sans 3", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", "Microsoft JhengHei", monospace; }
+:root:lang(ja) { --sans: "Source Sans 3", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", "Yu Gothic", monospace; }
+:root:lang(ko) { --sans: "Source Sans 3", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", system-ui, sans-serif; --mono: "JetBrains Mono", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", "Malgun Gothic", monospace; }
+/* English pages hold no embedded Han face (a Han file name falls to the machine's fonts). */
+:root:lang(en) { --sans: "Source Sans 3", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif; --mono: "JetBrains Mono", "Source Han Sans", "Noto Sans CJK SC", "Microsoft YaHei", monospace; }
+/* The language names in the settings list are each set in their own language. */
+option[lang=zh-CN] { font-family: "Source Sans 3", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", sans-serif; }
+option[lang=zh-TW] { font-family: "Source Sans 3", "Kaze Han Sans TW", "Source Han Sans TW", "Noto Sans CJK TC", sans-serif; }
+option[lang=ja] { font-family: "Source Sans 3", "Kaze Han Sans JP", "Source Han Sans JP", "Noto Sans CJK JP", sans-serif; }
+option[lang=ko] { font-family: "Source Sans 3", "Kaze Han Sans KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
+option[lang=en] { font-family: var(--sans); }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); }
@@ -338,7 +348,7 @@ button.cnt:hover { text-decoration: underline; }
 a.toggle { text-decoration: none; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .check input, .radio input { accent-color: var(--accent); }
-.stack { display: grid; gap: 10px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; } /* minmax: a wide child (the time zone list) shrinks to the card instead of overflowing it */
 .narrow { width: 100px; }
 .empty { padding: 32px 16px; text-align: center; color: var(--muted); }
 .notif-b .empty { padding: 24px 16px; }
