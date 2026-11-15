@@ -89,7 +89,7 @@ func (w *webClient) idOf(kind, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	m := regexp.MustCompile(`<a href="/` + kind + `/(\d+)">` + regexp.QuoteMeta(html.EscapeString(name)) + `</a>`).FindStringSubmatch(b)
+	m := regexp.MustCompile(`<a\b[^>]*\shref="/` + regexp.QuoteMeta(kind) + `/(\d+)"[^>]*>` + regexp.QuoteMeta(html.EscapeString(name)) + `</a>`).FindStringSubmatch(b)
 	if m == nil {
 		return "", fmt.Errorf("no %s %q on the overview", kind, name)
 	}
@@ -136,7 +136,7 @@ func (w *webClient) folderPage(id, query string) (string, error) {
 
 // fileRow returns the table row of a file name in the folder page, "" when absent.
 func fileRow(page, name string) string {
-	m := regexp.MustCompile(`(?s)<tr>\s*<td>` + regexp.QuoteMeta(html.EscapeString(name)) + `( <span[^>]*>\(已删除\)</span>)?</td>(.*?)</tr>`).FindStringSubmatch(page)
+	m := regexp.MustCompile(`(?s)<tr\b[^>]*\sdata-name="` + regexp.QuoteMeta(html.EscapeString(name)) + `"[^>]*>.*?</tr>`).FindStringSubmatch(page)
 	if m == nil {
 		return ""
 	}
@@ -154,4 +154,15 @@ func (w *webClient) restoreDir(folder, dir, at string) (string, error) {
 	}
 	loc := h.Get("Location")
 	return loc[strings.Index(loc, "restored="):], nil
+}
+
+// overviewRow finds a row by its device or folder link without depending on cell layout.
+func overviewRow(page, kind, id string) string {
+	link := regexp.MustCompile(`<a\b[^>]*\shref="/` + regexp.QuoteMeta(kind) + `/` + regexp.QuoteMeta(id) + `"[^>]*>`)
+	for _, row := range regexp.MustCompile(`(?s)<tr\b[^>]*>.*?</tr>`).FindAllString(page, -1) {
+		if link.MatchString(row) {
+			return row
+		}
+	}
+	return ""
 }

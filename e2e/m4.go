@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"math/rand"
@@ -155,11 +156,20 @@ func (d *driver) summary(folder string) (errs, warns string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	mm := regexp.MustCompile(`<a href="/folders/\d+">` + regexp.QuoteMeta(folder) + `</a></td><td>(\d+)</td><td>(\d+)</td>`).FindStringSubmatch(b)
-	if mm == nil {
-		return "", "", nil
+	link := regexp.MustCompile(`<a\b[^>]*\shref="/folders/(\d+)"[^>]*>` + regexp.QuoteMeta(html.EscapeString(folder)) + `</a>`).FindStringSubmatch(b)
+	if link == nil {
+		return "", "", fmt.Errorf("no folder %q on the overview", folder)
 	}
-	return mm[1], mm[2], nil
+	row := overviewRow(b, "folders", link[1])
+	counts := regexp.MustCompile(`(?s)<button[^>]*class="cnt (err|warn)"[^>]*>.*?</svg>(\d+)</button>`)
+	for _, m := range counts.FindAllStringSubmatch(row, -1) {
+		if m[1] == "err" {
+			errs = m[2]
+		} else {
+			warns = m[2]
+		}
+	}
+	return errs, warns, nil
 }
 
 func (d *driver) m4Scenarios(skipM4 bool) {
@@ -469,8 +479,8 @@ func (m *m4) thirdMapping() error {
 	d.metric("M4 7: the third mapping reached the client %.1f s after saving it", took.Seconds())
 	_, err = until("the overview to show the configuration as up to date", 40*time.Second, func() (bool, error) {
 		_, b, err := d.web.get("/")
-		row := regexp.MustCompile(`(?s)<tr>\s*<td><a href="/devices/` + m.linID + `">.*?</tr>`).FindString(b)
-		return strings.Contains(row, "最新") && strings.Contains(row, "m4c: "), fmt.Errorf("row %q %v", firstLine(row), err)
+		row := overviewRow(b, "devices", m.linID)
+		return strings.Contains(row, "最新") && strings.Contains(row, `<span class="f">m4c</span>`), fmt.Errorf("row %q %v", firstLine(row), err)
 	})
 	return err
 }
@@ -541,8 +551,8 @@ func (m *m4) migration() error {
 	}
 	if _, err := until("the Windows client to adopt the folder", 120*time.Second, func() (bool, error) {
 		_, b, err := d.web.get("/")
-		row := regexp.MustCompile(`(?s)<tr>\s*<td><a href="/devices/` + m.winID + `">.*?</tr>`).FindString(b)
-		return regexp.MustCompile(`m4d: idle, 同步于 \d`).MatchString(row), fmt.Errorf("row %q %v", firstLine(row), err)
+		row := overviewRow(b, "devices", m.winID)
+		return regexp.MustCompile(`(?s)<div class="stl"><span class="f">m4d</span> <span class="st-ok">已同步</span>\s*<span class="muted num"><time datetime="[^"]+">`).MatchString(row), fmt.Errorf("row %q %v", firstLine(row), err)
 	}); err != nil {
 		return err
 	}

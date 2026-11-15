@@ -124,7 +124,7 @@ func (g *wcGroup) ntfyLatency(t0 time.Time) string {
 }
 
 // runWC is the entry point of the group; it reports success.
-func runWC(base, fp, winDir string, local bool, only string) bool {
+func runWC(base, fp, winDir string, local bool, only string) (success bool) {
 	d := &driver{tmp: "", logs: "", base: base, fp: fp, admin: os.Getenv("KAZE_E2E_PASSWORD")}
 	var err error
 	if d.tmp, err = os.MkdirTemp("", "wc-run-"); err != nil {
@@ -152,6 +152,7 @@ func runWC(base, fp, winDir string, local bool, only string) bool {
 	}
 	defer func() {
 		g.cleanup()
+		success = success && len(d.fails) == 0
 		g.removeWinWork()
 		for _, m := range d.metrics {
 			log.Print("METRIC ", m)
@@ -510,7 +511,7 @@ func (g *wcGroup) offline(folder string, a, b map[string]string) error {
 		g.put(g.a, folder, p, c)
 	}
 	k := firstKey(a)
-	re := regexp.MustCompile(`(?s)data-path="` + regexp.QuoteMeta(k) + `".*?<td class="size">([^<]*)</td>`)
+	re := regexp.MustCompile(`(?s)data-path="` + regexp.QuoteMeta(html.EscapeString(k)) + `".*?<td class="size">([^<]*)</td>`)
 	if _, err := until("A's write of "+k+" on the server", wcSync, func() (bool, error) {
 		page, err := g.d.web.folderPage(g.folders[folder], "")
 		m := re.FindStringSubmatch(page)
@@ -787,30 +788,53 @@ func (g *wcGroup) snapshot() {
 	}
 }
 
-// cleanup removes what the group made: window setting, mappings, folders, devices, agents.
+// cleanup also discovers resources whose creation succeeded before setup or a scenario failed to record the id.
 func (g *wcGroup) cleanup() {
 	d := g.d
-	if d.web == nil {
-		return
-	}
-	g.setWindow(g.window)
 	for _, s := range []*wcSide{g.a, g.b} {
-		if s != nil {
+		if s != nil && s.ag != nil {
 			s.ag.stop(false)
 		}
 	}
-	for _, id := range g.folders {
-		for _, s := range []*wcSide{g.a, g.b} {
-			if s != nil && s.id != "" {
-				d.web.post("/devices/"+s.id+"/mapping", url.Values{"folder": {id}, "action": {"delete"}})
-			}
-		}
-		d.web.post("/folders/"+id+"/delete", url.Values{"confirm": {"1"}})
+	if d.web == nil {
+		return
 	}
+	report := func(err error) {
+		if err != nil {
+			log.Printf("FAIL wc cleanup: %v", err)
+			d.fails = append(d.fails, "wc cleanup: "+err.Error())
+		}
+	}
+	report(g.setWindow(g.window))
+	devices, folders := map[string]bool{}, map[string]bool{}
 	for _, s := range []*wcSide{g.a, g.b} {
 		if s != nil && s.id != "" {
-			d.web.post("/devices/"+s.id+"/revoke", url.Values{})
+			devices[s.id] = true
 		}
+	}
+	for _, id := range g.folders {
+		folders[id] = true
+	}
+	for _, item := range []struct {
+		kind string
+		ids  map[string]bool
+	}{{"devices", devices}, {"folders", folders}} {
+		links, err := d.listLinks(item.kind)
+		report(err)
+		for _, link := range links {
+			if strings.HasPrefix(link.name, wcPrefix+"-") {
+				item.ids[link.id] = true
+			}
+		}
+	}
+	// Revocation removes all device mappings, so even a partially mapped folder can be deleted.
+	for id := range devices {
+		_, err := d.web.ok("/devices/"+id+"/revoke", url.Values{})
+		report(err)
+	}
+	for id := range folders {
+		_, err := d.web.ok("/folders/"+id+"/delete", url.Values{"confirm": {"1"}})
+		report(err)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"math/rand"
@@ -266,16 +267,19 @@ type folderLink struct{ id, name string }
 
 // listLinks returns the distinct (id, name) pairs of the overview's links of a kind.
 func (d *driver) listLinks(kind string) ([]folderLink, error) {
-	_, b, err := d.web.get("/")
+	st, b, err := d.web.get("/")
 	if err != nil {
 		return nil, err
 	}
+	if st != 200 {
+		return nil, fmt.Errorf("overview: %d %s", st, firstLine(b))
+	}
 	var out []folderLink
 	seen := map[string]bool{}
-	for _, m := range regexp.MustCompile(`<a href="/`+kind+`/(\d+)">([^<]*)</a>`).FindAllStringSubmatch(b, -1) {
+	for _, m := range regexp.MustCompile(`<a\b[^>]*\shref="/`+regexp.QuoteMeta(kind)+`/(\d+)"[^>]*>([^<]*)</a>`).FindAllStringSubmatch(b, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
-			out = append(out, folderLink{m[1], m[2]})
+			out = append(out, folderLink{m[1], html.UnescapeString(m[2])})
 		}
 	}
 	return out, nil

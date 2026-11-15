@@ -15,7 +15,7 @@ import (
 
 // rulesText returns the text of the rule box of a page (the overview for the global rules, a folder page for its own).
 func (d *driver) rulesText(page string) string {
-	m := regexp.MustCompile(`(?s)<textarea name="rules"[^>]*>(.*?)</textarea>`).FindStringSubmatch(page)
+	m := regexp.MustCompile(`(?s)<textarea\b[^>]*\sname="rules"[^>]*>(.*?)</textarea>`).FindStringSubmatch(page)
 	if m == nil {
 		return ""
 	}
@@ -32,7 +32,7 @@ func (m *m4) bothCurrent() (time.Duration, error) {
 	return until("both clients to hold the latest configuration", 30*time.Second, func() (bool, error) {
 		_, b, err := m.d.web.get("/")
 		for _, id := range []string{m.linID, m.winID} {
-			row := regexp.MustCompile(`(?s)<tr>\s*<td><a href="/devices/` + id + `">.*?</tr>`).FindString(b)
+			row := overviewRow(b, "devices", id)
 			if !strings.Contains(row, "最新") {
 				return false, fmt.Errorf("device %s: %q %v", id, firstLine(row), err)
 			}

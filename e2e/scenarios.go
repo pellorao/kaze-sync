@@ -41,7 +41,7 @@ func (d *driver) waitFile(folder, dir, name, size string, timeout time.Duration)
 			return false, err
 		}
 		row := fileRow(page, name)
-		return strings.Contains(row, "<td>"+size+"</td>"), fmt.Errorf("row %q", row)
+		return strings.Contains(row, `<td class="size">`+size+"</td>"), fmt.Errorf("row %q", row)
 	})
 }
 
