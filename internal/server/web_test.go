@@ -502,7 +502,7 @@ func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
 		t.Fatalf("enroll: %d %q", st, msg)
 	}
 	_, body := e.get(c, "/")
-	if !strings.Contains(body, `<span class="st-err">1, 过旧</span>`) {
+	if !strings.Contains(body, `<span class="st-err">过旧</span>`) {
 		t.Fatalf("overview does not show the old client:\n%s", body)
 	}
 
@@ -511,7 +511,7 @@ func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
 		t.Fatalf("current version refused: %d %s", st, msg)
 	}
 	_, body = e.get(c, "/")
-	if strings.Contains(body, "过旧") || !strings.Contains(body, ">"+strconv.Itoa(proto.AgentVersion)+"<") {
+	if strings.Contains(body, "过旧") || !strings.Contains(body, `<span class="num">-</span>`) {
 		t.Fatalf("overview still shows the refusal:\n%s", body)
 	}
 	// A newer client than the server is not refused by this check (the order is server first, no matrix).

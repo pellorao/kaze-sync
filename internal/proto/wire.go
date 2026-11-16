@@ -146,6 +146,7 @@ type PollReq struct {
 	Cursors       map[int64]int64 `json:"cursors,omitempty"` // folder id -> last seq the client knows
 	ConfigVersion int64           `json:"config_version"`
 	AgentVersion  int             `json:"agent_version"`
+	ClientVersion string          `json:"client_version,omitempty"` // release version, absent on older clients
 	OS            string          `json:"os"`
 	Hostname      string          `json:"hostname"`
 	Folders       []FolderState   `json:"folders,omitempty"`

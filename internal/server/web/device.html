@@ -4,7 +4,7 @@
 <span class="sp"></span>
 <button type="button" class="btn ghost" data-menu="dev-head" aria-label="{{t "dev.actions"}}" aria-haspopup="menu">{{icon "more"}}</button></div>
 <div data-live="dev-info"><p class="sub"><span>{{.Device.OS}}</span>
-<span class="dot-sep">{{t "dev.client"}} {{if .Head.TooOld}}<span class="st-err">{{t "st.tooOld" "n" .Head.TooOld}}</span>{{else}}{{.Head.Version}}{{end}}</span>
+<span class="dot-sep">{{t "dev.client"}} {{.Head.Version}}{{if .Head.TooOld}} <span class="st-err">{{t "st.tooOld"}}</span>{{end}}</span>
 <span class="dot-sep">{{if eq .Head.ConfigState "-"}}{{t "dev.configUnknown"}}{{else}}{{t "dev.config" "state" (cfg .Head.ConfigState)}}{{end}}</span>
 {{if .Head.Online}}<span class="dot-sep st-ok">{{t "st.online"}}</span>{{else}}<span class="dot-sep">{{if .Head.Known}}{{tm "dev.offlineReported" "time" (time .Head.ReportedAt)}}{{else}}{{tm "notif.lastConn" "time" (time .Head.LastSeen)}}{{end}}</span>{{end}}
 {{if or .Head.Errors .Head.Warnings}}<button type="button" class="dot-sep notice-link" data-notif="">{{if .Head.Errors}}<span class="cnt err">{{icon "err"}}{{t "notif.nErr" "n" .Head.Errors}}</span>{{end}}{{if .Head.Warnings}}<span class="cnt warn">{{icon "warn"}}{{t "notif.nWarn" "n" .Head.Warnings}}</span>{{end}}</button>{{end}}</p></div>
