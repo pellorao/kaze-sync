@@ -7,7 +7,7 @@ characters each subset holds are listed in `tools/fontsubset/coverage/`.
 | Files | Family | Source |
 |---|---|---|
 | `SourceSans3-Latin.woff2` | Source Sans 3 (variable, weights 400-700), shipped as "Kaze Sans" | https://github.com/adobe-fonts/source-sans release 3.052R, `VF-source-sans-3.052R.zip` |
-| `SourceHanSans{CN,TW,JP,KR}-{Regular,Bold}-Subset.woff2` | Source Han Sans (regional OTF: CN = Simplified Chinese, TW = Traditional Chinese, JP, KR) | https://github.com/adobe-fonts/source-han-sans branch `release`, `SubsetOTF/<region>/`, version 2.005R |
+| `SourceHanSans{CN,TW,JP,KR}-{Regular,Bold}-Subset.woff2`, `SourceHanSans{CN,TW,JP,KR}-Name.woff2` | Source Han Sans (regional OTF: CN = Simplified Chinese, TW = Traditional Chinese, JP, KR); the `-Name` files are tiny Regular subsets holding only the characters of each language's own name, for the language picker | https://github.com/adobe-fonts/source-han-sans branch `release`, `SubsetOTF/<region>/`, version 2.005R |
 | `SourceSerif4-SemiBold-Latin.woff2` | Source Serif 4 (variable, pinned to weight 600 and optical size 20), shipped as "Kaze Serif"; the headings | https://github.com/adobe-fonts/source-serif release 4.005R, `source-serif-4.005_Desktop.zip`, `VAR/SourceSerif4Variable-Roman.ttf` |
 | `SourceHanSerif{CN,TW,JP,KR}-SemiBold-Subset.woff2` | Source Han Serif (regional OTF, SemiBold), shipped as "Kaze Han Serif CN" etc.; the headings | https://github.com/adobe-fonts/source-han-serif branch `release`, `SubsetOTF/<region>/SourceHanSerif<region>-SemiBold.otf` |
 | `JetBrainsMono-{Regular,Bold}-Latin.woff2` | JetBrains Mono 2.304 | https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304 |

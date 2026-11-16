@@ -60,3 +60,7 @@ Web UI 提供简体中文, 繁体中文, 英文, 日文和韩文五种界面语�
 - [用户手册](docs/manuals/user-manual.zh-CN.md): 日常操作的完整参考, 涵盖各平台的安装与升级, Web UI 每个页面的用法, 设备, 文件夹与映射管理, 排除规则, 写入控制与待处理改动, 通知与推送, Windows 上的占用文件, 恢复历史版本与目录, 导出普通文件, 保留期与清理, 服务端备份, 卸载以及常见问题排查.
 - [`docs/operations.md`](docs/operations.md): 部署细节, 例如给只有一块盘的 OpenWrt 机器新建数据分区, systemd 加固和备份步骤.
 - [`docs/design.md`](docs/design.md): 各部分为什么这样工作.
+
+## 许可证
+
+kaze-sync 以 [MIT 许可证](LICENSE) 发布. [`internal/server/web/fonts/`](internal/server/web/fonts/) 里随附的 Web UI 字体 (Adobe Source Sans 3, Source Serif 4, Source Han Sans, Source Han Serif 和 JetBrains Mono 的子集) 另按 SIL Open Font License 1.1 授权, 许可证文件和来源说明与字体放在一起 (见 [`SOURCE.md`](internal/server/web/fonts/SOURCE.md)).

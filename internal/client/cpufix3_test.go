@@ -10,7 +10,7 @@ import (
 	"kaze-sync/internal/proto"
 )
 
-// kaze-sync/cpufix3 reproductions.
+// CPU fixes, third round: reproductions.
 
 func cpufix3Pair(t *testing.T, extra []proto.WCRule) (a, b *engine) {
 	t.Helper()

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// kaze-sync/cpufix4: a partial scan of only the subdirectory "x" of d (or of the root) must not count as covering
+// CPU fixes, fourth round: a partial scan of only the subdirectory "x" of d (or of the root) must not count as covering
 // the files directly in d (or the root): coversDir with a real scan scope, both the dirs branch and the root branch.
 func TestCpufix4PartialScanOfSubdirX(t *testing.T) {
 	for _, c := range []struct{ name, dir, file, sub string }{

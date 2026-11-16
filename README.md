@@ -60,3 +60,7 @@ Once your first folder is syncing, consult these documents when you need more de
 - [User manual](docs/manuals/user-manual.md): the full reference for everyday operation, covering how to install and upgrade on each platform, use every Web UI page, manage devices, folders, and mappings, write exclusion rules, control who may write where and resolve held changes, set up notifications, handle files in use on Windows, restore versions and directories, export plain files, tune retention, back up the server, uninstall, and troubleshoot problems.
 - [`docs/operations.md`](docs/operations.md) (Chinese): deployment details such as creating a data partition on a one-disk OpenWrt machine, systemd hardening, and backup steps.
 - [`docs/design.md`](docs/design.md) (Chinese): why things work the way they do.
+
+## License
+
+kaze-sync is released under the [MIT License](LICENSE). The Web UI fonts bundled in [`internal/server/web/fonts/`](internal/server/web/fonts/) (subsets of Adobe Source Sans 3, Source Serif 4, Source Han Sans, Source Han Serif, and JetBrains Mono) are licensed separately under the SIL Open Font License 1.1; their license files and sources sit beside them (see [`SOURCE.md`](internal/server/web/fonts/SOURCE.md)).

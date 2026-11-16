@@ -7,7 +7,7 @@ import (
 )
 
 // A file that is too fresh is retried by scanning its own directory only, and the record of it survives scans of
-// other directories (kaze-sync/idlecpu: the retry used to scan the whole folder after every edit).
+// other directories (idle CPU fix: the retry used to scan the whole folder after every edit).
 func TestUnstableRetryScansOnlyTheDirectoryOfTheFreshFile(t *testing.T) {
 	_, _, _, g := setup(t)
 	g.f.Stable = 5 * time.Second

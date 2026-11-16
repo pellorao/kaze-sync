@@ -17,7 +17,7 @@
 | M9 | 写入控制 (不限, 单端, 独占) 与待处理改动, 取代只读独占和冲突副本 | 约 735 (另删除约 480) | 发布第一个版本 (设计 2.8.13) |
 | 合计 | | 约 5275 | |
 
-依赖关系: M1 已开始, 接口不变. M8 只依赖 M7 (2026-11-04 用户增加). M9 (2026-11-07 加入) 在 M1 到 M8 之后, 第一个版本等它完成并 dogfood 一周后才发布 (设计 2.8.0 的 D5). M2 起需要设计定稿. M3 的虚拟机由另一项工作构建 (结果另行报告), 端到端场景须在 M4 前就绪. M5 与 M6 互不依赖, 可对调.
+依赖关系: M1 已开始, 接口不变. M8 只依赖 M7 (2026-11-04 增加). M9 (2026-11-07 加入) 在 M1 到 M8 之后, 第一个版本等它完成并 dogfood 一周后才发布 (设计 2.8.0 的 D5). M2 起需要设计定稿. M3 的虚拟机由另一项工作构建 (结果另行报告), 端到端场景须在 M4 前就绪. M5 与 M6 互不依赖, 可对调.
 
 ## M1: 可先行模块 (约 700 行)
 
@@ -54,7 +54,7 @@
 | Linux 客户端 | 现有 WSL Ubuntu | 驱动程序也在这里运行 |
 | Windows 客户端 | Windows 宿主本机 | 由驱动经 WSL 互操作启动 `kaze-syncc.exe`, 同步根在 NTFS 上 |
 
-不克隆 ARW 的发布虚拟机, 两者互不影响. 已确认 WSL2 (NAT 模式) 能访问 VMware `vmnet8` 子网.
+测试虚拟机专用于本项目, 不与其他项目共用. 已确认 WSL2 (NAT 模式) 能访问 VMware `vmnet8` 子网.
 
 ### OpenWrt 测试虚拟机 (概要)
 
@@ -63,18 +63,18 @@
 - 用 OpenWrt Image Builder 生成定制的 x86-64 镜像 (或修改官方 combined-efi 镜像), 包含数据盘所需的软件包 (例如 block-mount, ext4 支持).
 - `uci-defaults` 脚本在首次启动时完成设置: 写入本项目专用的 SSH 公钥, 预置 dropbear 主机密钥 (首次启动前已知, 可直接固定), 网络改为在 `vmnet8` 中可达 (关闭 OpenWrt 自带的 DHCP 服务, 避免与 VMware 的冲突), 时区 UTC.
 - 第二块虚拟磁盘作为数据盘, 格式化为 ext4 并按 fstab 挂载, 模拟目标路由器的 1 TB 盘.
-- 转换为 VMDK, 手写 `.vmx` (NAT, `tools.syncTime = "FALSE"`), 拍下干净快照 `kaze-sync-clean`.
+- 转换为 VMDK, 手写 `.vmx` (NAT, `tools.syncTime = "FALSE"`), 拍下干净快照 (例如 `clean`).
 - 驱动取得虚拟机 IP 的方式随构建结果而定 (open-vm-tools 可用时用 `vmrun getGuestIPAddress`, 否则使用 `uci-defaults` 设置的固定地址).
 
 ### 端到端驱动
 
-位于新项目的 `e2e/` (Go, `go run ./e2e -config <path>`, 默认 `~/.kaze-sync/config/e2e.json`), 借鉴 ARW `scripts/release-vm.mjs` 的做法 (还原快照, 启动, 固定主机密钥的 SSH, 结束时硬关机并还原), 在新项目中独立实现, 不共享代码. 配置是仓库外的 JSON:
+位于新项目的 `e2e/` (Go, `go run ./e2e -config <path>`, 默认 `~/.kaze-sync/config/e2e.json`), 采用常见的虚拟机测试做法 (还原快照, 启动, 固定主机密钥的 SSH, 结束时硬关机并还原), 在新项目中独立实现, 不共享代码. 配置是仓库外的 JSON:
 
 ```json
 {
   "vmrun": "/mnt/c/Program Files (x86)/VMware/VMware Workstation/vmrun.exe",
-  "vmx": "D:\\VMs\\kaze-sync-openwrt\\kaze-sync-openwrt.vmx",
-  "snapshot": "kaze-sync-clean",
+  "vmx": "X:\\path\\to\\openwrt-test\\openwrt-test.vmx",
+  "snapshot": "clean",
   "ssh": {"user": "root", "port": 22, "identityFile": "/home/<me>/.ssh/kaze-sync-e2e", "hostKey": "ssh-ed25519 AAAA..."},
   "windowsWorkDir": "C:\\Users\\<me>\\AppData\\Local\\Temp\\kaze-sync-e2e"
 }
@@ -139,7 +139,7 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 - 端到端: Linux 端创建的 `a:b.txt` 被拒绝并作为错误通知出现在该文件夹的明细中, 在 Linux 端改名后通知消失; Windows 端 `a.txt` 改名为 `A.txt` 后 Linux 端只有一个 `A.txt`; Windows 上两个不同盘符的映射同时同步.
 - 手动验证一次: Word 打开文档期间远端更新会等待, 关闭后完成; 注销再登录后 agent 无窗口自动运行.
 
-自此可以替换 Nextcloud: 在路由器上安装服务端 (若采用 Q15 的建议, 加 `--wan`); 停用 Nextcloud 客户端; 在 Web UI 中为每台设备添加全部映射并勾选接管; 第一台上传完成后, 其余设备依次接入, 按哈希采纳, 不重新下载.
+自此可以替换 Nextcloud: 在路由器上安装服务端 (需要从 WAN 访问时加 `--wan`); 停用 Nextcloud 客户端; 在 Web UI 中为每台设备添加全部映射并勾选接管; 第一台上传完成后, 其余设备依次接入, 按哈希采纳, 不重新下载.
 
 ## M7: 长期运行 (约 220 行)
 
@@ -160,7 +160,7 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 验收标准:
 
 - 单元测试: 三种服务管理器的识别与拒绝, 各自写出的服务定义与执行的命令 (用替身记录, 不改真实系统), 普通 Linux 上带 `--wan` 报错, OpenWrt 上仍拒绝根文件系统上的数据目录.
-- 虚拟机 (共用目录中的 `ubuntu` 与 `alpine`, 从各自登记的基线开始, 结束后还原; 用前加锁): 在根文件系统上的数据目录执行 `install` 与 `admin-password`, 服务以 `kaze-sync` 用户运行; 重启虚拟机后服务自动启动; 杀掉服务进程后被重新拉起; 用新二进制再执行 `install` 完成升级且端口, 证书, 密码不变; WSL 中的 Linux 客户端注册到该服务端并同步一个文件夹 (双向各一个文件).
+- 虚拟机 (Ubuntu 与 Alpine 各一台, 从各自的干净快照开始, 结束后还原): 在根文件系统上的数据目录执行 `install` 与 `admin-password`, 服务以 `kaze-sync` 用户运行; 重启虚拟机后服务自动启动; 杀掉服务进程后被重新拉起; 用新二进制再执行 `install` 完成升级且端口, 证书, 密码不变; WSL 中的 Linux 客户端注册到该服务端并同步一个文件夹 (双向各一个文件).
 - 在两台虚拟机上记录服务端空闲时的常驻内存与系统总内存占用 (设计 "首要目标").
 - 已有端到端场景 (OpenWrt) 全部通过.
 

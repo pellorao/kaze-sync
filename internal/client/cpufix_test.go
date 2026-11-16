@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// kaze-sync/cpufix: the findings of kaze-sync/cpureview.
+// CPU fixes: the findings of a review of the client's CPU use.
 
 // A partial scan that finds nothing unsent in what it covers clears the since, also when an earlier scan of the
 // same place found a too-fresh file (design 2.8.6): otherwise the first edit after another device's write is frozen.

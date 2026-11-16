@@ -13,7 +13,7 @@ import (
 	"kaze-sync/internal/proto"
 )
 
-// kaze-sync/cpufix2: the findings of kaze-sync/cpureview2.
+// CPU fixes, second round: the findings of a second review of the client's CPU use.
 
 // A file held open by another program (in_use, a standing warning since scopefreeze) must not keep the since old.
 func TestCpufix2InUseDoesNotFreezeScope(t *testing.T) {
