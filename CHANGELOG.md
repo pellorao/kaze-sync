@@ -4,6 +4,12 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+
+- The device list and device details show the client release version (`x.y.z`) reported by poll requests instead of the integer protocol version. Older clients that do not report a release version show `-`. The protocol version remains 6.
+
 ## v0.3.4 - 2026-11-15
 
 Sets titles in a serif face like the status page and keeps the notification count badge off the settings button. For full details, see the [v0.3.4 release notes](RELEASE-NOTES.md).

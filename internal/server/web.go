@@ -577,7 +577,9 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 		s.mu.Lock()
 		if rep := s.reports[d.ID]; rep != nil {
 			seen = max(seen, rep.at.Unix())
-			d.Version = strconv.Itoa(rep.req.AgentVersion)
+			if rep.req.ClientVersion != "" {
+				d.Version = rep.req.ClientVersion
+			}
 			d.ConfigState = map[bool]string{true: "latest", false: "pending"}[rep.req.ConfigVersion == cfgVersion]
 			d.Online = rep.online(s.now())
 			if rep.tooOld > 0 {
@@ -1087,7 +1089,9 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		if !head.Online {
 			head.ReportedAt = rep.at.Unix()
 		}
-		head.Version = strconv.Itoa(rep.req.AgentVersion)
+		if rep.req.ClientVersion != "" {
+			head.Version = rep.req.ClientVersion
+		}
 		head.ConfigState = map[bool]string{true: "latest", false: "pending"}[rep.req.ConfigVersion == cfgVersion]
 		head.TooOld = rep.tooOld
 		for _, fs := range rep.req.Folders {

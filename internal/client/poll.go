@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/version"
 )
 
 func (a *Agent) pollLoop(ctx context.Context) {
@@ -25,7 +26,7 @@ func (a *Agent) pollLoop(ctx context.Context) {
 			}
 		}
 		a.mu.Lock()
-		req := proto.PollReq{Cursors: map[int64]int64{}, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
+		req := proto.PollReq{Cursors: map[int64]int64{}, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, ClientVersion: version.Version, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
 		for id, r := range a.runners {
 			cur := r.seen
 			if (r.busy || r.s.pull || !r.ready) && r.acked >= 0 {
