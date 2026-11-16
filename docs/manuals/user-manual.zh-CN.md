@@ -13,6 +13,41 @@
 
 所有环境通用的系统级部署细节 (例如给只有一块盘的 OpenWrt 路由器划分数据分区, systemd 加固配置, 内存预算细则) 写在 [`docs/operations.md`](../operations.md) 中, 本手册在相关位置直接指向对应章节, 不再重复抄录.
 
+## 目录
+
+- [1. 各部分如何配合](#1-各部分如何配合)
+- [2. 安装服务端](#2-安装服务端)
+  - [2.1 下载并校验服务端发布包](#21-下载并校验服务端发布包)
+  - [2.2 OpenWrt](#22-openwrt)
+  - [2.3 普通 Linux (systemd 或 OpenRC)](#23-普通-linux-systemd-或-openrc)
+  - [2.4 端口, 证书与防火墙](#24-端口-证书与防火墙)
+  - [2.5 首次登录与管理员密码](#25-首次登录与管理员密码)
+  - [2.6 端口与防火墙规则](#26-端口与防火墙规则)
+- [3. 安装并注册客户端](#3-安装并注册客户端)
+  - [3.1 Linux 客户端](#31-linux-客户端)
+  - [3.2 Windows 客户端](#32-windows-客户端)
+  - [3.3 注册之后](#33-注册之后)
+- [4. Web UI](#4-web-ui)
+- [5. 文件夹与映射](#5-文件夹与映射)
+  - [5.1 写入控制: 谁可以在哪里写入](#51-写入控制-谁可以在哪里写入)
+- [6. 设备](#6-设备)
+- [7. 排除规则](#7-排除规则)
+- [8. 同时写入与处理对话框](#8-同时写入与处理对话框)
+- [9. 通知](#9-通知)
+  - [9.1 用 ntfy 推送消息](#91-用-ntfy-推送消息)
+- [10. 正在使用的文件与 SQLite 数据库](#10-正在使用的文件与-sqlite-数据库)
+- [11. 恢复旧内容](#11-恢复旧内容)
+- [12. 导出为普通文件](#12-导出为普通文件)
+- [13. 保留期与垃圾回收](#13-保留期与垃圾回收)
+- [14. 服务端的备份与还原](#14-服务端的备份与还原)
+- [15. 升级](#15-升级)
+- [16. 卸载](#16-卸载)
+  - [16.1 客户端](#161-客户端)
+  - [16.2 服务端](#162-服务端)
+- [17. 排查问题](#17-排查问题)
+- [18. kaze-sync 不做什么](#18-kaze-sync-不做什么)
+- [附录 A: 从源码编译](#附录-a-从源码编译)
+
 ## 1. 各部分如何配合
 
 在动手安装之前, 先了解 kaze-sync 的几个核心概念如何配合, 后面看每条命令和每个界面都会更清楚:
@@ -38,28 +73,34 @@ Web UI 的所有操作均由唯一的管理员完成, 凭一个随机生成的�
 
 ## 2. 安装服务端
 
-因为客户端需要连接服务端来完成注册和拉取配置, 所以第一步是编译二进制文件并装好服务端.
+因为客户端需要连接服务端来完成注册和拉取配置, 所以第一步是获取服务端程序并装好服务端.
 
-### 2.1 构建二进制
+### 2.1 下载并校验服务端发布包
 
-目前没有预编译发布包下载, 需要在任意装有 Go 的机器上从源码编译 (Go 版本见 `go.mod`, 当前为 1.27.3). 编译产物是静态链接的二进制文件, 没有任何外部依赖, 因此可以在开发机上一次编好再复制到服务器和各台电脑上:
+项目的 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面仅提供 x86-64 (`amd64`) 架构 Linux 与 Windows 的预编译发布包. 安装服务端时, 请把 `kaze-sync-0.3.4-linux-amd64.tar.gz` (把 `0.3.4` 换成你要安装的版本号) 和 `SHA256SUMS` 下载到同一个目录下 (可以直接下载到服务器, 也可以先下载到工作站再复制过去). 这份 Linux 归档里包含两个静态链接, 无外部依赖的二进制文件: 服务端 `kaze-syncd` 和 Linux 客户端 `kaze-syncc`. 如果你的机器没有预编译包 (例如使用非 x86-64 CPU 的 OpenWrt 路由器), 或你想自己从源码编译, 请参见[附录 A: 从源码编译](#附录-a-从源码编译).
+
+解压前请先用 `SHA256SUMS` 校验归档的 SHA-256 校验和, 确认文件下载完整且未被篡改:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
-CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+sha256sum -c SHA256SUMS
 ```
 
-第四行命令用同一份客户端源码编译出无控制台窗口的版本, 供 Windows 登录自启动时在后台静默运行. 请务必把 `kaze-syncc-agent.exe` 与 `kaze-syncc.exe` 放在同一个目录下. 注意服务端 (`kaze-syncd`) 只支持 x86-64 架构.
+如果你只下载了 `kaze-sync-0.3.4-linux-amd64.tar.gz`, 没有同时下载 Windows 的 `.zip` 归档, `sha256sum` 会提示缺少那个 `.zip` 文件; 只要 `kaze-sync-0.3.4-linux-amd64.tar.gz` 这一行显示 `OK`, 就可以继续.
 
-两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.2.0` 和 `kaze-syncc 0.2.0` (以 `0.2.0` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
+由于该归档把 `kaze-syncd` 和 `kaze-syncc` 直接放在根目录而没有外层文件夹, 请先建一个专用目录再解压:
+
+```bash
+mkdir -p kaze-sync-0.3.4
+tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C kaze-sync-0.3.4
+```
+
+两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.3.4` 和 `kaze-syncc 0.3.4` (以 `0.3.4` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
 
 ### 2.2 OpenWrt
 
 如果服务端运行在 OpenWrt 路由器上, 数据目录必须放在已挂载的独立数据盘上, 不能放在根文件系统 (overlay) 上. `install` 会拒绝根文件系统上的路径, 因为路由器的闪存很小, 很快就会被同步文件写满, 而且升级固件时根文件系统上的数据会被抹掉. 如果路由器只有一块磁盘, 请先在这块盘上划分并挂载一个数据分区, 具体步骤见 [`docs/operations.md`](../operations.md) 的 "OpenWrt 只有一块盘: 新建数据分区" 一节.
 
-挂载好数据盘后, 把 `kaze-syncd` 复制到路由器上, 以 root 执行:
+[2.1 节](#21-下载并校验服务端发布包)的预编译发布包只适用于 x86-64 架构的 OpenWrt 路由器, 其他 CPU 架构的 OpenWrt 没有预编译包 (见[附录 A](#附录-a-从源码编译), 且[第 18 节](#18-kaze-sync-不做什么)说明服务端不支持 x86-64 以外的架构). 挂载好数据盘后, 把 [2.1 节](#21-下载并校验服务端发布包)解压出的 `kaze-syncd` 复制到路由器上 (或直接在路由器上解压校验后的归档), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/mnt/data/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync        # server
@@ -88,7 +129,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 
 ### 2.3 普通 Linux (systemd 或 OpenRC)
 
-在普通 x86-64 Linux 服务器上, 根文件系统空间充足且升级系统不会抹掉数据, 因此数据目录可以选在任意位置 (包括根文件系统上). 以 root 执行:
+在普通 x86-64 Linux 服务器上, 根文件系统空间充足且升级系统不会抹掉数据, 因此数据目录可以选在任意位置 (包括根文件系统上). 在你解压出 `kaze-syncd` 的目录下 ([2.1 节](#21-下载并校验服务端发布包)), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/var/lib/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /var/lib/kaze-sync         # server
@@ -216,7 +257,24 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 ### 3.1 Linux 客户端
 
-在 Linux 电脑上, 请先把 `kaze-syncc` 复制到一个**固定**目录 (例如 `~/.local/bin/`), 因为自启动服务会记录执行 `enroll` 时二进制文件所在的路径. 然后在终端执行对话框里复制的命令:
+在 x86-64 (`amd64`) Linux 电脑上, 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-0.3.4-linux-amd64.tar.gz` (选用与服务端兼容的版本) 和 `SHA256SUMS` 到同一个目录. 该归档内含 `kaze-syncc` 和 `kaze-syncd` 两个程序. (如果你的 Linux 电脑使用其他 CPU 架构, 没有对应的预编译发布包; 请参见[附录 A: 从源码编译](#附录-a-从源码编译).)
+
+解压前先核对校验和:
+
+```bash
+sha256sum -c SHA256SUMS                                # client
+```
+
+(如果你没有同时下载 Windows 的 `.zip` 归档, `sha256sum` 会提示缺少该文件; 确认 `kaze-sync-0.3.4-linux-amd64.tar.gz` 这一行显示 `OK` 即可.)
+
+接下来把 `kaze-syncc` 解压到一个**固定**目录 (例如 `~/.local/bin/`), 因为 `enroll` 会把当时二进制文件所在的路径写入自启动服务, 之后移动文件会导致自启动失效 (归档中同时带有 `kaze-syncc` 和 `kaze-syncd`, 这里只提取 `kaze-syncc`):
+
+```bash
+mkdir -p ~/.local/bin                                  # client
+tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C ~/.local/bin kaze-syncc
+```
+
+然后在终端执行 Web UI 对话框里复制的命令 (如果 `~/.local/bin` 不在 `PATH` 中, 请直接运行 `~/.local/bin/kaze-syncc`):
 
 ```bash
 kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HEX>    # client
@@ -228,7 +286,21 @@ Linux 客户端要求系统提供 systemd 用户会话, 不支持其他初始化
 
 ### 3.2 Windows 客户端
 
-在 Windows 电脑上, 把 `kaze-syncc.exe` 和 `kaze-syncc-agent.exe` 放在同一个固定目录下, 在该目录打开终端, 执行对话框里的注册命令 (`kaze-syncc.exe enroll ...`).
+在 x86-64 (`amd64`) Windows 电脑上, 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-0.3.4-windows-amd64.zip` (选用与服务端兼容的版本) 和 `SHA256SUMS`. 该 `.zip` 归档包含 `kaze-syncc.exe` 和无控制台窗口的 `kaze-syncc-agent.exe`. (如果你的 Windows 电脑使用其他 CPU 架构, 没有对应的预编译发布包; 请参见[附录 A: 从源码编译](#附录-a-从源码编译).)
+
+解压前在 PowerShell 中计算归档的 SHA-256 哈希, 并与 `SHA256SUMS` 中 `kaze-sync-0.3.4-windows-amd64.zip` 那一行比对 (PowerShell 输出大写十六进制而 `SHA256SUMS` 为小写, 大小写不影响校验):
+
+```powershell
+Get-FileHash .\kaze-sync-0.3.4-windows-amd64.zip -Algorithm SHA256
+```
+
+把归档解压到一个**固定**目录 (`<安装目录>`), 让 `kaze-syncc.exe` 和 `kaze-syncc-agent.exe` 一起放在自启动将要记录的目录里:
+
+```powershell
+Expand-Archive .\kaze-sync-0.3.4-windows-amd64.zip -DestinationPath <安装目录>
+```
+
+在 `<安装目录>` 中打开终端, 执行对话框里的注册命令 (`kaze-syncc.exe enroll ...`).
 
 `enroll` 会把设备令牌保存到 `%LOCALAPPDATA%\kaze-sync\`, 在注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下以名称 `kaze-sync` 注册无窗口的 `kaze-syncc-agent.exe` (无需管理员权限), 并立即启动它. 此后每次登录 Windows 时 agent 都会自动在后台启动.
 
@@ -609,7 +681,7 @@ tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                  
 
 按以下四步完成升级:
 
-1. **构建新二进制**: 用新源码编译二进制文件 (2.1 节).
+1. **下载并校验新版本发布包**: 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 获取新版本的 `kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip` 和 `SHA256SUMS`, 按 [2.1 节](#21-下载并校验服务端发布包)和[第 3 节](#3-安装并注册客户端)的步骤校验并解压 (若自行从源码编译, 见[附录 A](#附录-a-从源码编译)).
 2. **升级服务端**: 把新的 `kaze-syncd` 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一个目录>` (OpenWrt 和普通 Linux 相同). 原有的监听端口, 证书和管理员密码都保持不变. `install` 会把新二进制复制进 `<data>/`, 重启服务, 并自动迁移数据库结构 (见下文); 在 systemd 系统上还会重新加载单元定义并重写 `/etc/systemd/system/kaze-sync.service`, 所以自定义的单元修改请务必放在 drop-in 中. (OpenWrt 系统自身的 `sysupgrade` 固件升级不会影响数据盘和 kaze-sync 服务.)
 3. **升级 Linux 客户端**: 停止用户级 agent, 覆盖原路径下的二进制文件, 再重新启动:
 
@@ -619,7 +691,7 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **升级 Windows 客户端**: 替换文件前, 先检查新编译的 `kaze-syncc-agent.exe` 确实带上了 `-ldflags -H=windowsgui`; 执行下面这行命令应输出 `2` (图形子系统), 如果输出 `3` (控制台子系统) 说明每次登录 Windows 都会弹出一个黑框窗口, 不能直接部署:
+4. **升级 Windows 客户端**: 如果 Windows 二进制是你自己从源码编译的 (或想在替换前再核对一次), 请先检查 `kaze-syncc-agent.exe` 确实带上了 `-ldflags -H=windowsgui`; 执行下面这行命令应输出 `2` (图形子系统), 如果输出 `3` (控制台子系统) 说明每次登录 Windows 都会弹出一个黑框窗口, 不能直接部署:
 
 ```
 python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
@@ -746,3 +818,20 @@ rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据�
 - 单个文件超过 128 GiB 时服务端会拒收 (因为服务端需要把单个文件的完整块列表放在内存中处理)
 
 以上各项取舍的设计原因见 [`docs/design.md`](../design.md).
+
+## 附录 A: 从源码编译
+
+如果你的客户端运行在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 未提供预编译包的 CPU 架构上, 或者你希望自己从源码编译, 可以在任意装有 Go 的机器上编译二进制文件 (Go 版本见 `go.mod`, 当前为 1.27.3). 编译产物是静态链接的二进制文件, 没有任何外部依赖, 因此可以在开发机上一次编好再复制到服务器和各台电脑上:
+
+```bash
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+```
+
+第四行命令用同一份客户端源码编译出无控制台窗口的版本, 供 Windows 登录自启动时在后台静默运行. 请务必把 `kaze-syncc-agent.exe` 与 `kaze-syncc.exe` 放在同一个目录下. 为非 x86-64 架构的客户端交叉编译 `kaze-syncc` 时请按目标 CPU 调整 `GOARCH`; 注意服务端 (`kaze-syncd`) 只支持 x86-64 架构 (因此非 x86-64 的 OpenWrt 路由器及其他非 x86-64 服务端主机不受支持).
+
+两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.3.4` 和 `kaze-syncc 0.3.4` (以 `0.3.4` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
+
+编译完成后, 把 `kaze-syncd` 复制到服务器并按 [2.2 节](#22-openwrt) (OpenWrt) 或 [2.3 节](#23-普通-linux-systemd-或-openrc) (普通 Linux) 执行 `install`, 把客户端二进制复制到每台电脑的固定目录并按[第 3 节](#3-安装并注册客户端)执行注册.
