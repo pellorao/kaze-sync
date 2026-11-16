@@ -6,6 +6,10 @@ Notable changes to kaze-sync are grouped by release below; versions follow `vMAJ
 
 ## Unreleased
 
+### Changed
+
+- The server now calculates its GC reference-array budget once at startup as 3/8 of the smaller of physical memory and the cgroup memory limit, with a 64 MB minimum and a 64 MB fallback when physical memory cannot be read. A 512 MB machine gets a 192 MB budget for about 6 million references in one pass. Small data sets still allocate only the array they need; no configuration option is added. GC logs include `budget` in bytes.
+
 ### Fixed
 
 - The device list and device details show the client release version (`x.y.z`) reported by poll requests instead of the integer protocol version. Older clients that do not report a release version show `-`. The protocol version remains 6.
