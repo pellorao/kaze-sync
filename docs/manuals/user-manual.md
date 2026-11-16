@@ -13,6 +13,41 @@ Throughout this manual, we follow two conventions:
 
 System-level deployment details that are the same for every installation—such as partitioning the single disk of an OpenWrt router, systemd hardening, and the exact memory budget—live in [`docs/operations.md`](../operations.md) (written in Chinese). This manual points to the relevant sections there instead of repeating them.
 
+## Table of contents
+
+- [1. How the pieces fit](#1-how-the-pieces-fit)
+- [2. Installing the server](#2-installing-the-server)
+  - [2.1 Download and verify the server package](#21-download-and-verify-the-server-package)
+  - [2.2 OpenWrt](#22-openwrt)
+  - [2.3 Plain Linux (systemd or OpenRC)](#23-plain-linux-systemd-or-openrc)
+  - [2.4 Port, certificate and firewall](#24-port-certificate-and-firewall)
+  - [2.5 First login and the admin password](#25-first-login-and-the-admin-password)
+  - [2.6 Ports and firewall rules](#26-ports-and-firewall-rules)
+- [3. Installing and enrolling clients](#3-installing-and-enrolling-clients)
+  - [3.1 Linux client](#31-linux-client)
+  - [3.2 Windows client](#32-windows-client)
+  - [3.3 After enrolling](#33-after-enrolling)
+- [4. The Web UI](#4-the-web-ui)
+- [5. Folders and mappings](#5-folders-and-mappings)
+  - [5.1 Write control: who may write where](#51-write-control-who-may-write-where)
+- [6. Devices](#6-devices)
+- [7. Exclusion rules](#7-exclusion-rules)
+- [8. Simultaneous writes and the decision dialog](#8-simultaneous-writes-and-the-decision-dialog)
+- [9. Notifications](#9-notifications)
+  - [9.1 Push messages with ntfy](#91-push-messages-with-ntfy)
+- [10. Files in use and SQLite databases](#10-files-in-use-and-sqlite-databases)
+- [11. Restoring old content](#11-restoring-old-content)
+- [12. Export to plain files](#12-export-to-plain-files)
+- [13. Retention and garbage collection](#13-retention-and-garbage-collection)
+- [14. Backup and restore of the server](#14-backup-and-restore-of-the-server)
+- [15. Upgrading](#15-upgrading)
+- [16. Uninstalling](#16-uninstalling)
+  - [16.1 Client](#161-client)
+  - [16.2 Server](#162-server)
+- [17. Troubleshooting](#17-troubleshooting)
+- [18. What kaze-sync does not do](#18-what-kaze-sync-does-not-do)
+- [Appendix A: Building from source](#appendix-a-building-from-source)
+
 ## 1. How the pieces fit
 
 Before installing anything, it helps to see how the parts of kaze-sync fit together so that every command and screen in the rest of this manual makes sense:
@@ -38,28 +73,34 @@ For anything else where you choose the path yourself—such as the `--data` dire
 
 ## 2. Installing the server
 
-Because clients connect to the server to enroll and receive their configuration, you always start by building the binaries and setting up the server.
+Because clients connect to the server to enroll and receive their configuration, you always start by getting the server binary and setting up the server.
 
-### 2.1 Build the binaries
+### 2.1 Download and verify the server package
 
-There are no prebuilt release downloads; instead, you build the binaries from source on any machine with Go installed (use the version specified in `go.mod`, currently 1.27.3). The resulting binaries are statically linked and have no external dependencies, so you can build them on your workstation and copy them to your server and clients:
+Prebuilt release packages are published on the project's [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page for x86-64 (`amd64`) Linux and Windows only. For the server, download `kaze-sync-0.3.4-linux-amd64.tar.gz` (replacing `0.3.4` with the release version you want) together with `SHA256SUMS` into the same directory—either directly on the server, or on your workstation if you will copy the binary over afterward. That Linux archive holds both statically linked, dependency-free binaries: `kaze-syncd` (the server) and `kaze-syncc` (the Linux client). If your machine has no prebuilt package—for example, an OpenWrt router whose CPU is not x86-64—or if you prefer to compile the binaries yourself, see [Appendix A: Building from source](#appendix-a-building-from-source).
+
+Before unpacking the archive, verify its SHA-256 checksum against `SHA256SUMS` so you know the download was neither corrupted nor altered:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
-CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+sha256sum -c SHA256SUMS
 ```
 
-The fourth command compiles the exact same Windows client without a console window so that Windows can run it silently at sign-in. Always keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. Note that the server (`kaze-syncd`) is supported only on x86-64.
+If you downloaded only `kaze-sync-0.3.4-linux-amd64.tar.gz` and not `kaze-sync-0.3.4-windows-amd64.zip`, `sha256sum` will report that the Windows `.zip` file is missing; confirm that the line for `kaze-sync-0.3.4-linux-amd64.tar.gz` prints `OK` before continuing.
 
-Both binaries embed the release version at build time: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.2.0` and `kaze-syncc 0.2.0` (for the `0.2.0` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
+Because the archive stores `kaze-syncd` and `kaze-syncc` at its root without a wrapper directory, create a dedicated directory and unpack into it:
+
+```bash
+mkdir -p kaze-sync-0.3.4
+tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C kaze-sync-0.3.4
+```
+
+Both binaries embed the release version: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.4` and `kaze-syncc 0.3.4` (for the `0.3.4` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
 
 ### 2.2 OpenWrt
 
 If your server is an OpenWrt router, you must store data on a mounted data disk rather than on the root file system (overlay). `install` refuses a data directory on the root file system because synced files would quickly fill the router's small flash storage and a system upgrade would erase them. If your router has only a single disk, create a dedicated data partition on it first; see "OpenWrt 只有一块盘: 新建数据分区" in [`docs/operations.md`](../operations.md).
 
-Once your data disk is mounted, copy `kaze-syncd` to the router and run these commands as root:
+The prebuilt `kaze-sync-0.3.4-linux-amd64.tar.gz` archive works only on x86-64 OpenWrt routers; there is no prebuilt package for any other OpenWrt CPU architecture (see [Appendix A](#appendix-a-building-from-source), and note in [section 18](#18-what-kaze-sync-does-not-do) that non-x86-64 servers are unsupported). Once your data disk is mounted, copy the unpacked `kaze-syncd` binary from [section 2.1](#21-download-and-verify-the-server-package) to the router (or unpack the verified archive directly on the router) and run these commands as root (`install` copies `kaze-syncd` into `/mnt/data/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync        # server
@@ -88,7 +129,7 @@ You can customize the installation with these options:
 
 ### 2.3 Plain Linux (systemd or OpenRC)
 
-On a standard x86-64 Linux server, the root file system has plenty of space and persists across upgrades, so you can place the data directory anywhere you like (including on the root file system). Run as root:
+On a standard x86-64 Linux server, the root file system has plenty of space and persists across upgrades, so you can place the data directory anywhere you like (including on the root file system). From the directory where you unpacked `kaze-syncd` ([section 2.1](#21-download-and-verify-the-server-package)), run as root (`install` copies `kaze-syncd` into `/var/lib/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /var/lib/kaze-sync         # server
@@ -216,7 +257,24 @@ Make sure the server URL in the command uses whatever hostname or IP address you
 
 ### 3.1 Linux client
 
-On Linux, copy `kaze-syncc` to a **permanent** directory first—such as `~/.local/bin/`—because the autostart service records the exact path from which you run `enroll`. Then run the command from the Web UI dialog:
+On an x86-64 (`amd64`) Linux computer, download `kaze-sync-0.3.4-linux-amd64.tar.gz` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page into the same directory. That archive holds both `kaze-syncc` and `kaze-syncd`. (If your Linux computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
+
+First verify the checksum before unpacking:
+
+```bash
+sha256sum -c SHA256SUMS                                # client
+```
+
+(If you did not also download the Windows `.zip`, `sha256sum` notes that it is missing; confirm that `kaze-sync-0.3.4-linux-amd64.tar.gz` prints `OK`.)
+
+Next, unpack `kaze-syncc` into a **permanent** directory—such as `~/.local/bin/`—because the autostart service records the exact path from which you run `enroll` (so moving the binary later would break autostart):
+
+```bash
+mkdir -p ~/.local/bin                                  # client
+tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C ~/.local/bin kaze-syncc
+```
+
+Then run the enrollment command from the Web UI dialog (run `~/.local/bin/kaze-syncc` if `~/.local/bin` is not in your `PATH`):
 
 ```bash
 kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HEX>    # client
@@ -228,7 +286,21 @@ Linux clients require a systemd user session; other init systems are not support
 
 ### 3.2 Windows client
 
-On Windows, place both `kaze-syncc.exe` and `kaze-syncc-agent.exe` together in a permanent directory, open a terminal in that directory, and run the enrollment command from the dialog (`kaze-syncc.exe enroll ...`).
+On an x86-64 (`amd64`) Windows computer, download `kaze-sync-0.3.4-windows-amd64.zip` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page. The `.zip` archive contains `kaze-syncc.exe` and the windowless `kaze-syncc-agent.exe`. (If your Windows computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
+
+Verify the archive in PowerShell before unpacking, and compare the printed hash against the `kaze-sync-0.3.4-windows-amd64.zip` line in `SHA256SUMS` (PowerShell outputs uppercase hex while `SHA256SUMS` uses lowercase; case does not matter):
+
+```powershell
+Get-FileHash .\kaze-sync-0.3.4-windows-amd64.zip -Algorithm SHA256
+```
+
+Unpack the archive into a **permanent** directory (`<install directory>`) so both `kaze-syncc.exe` and `kaze-syncc-agent.exe` stay together in the folder that autostart will record:
+
+```powershell
+Expand-Archive .\kaze-sync-0.3.4-windows-amd64.zip -DestinationPath <install directory>
+```
+
+Open a terminal in `<install directory>` and run the enrollment command from the dialog (`kaze-syncc.exe enroll ...`).
 
 `enroll` saves the device token in `%LOCALAPPDATA%\kaze-sync\`, registers the windowless `kaze-syncc-agent.exe` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` with the value name `kaze-sync` (which requires no administrator privileges), and starts the agent immediately. From then on, the agent starts automatically whenever you sign in to Windows.
 
@@ -609,7 +681,7 @@ When upgrading to a newer version of kaze-sync, always upgrade the **server firs
 
 Follow these four steps to upgrade:
 
-1. **Build the new binaries** from the updated source (section 2.1).
+1. **Download and verify the new release packages** (`kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip`, and `SHA256SUMS` from [GitHub Releases](https://github.com/pellorao/kaze-sync/releases), following [section 2.1](#21-download-and-verify-the-server-package) and [section 3](#3-installing-and-enrolling-clients); if you build from source instead, see [Appendix A](#appendix-a-building-from-source)).
 2. **Upgrade the server.** Copy the new `kaze-syncd` binary to the server and run `./kaze-syncd install --data <same directory>` as root (on both OpenWrt and plain Linux). Your listening port, certificate, and admin password remain unchanged. `install` copies the new binary into `<data>/`, restarts the service, and automatically migrates the databases (see below). On systemd, `install` also reloads the daemon and rewrites `/etc/systemd/system/kaze-sync.service`, so keep any custom unit settings in a systemd drop-in. (On OpenWrt, running a system firmware upgrade via `sysupgrade` leaves both the data disk and the kaze-sync service intact.)
 3. **Upgrade each Linux client.** Stop the user agent, overwrite the binary at its existing path, and start the agent again:
 
@@ -619,7 +691,7 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **Upgrade each Windows client.** Before copying the new Windows binaries, verify that `kaze-syncc-agent.exe` was built with `-ldflags -H=windowsgui`. Run this check—it must print `2` (GUI subsystem) and never `3` (console subsystem, which would pop up a visible terminal window at every Windows sign-in):
+4. **Upgrade each Windows client.** If you built the Windows binaries from source (or want to double-check a binary before copying it), verify that `kaze-syncc-agent.exe` was built with `-ldflags -H=windowsgui`. Run this check—it must print `2` (GUI subsystem) and never `3` (console subsystem, which would pop up a visible terminal window at every Windows sign-in):
 
 ```
 python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
@@ -746,3 +818,20 @@ To stay light enough for a 512 MB router while remaining simple to operate, kaze
 - Single files larger than 128 GiB are refused by the server (because the server holds the block list of a single file in memory)
 
 For the engineering reasons behind each of these choices, see [`docs/design.md`](../design.md).
+
+## Appendix A: Building from source
+
+If your client runs on a CPU architecture that has no prebuilt package on [GitHub Releases](https://github.com/pellorao/kaze-sync/releases), or if you prefer to compile the binaries yourself, you can build them from source on any machine with Go installed (use the version specified in `go.mod`, currently 1.27.3). The resulting binaries are statically linked and have no external dependencies, so you can build them on your workstation and copy them to your server and clients:
+
+```bash
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+```
+
+The fourth command compiles the exact same Windows client without a console window so that Windows can run it silently at sign-in. Always keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. Adjust `GOARCH` when cross-compiling `kaze-syncc` for a non-x86-64 client; note that the server (`kaze-syncd`) is supported only on x86-64 (so non-x86-64 OpenWrt routers and other non-x86-64 server hosts are unsupported).
+
+Both binaries embed the release version at build time: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.4` and `kaze-syncc 0.3.4` (for the `0.3.4` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
+
+Once built, copy `kaze-syncd` to your server and follow [section 2.2](#22-openwrt) (OpenWrt) or [section 2.3](#23-plain-linux-systemd-or-openrc) (plain Linux) to install it, and copy the client binaries to a permanent directory on each computer to enroll them as described in [section 3](#3-installing-and-enrolling-clients).
