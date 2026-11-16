@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"kaze-sync/internal/resources"
 )
 
 // HashLen is the size of a Hash in bytes.
@@ -143,6 +144,8 @@ type FolderState struct {
 }
 
 type PollReq struct {
+	Resources []resources.Day `json:"resources,omitempty"` // optional local-day resource summaries; at most two
+
 	Cursors       map[int64]int64 `json:"cursors,omitempty"` // folder id -> last seq the client knows
 	ConfigVersion int64           `json:"config_version"`
 	AgentVersion  int             `json:"agent_version"`

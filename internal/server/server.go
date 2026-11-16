@@ -23,6 +23,7 @@ import (
 
 	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/resources"
 )
 
 // Tunables.
@@ -35,6 +36,8 @@ const (
 )
 
 type Server struct {
+	resources *resources.Collector
+
 	db     *sql.DB // global database (meta.db)
 	varDir string
 	blobs  *blobstore.Store
@@ -84,6 +87,9 @@ type pendingCode struct {
 
 // report is the last state a device sent with a poll.
 type report struct {
+	resources   []resources.Day
+	resourcesAt time.Time
+
 	req       proto.PollReq
 	at        time.Time // when the last poll ended (or the report arrived)
 	lastWrite time.Time
@@ -133,7 +139,8 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 		now = time.Now
 	}
 	return &Server{
-		boot: randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
+		resources: resources.New(),
+		boot:      randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
 		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),

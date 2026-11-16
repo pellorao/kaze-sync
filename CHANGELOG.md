@@ -8,6 +8,8 @@ Notable changes to kaze-sync are grouped by release below; versions follow `vMAJ
 
 ### Changed
 
+- Both processes now sample RSS and CPU once per minute and keep today/yesterday summaries in memory. Clients attach summaries to poll requests (protocol 6); the admin-session-protected `GET /resources` returns server and device statistics. Server GC time, CPU, reference counts, budget and observed RSS peaks are reported separately, with explicit coverage and peak-certainty flags. No metrics files, database writes, new dependencies or UI controls are added.
+
 - The server now calculates its GC reference-array budget once at startup as 3/8 of the smaller of physical memory and the cgroup memory limit, with a 64 MB minimum and a 64 MB fallback when physical memory cannot be read. A 512 MB machine gets a 192 MB budget for about 6 million references in one pass. Small data sets still allocate only the array they need; no configuration option is added. GC logs include `budget` in bytes.
 
 ### Fixed

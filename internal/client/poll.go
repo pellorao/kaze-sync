@@ -27,6 +27,9 @@ func (a *Agent) pollLoop(ctx context.Context) {
 		}
 		a.mu.Lock()
 		req := proto.PollReq{Cursors: map[int64]int64{}, ConfigVersion: a.cfg.Version, AgentVersion: proto.AgentVersion, ClientVersion: version.Version, OS: a.OS, Hostname: a.Hostname, Folders: a.states()}
+		if a.resources != nil {
+			req.Resources = a.resources.Days(time.Now())
+		}
 		for id, r := range a.runners {
 			cur := r.seen
 			if (r.busy || r.s.pull || !r.ready) && r.acked >= 0 {

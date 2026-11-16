@@ -66,6 +66,8 @@ func Run(ctx context.Context, data string) error {
 	if caMode { // after Push is set: the first check may already raise an alert
 		go s.certLoop(ctx, data)
 	}
+	stopResources := s.resources.Start(ctx)
+	defer stopResources()
 	go s.gcLoop(ctx)
 	go s.pushLoop(ctx)
 	slog.Info("listening", "addr", ln.Addr().String(), "fingerprint", s.Fingerprint)

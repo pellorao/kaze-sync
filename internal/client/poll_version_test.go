@@ -33,6 +33,9 @@ func TestAgentPollReportsReleaseVersion(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	select {
 	case req := <-requests:
+		if days, ok := req["resources"].([]any); !ok || len(days) != 1 {
+			t.Errorf("resources = %v, want initial day summary", req["resources"])
+		}
 		if req["client_version"] != version.Version {
 			t.Errorf("client_version = %v, want %q", req["client_version"], version.Version)
 		}

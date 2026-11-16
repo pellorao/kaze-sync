@@ -252,6 +252,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /events", s.events)
 	for pattern, h := range map[string]handler{
+		"GET /resources":                    s.resourceJSON,
 		"GET /{$}":                          s.overview,
 		"POST /devices/add":                 s.addDevice,
 		"POST /folders/new":                 s.newFolder,
