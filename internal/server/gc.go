@@ -7,7 +7,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"kaze-sync/internal/blobstore"
@@ -21,7 +25,84 @@ const (
 )
 
 // GCMemoryBudget bounds the memory of the reference array of one GC pass (design 7).
-const GCMemoryBudget = 64 << 20
+var GCMemoryBudget = gcMemoryBudget("/proc/meminfo", gcMemoryLimitPaths("/proc/self/cgroup", "/sys/fs/cgroup")...)
+
+// gcMemoryLimitPaths includes the current cgroup and its ancestors: a service
+// can inherit a finite limit even when its own memory.max says "max".
+func gcMemoryLimitPaths(membership, root string) []string {
+	paths := []string{filepath.Join(root, "memory.max"), filepath.Join(root, "memory", "memory.limit_in_bytes")}
+	data, err := os.ReadFile(membership)
+	if err != nil {
+		return paths
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.SplitN(line, ":", 3)
+		if len(fields) != 3 || !strings.HasPrefix(fields[2], "/") {
+			continue
+		}
+		base, name := root, "memory.max"
+		if fields[0] != "0" || fields[1] != "" {
+			if !slices.Contains(strings.Split(fields[1], ","), "memory") {
+				continue
+			}
+			base, name = filepath.Join(root, "memory"), "memory.limit_in_bytes"
+		}
+		for group := filepath.Clean(fields[2]); group != "/"; group = filepath.Dir(group) {
+			paths = append(paths, filepath.Join(base, strings.TrimPrefix(group, "/"), name))
+		}
+	}
+	return paths
+}
+
+// gcMemoryBudget is computed once at startup. Missing or unlimited cgroups do
+// not constrain MemTotal; unreadable physical memory keeps the 64 MiB fallback.
+// Paths are arguments so tests never depend on the host's memory or cgroups.
+func gcMemoryBudget(meminfo string, limits ...string) int64 {
+	const floor = 64 << 20
+	total := readMemTotal(meminfo)
+	if total == 0 {
+		return floor
+	}
+	for _, path := range limits {
+		if limit := readMemoryLimit(path); limit >= 0 {
+			total = min(total, limit)
+		}
+	}
+	// Divide before multiplying to avoid overflow, preserving floor(total*3/8).
+	return max(floor, total/8*3+total%8*3/8)
+}
+
+func readMemTotal(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 3 && fields[0] == "MemTotal:" && fields[2] == "kB" {
+			n, err := strconv.ParseInt(fields[1], 10, 64)
+			if err == nil && n > 0 && n <= (1<<63-1)/1024 {
+				return n * 1024
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+func readMemoryLimit(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return -1
+	}
+	// v2's "max" is nonnumeric. v1 uses a value close to MaxInt64 for
+	// unlimited memory; values of at least 1 EiB cannot be a real limit here.
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil || n < 0 || n >= 1<<60 {
+		return -1
+	}
+	return n
+}
 
 const hashLen = proto.HashLen
 
@@ -193,7 +274,7 @@ func (s *Server) requestGC() {
 		for again := true; again; {
 			start := time.Now()
 			st, err := s.gc()
-			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "took", time.Since(start).Round(time.Millisecond), "err", err)
+			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "budget", GCMemoryBudget, "took", time.Since(start).Round(time.Millisecond), "err", err)
 			if err != nil {
 				s.Push.Fail("gc", "The server's daily cleanup failed", 1)
 			} else {
