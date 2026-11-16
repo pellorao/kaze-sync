@@ -246,12 +246,16 @@ func (s *Server) cursors(deviceID int64) map[int64]int64 {
 }
 
 func (s *Server) pollStart(id int64, req proto.PollReq) {
+	days := clientResourceDays(req.Resources, s.now())
+	req.Resources = nil // resource samples do not invalidate the Web UI
+
 	s.mu.Lock()
 	rep := s.reports[id]
 	if rep == nil {
 		rep = &report{}
 		s.reports[id] = rep
 	}
+	rep.resources, rep.resourcesAt = days, s.now()
 	changed := !rep.online(s.now()) || !reflect.DeepEqual(rep.req, req)
 	rep.req, rep.at, rep.tooOld = req, s.now(), 0
 	rep.pending++

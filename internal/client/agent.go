@@ -18,6 +18,7 @@ import (
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/client/watch"
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/resources"
 )
 
 // openRetryAfter is how long a folder whose state cannot be opened is left alone before the next try.
@@ -48,6 +49,8 @@ const syncingAfter = 3 * time.Second
 // scanned and pulled on start, after file events (debounced), when the server
 // has news, when something was postponed, and periodically.
 type Agent struct {
+	resources *resources.Collector
+
 	Dir                      string // state directory
 	API                      *API
 	NewFS                    func(root string) cfs.FS
@@ -104,6 +107,9 @@ type runner struct {
 }
 
 func (a *Agent) Run(ctx context.Context) error {
+	a.resources = resources.New()
+	stopResources := a.resources.Start(ctx)
+	defer stopResources()
 	a.kick, a.applied = make(chan struct{}, 1), make(chan struct{}, 1)
 	a.runners, a.openRetry = map[int64]*runner{}, map[int64]*openFail{}
 	if a.Debounce == 0 {

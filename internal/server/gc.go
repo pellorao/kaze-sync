@@ -16,6 +16,7 @@ import (
 
 	"kaze-sync/internal/blobstore"
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/resources"
 )
 
 // GC schedule (design 7).
@@ -217,7 +218,11 @@ func sweepPasses(sources []refSource, budget int64, sweep func(lo, hi int, refer
 	return k, nil
 }
 
-type gcStats struct{ versions, blobs, tmp, passes int }
+type gcStats struct {
+	versions, blobs, tmp, passes int
+	blockRefs                    int64
+	refsKnown                    bool
+}
 
 // gc removes the versions older than keep_days, then the blocks no file or version references and the
 // leftovers in tmp/ (design 7). It must not run twice at once: use requestGC.
@@ -244,9 +249,18 @@ func (s *Server) gc() (st gcStats, err error) {
 		}
 		n, _ := res.RowsAffected()
 		st.versions += int(n)
-		sources = append(sources, folderRefs(db))
+		src := folderRefs(db)
+		n, countErr := src.count()
+		if countErr != nil {
+			return st, countErr
+		}
+		st.blockRefs += n
+		src.count = func() (int64, error) { return n, nil }
+		sources = append(sources, src)
 	}
+	st.refsKnown = true
 	st.passes, err = sweepPasses(sources, GCMemoryBudget, func(lo, hi int, referenced func(blobstore.Hash) bool) error {
+		s.resources.Checkpoint() // reference array remains live until sweep completes
 		n, err := s.blobs.SweepBlobs(lo, hi, referenced, gcGrace)
 		st.blobs += n
 		return err
@@ -273,8 +287,22 @@ func (s *Server) requestGC() {
 		defer s.gcWG.Done()
 		for again := true; again; {
 			start := time.Now()
+			before, readErr := resources.ReadSelf()
+			if readErr != nil {
+				before = resources.Reading{CPU: -1}
+			}
+			s.resources.BeginGC(start, before, GCMemoryBudget)
 			st, err := s.gc()
-			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "budget", GCMemoryBudget, "took", time.Since(start).Round(time.Millisecond), "err", err)
+			after, readErr := resources.ReadSelf()
+			if readErr != nil {
+				after = resources.Reading{CPU: -1}
+			}
+			cycle := s.resources.EndGC(time.Now(), after, st.blockRefs, st.refsKnown)
+			var blockRefs any
+			if cycle.BlockRefs != nil {
+				blockRefs = *cycle.BlockRefs
+			}
+			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "budget", GCMemoryBudget, "block_refs", blockRefs, "peak_rss_MB", cycle.PeakRSSMB, "peak_exact", cycle.PeakExact, "cpu_s", cycle.CPUSeconds, "seconds", cycle.Seconds, "coverage_seconds", cycle.CoverageSeconds, "took", time.Since(start).Round(time.Millisecond), "err", err)
 			if err != nil {
 				s.Push.Fail("gc", "The server's daily cleanup failed", 1)
 			} else {
