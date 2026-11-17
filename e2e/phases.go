@@ -140,9 +140,7 @@ func (d *driver) reboot(command string) error {
 	d.vm.SSH(command)
 	time.Sleep(15 * time.Second)
 	return waitFor("new boot", 6*time.Minute, func() (bool, error) {
-		if d.vm.WaitIP(10*time.Second) != nil {
-			return false, fmt.Errorf("no IP")
-		}
+		d.vm.SetIP()
 		id := d.bootID()
 		return id != "" && id != old, fmt.Errorf("boot id %q", id)
 	})

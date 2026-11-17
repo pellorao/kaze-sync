@@ -33,15 +33,13 @@ type node struct {
 }
 
 type Mem struct {
-	mu        sync.Mutex
-	ci        bool
-	noLinks   bool
-	capacity  int64
-	root      *node
-	clock     int64 // logical time: every modification advances it
-	locked    map[*node]bool
-	failAfter int // calls left before the injected failure, -1 if none
-	failErr   error
+	mu       sync.Mutex
+	ci       bool
+	noLinks  bool
+	capacity int64
+	root     *node
+	clock    int64 // logical time: every modification advances it
+	locked   map[*node]bool
 }
 
 func NewMem(opts MemOptions) *Mem {
@@ -49,22 +47,13 @@ func NewMem(opts MemOptions) *Mem {
 		opts.Clock = 1_000_000_000_000
 	}
 	return &Mem{
-		ci:        opts.CaseInsensitive,
-		noLinks:   opts.NoSymlinks,
-		capacity:  opts.Capacity,
-		root:      &node{dir: true, kids: map[string]*node{}},
-		clock:     opts.Clock,
-		locked:    map[*node]bool{},
-		failAfter: -1,
+		ci:       opts.CaseInsensitive,
+		noLinks:  opts.NoSymlinks,
+		capacity: opts.Capacity,
+		root:     &node{dir: true, kids: map[string]*node{}},
+		clock:    opts.Clock,
+		locked:   map[*node]bool{},
 	}
-}
-
-// FailAfter lets the next n calls succeed and makes the call after them fail
-// with err (once). Calls are the FS methods, not Write or Close on handles.
-func (m *Mem) FailAfter(n int, err error) {
-	m.mu.Lock()
-	m.failAfter, m.failErr = n, err
-	m.mu.Unlock()
 }
 
 // Lock makes Open, OpenAppend, Rename and Remove of the existing file p fail
@@ -96,19 +85,6 @@ func (m *Mem) key(name string) string {
 
 func pathErr(op, p string, err error) error { return &os.PathError{Op: op, Path: p, Err: err} }
 
-// begin counts a call and returns the injected failure if it is due. Callers hold m.mu.
-func (m *Mem) begin(op, p string) error {
-	switch {
-	case m.failAfter < 0:
-	case m.failAfter == 0:
-		m.failAfter = -1
-		return pathErr(op, p, m.failErr)
-	default:
-		m.failAfter--
-	}
-	return nil
-}
-
 // find resolves p to its parent directory, last name and node (nil if only the last element is missing).
 func (m *Mem) find(p string) (parent *node, base string, n *node, err error) {
 	p = path.Clean(p)
@@ -134,9 +110,6 @@ func (m *Mem) find(p string) (parent *node, base string, n *node, err error) {
 }
 
 func (m *Mem) lookup(op, p string) (*node, error) {
-	if err := m.begin(op, p); err != nil {
-		return nil, err
-	}
 	_, _, n, err := m.find(p)
 	if err == nil && n == nil {
 		err = fs.ErrNotExist
@@ -222,9 +195,6 @@ func (w memWriter) Close() error { return nil }
 func (m *Mem) OpenAppend(p string) (io.WriteCloser, int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.begin("open", p); err != nil {
-		return nil, 0, err
-	}
 	parent, base, n, err := m.find(p)
 	switch {
 	case err != nil:
@@ -253,9 +223,6 @@ func (m *Mem) Sync(p string) error {
 func (m *Mem) Rename(oldp, newp string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.begin("rename", oldp); err != nil {
-		return err
-	}
 	op, ob, on, err := m.find(oldp)
 	if err == nil && on == nil {
 		err = fs.ErrNotExist
@@ -285,9 +252,6 @@ func (m *Mem) Rename(oldp, newp string) error {
 func (m *Mem) Remove(p string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.begin("remove", p); err != nil {
-		return err
-	}
 	parent, base, n, err := m.find(p)
 	switch {
 	case err != nil || n == nil || parent == nil:
@@ -304,9 +268,6 @@ func (m *Mem) Remove(p string) error {
 func (m *Mem) MkdirAll(p string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.begin("mkdir", p); err != nil {
-		return err
-	}
 	n := m.root
 	for _, seg := range strings.Split(strings.TrimPrefix(path.Clean(p), "/"), "/") {
 		if seg == "." {
@@ -351,9 +312,6 @@ func (m *Mem) Readlink(p string) (string, error) {
 func (m *Mem) Symlink(target, p string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.begin("symlink", p); err != nil {
-		return err
-	}
 	if m.noLinks {
 		return pathErr("symlink", p, ErrLinkUnsupported)
 	}

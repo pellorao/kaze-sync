@@ -43,7 +43,6 @@ type driver struct {
 	web     *webClient
 	agents  []*agent
 	fails   []string
-	current string
 	only    string
 	metrics []string
 	m7      *m7State
@@ -123,7 +122,6 @@ func (d *driver) metric(format string, a ...any) {
 
 // step runs one named check and records a failure; it reports success.
 func (d *driver) step(name string, f func() error) bool {
-	d.current = name
 	t := time.Now()
 	if err := f(); err != nil {
 		log.Printf("FAIL %s: %v", name, err)
@@ -198,13 +196,11 @@ func (d *driver) boot() error {
 	if _, err := d.vm.Vmrun("start", "nogui"); err != nil {
 		return err
 	}
-	return d.waitBack(true)
+	return d.waitBack()
 }
 
-func (d *driver) waitBack(first bool) error {
-	if err := d.vm.WaitIP(bootTimeout); err != nil {
-		return err
-	}
+func (d *driver) waitBack() error {
+	d.vm.SetIP()
 	return d.vm.WaitSSH(bootTimeout)
 }
 

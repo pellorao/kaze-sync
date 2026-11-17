@@ -390,8 +390,6 @@ func (d *driver) sysupgrade() error {
 	if err != nil {
 		return err
 	}
-	pid0, _ := d.serverPID()
-	_ = pid0
 	img, err := vmctl.Image(d.cfg)
 	if err != nil {
 		return err

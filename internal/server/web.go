@@ -1053,19 +1053,17 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		return err
 	}
 	nLocks := 0
-	if err == nil {
-		type lc struct{ folder, n int64 }
-		cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
-			`SELECT folder_id, count(*) FROM writectl WHERE mode='exclusive' AND device_id=? GROUP BY folder_id`, d.ID)
-		if lerr != nil {
-			return lerr
-		}
-		for _, c := range cnt {
-			nLocks += int(c.n)
-			for i := range maps {
-				if maps[i].FolderID == c.folder {
-					maps[i].Locks = int(c.n)
-				}
+	type lc struct{ folder, n int64 }
+	cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
+		`SELECT folder_id, count(*) FROM writectl WHERE mode='exclusive' AND device_id=? GROUP BY folder_id`, d.ID)
+	if lerr != nil {
+		return lerr
+	}
+	for _, c := range cnt {
+		nLocks += int(c.n)
+		for i := range maps {
+			if maps[i].FolderID == c.folder {
+				maps[i].Locks = int(c.n)
 			}
 		}
 	}
@@ -1222,35 +1220,25 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	freed, err := releaseExclusive(tx, d.ID, 0) // a revoked device would leave its range frozen
-	if err != nil {
-		return err
-	}
-	if freed > 0 { // the configuration of the other devices changes
-		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
-			return err
+	err = s.configChange(func(tx *sql.Tx) (bool, error) {
+		freed, err := releaseExclusive(tx, d.ID, 0) // a revoked device would leave its range frozen; the other devices' configuration changes
+		if err != nil {
+			return false, err
 		}
-	}
-	for _, q := range []string{`DELETE FROM mappings WHERE device_id=?`, `DELETE FROM devices WHERE id=?`} {
-		if _, err := tx.Exec(q, d.ID); err != nil {
-			return err
+		for _, q := range []string{`DELETE FROM mappings WHERE device_id=?`, `DELETE FROM devices WHERE id=?`} {
+			if _, err := tx.Exec(q, d.ID); err != nil {
+				return false, err
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		return freed > 0, nil
+	})
+	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	delete(s.reports, d.ID)
 	s.bumpLocked()
 	s.mu.Unlock()
-	if freed > 0 {
-		s.broadcast()
-	}
 	slog.Info("device revoked", "device", d.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil

@@ -48,12 +48,9 @@ func (v *VM) Running() bool {
 	return strings.Contains(strings.ToLower(out), strings.ToLower(v.Cfg.Vmx))
 }
 
-// WaitIP sets the VM's address: it is fixed by the image (the VMware Tools
+// SetIP sets the VM's address: it is fixed by the image (the VMware Tools
 // of OpenWrt cannot answer vmrun getGuestIPAddress).
-func (v *VM) WaitIP(time.Duration) error {
-	v.IP = v.Cfg.IP
-	return nil
-}
+func (v *VM) SetIP() { v.IP = v.Cfg.IP }
 
 // WaitSSH retries a trivial command until SSH answers with the pinned key.
 func (v *VM) WaitSSH(timeout time.Duration) error {
