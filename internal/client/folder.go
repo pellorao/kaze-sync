@@ -793,9 +793,13 @@ func pruneDirs(dirs []string) (out []string, rootOnly bool) {
 		switch d {
 		case "", "/":
 			return nil, false
-		case ".":
-			rootOnly = true
+		case ".", "..":
+			rootOnly = true // ".." is an event on the root itself, whose parent is outside the folder
 		default:
+			if strings.HasPrefix(d, "../") {
+				rootOnly = true
+				continue
+			}
 			if n := len(out); n == 0 || !strings.HasPrefix(d, out[n-1]+"/") {
 				out = append(out, d)
 			}

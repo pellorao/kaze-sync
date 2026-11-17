@@ -4,6 +4,7 @@ package watch
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -38,7 +39,11 @@ func Start(root string, out chan<- string) (*Watcher, error) {
 					return
 				}
 				rel, _ := filepath.Rel(root, filepath.Dir(ev.Name))
-				send(filepath.ToSlash(rel))
+				rel = filepath.ToSlash(rel)
+				if rel == ".." || strings.HasPrefix(rel, "../") {
+					rel = "." // an attribute event on the root itself: its parent directory is outside the folder
+				}
+				send(rel)
 			case _, ok := <-fw.Errors:
 				if !ok {
 					return

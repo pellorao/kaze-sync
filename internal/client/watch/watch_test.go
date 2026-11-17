@@ -86,3 +86,28 @@ func TestNewSubdirectoryAfterAdd(t *testing.T) {
 	touch(t, root, "new/f", "1")
 	expect(t, out, "new")
 }
+
+// A change to the watched root itself (chmod, touch) must be reported as ".", never as a path outside the root.
+func TestRootAttributeChangeIsRootHint(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "root")
+	mkdirs(t, parent, "root")
+	_, out := start(t, root)
+	if err := os.Chmod(root, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	timeout := time.After(time.Second)
+	for {
+		select {
+		case got := <-out:
+			if got == ".." || got == "../" {
+				t.Fatalf("hint %q points outside the root", got)
+			}
+			if got == "." {
+				return
+			}
+		case <-timeout:
+			t.Fatal("no \".\" hint after chmod of the root")
+		}
+	}
+}

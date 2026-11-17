@@ -492,3 +492,25 @@ func TestPulledRemovalOfTopDirectoryHidesNothing(t *testing.T) {
 		t.Fatalf("new directory with the removed one's name: %+v", rep)
 	}
 }
+
+// A hint outside the root (an attribute event on the root itself used to give "..") never lists or walks anything
+// but the root, and pruneDirs reads it as a change of the root.
+func TestHintOutsideRootIsRootHint(t *testing.T) {
+	for _, h := range []string{"..", "../sibling", "../.."} {
+		if out, rootOnly := pruneDirs([]string{h}); len(out) != 0 || !rootOnly {
+			t.Errorf("pruneDirs(%q) = %v, %v; want root only", h, out, rootOnly)
+		}
+	}
+	_, _, _, g := setup(t)
+	g.put("a/one.txt", []byte("1"))
+	g.scan()
+	dc := &dirCounter{FS: g.fs}
+	g.f.FS = dc
+	dc.take()
+	g.scanHint("..")
+	for _, d := range dc.take() {
+		if d != "" {
+			t.Fatalf("listed the directory %q", d)
+		}
+	}
+}
