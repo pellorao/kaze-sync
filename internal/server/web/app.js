@@ -465,6 +465,11 @@
     if (g) g.scrollIntoView({ block: "start" });
   });
   if (notif) notif.addEventListener("toggle", (e) => { if (e.newState === "closed") flush(); });
+  // A Web Push opens /?notify=1 (design 4.3): the page comes with the notifications open.
+  if (notif && new URLSearchParams(location.search).get("notify") === "1") {
+    notif.showPopover();
+    history.replaceState(null, "", location.pathname);
+  }
 
   // ---- live updates: /events says that something changed; the marked regions of the page are fetched and replaced
   const liveURL = body.dataset.liveUrl || location.href;

@@ -94,6 +94,9 @@ func (s *Server) noteTooOld(id int64, version int) {
 		rep = &report{}
 		s.reports[id] = rep
 	}
+	if rep.tooOld != version {
+		s.bumpLocked() // the bell shows it (design 4.3)
+	}
 	rep.tooOld, rep.at = version, s.now()
 }
 
@@ -256,7 +259,7 @@ func (s *Server) pollStart(id int64, req proto.PollReq) {
 		s.reports[id] = rep
 	}
 	rep.resources, rep.resourcesAt = days, s.now()
-	changed := !rep.online(s.now()) || !reflect.DeepEqual(rep.req, req)
+	changed := !rep.online(s.now()) || !reflect.DeepEqual(rep.req, req) || rep.tooOld != 0
 	rep.req, rep.at, rep.tooOld = req, s.now(), 0
 	rep.pending++
 	if rep.offline != nil {

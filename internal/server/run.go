@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 )
@@ -60,10 +60,10 @@ func Run(ctx context.Context, data string) error {
 		srv.Shutdown(sctx)
 		srv.Close()
 	}()
-	if s.Push, err = ntfy.Load(data, "Server"); err != nil {
-		slog.Error("ntfy is off", "err", err)
+	if _, err := os.Stat(filepath.Join(data, "ntfy.json")); err == nil {
+		slog.Info("ntfy.json is not used any more, see the user manual 9.1")
 	}
-	if caMode { // after Push is set: the first check may already raise an alert
+	if caMode {
 		go s.certLoop(ctx, data)
 	}
 	stopResources := s.resources.Start(ctx)
@@ -77,15 +77,14 @@ func Run(ctx context.Context, data string) error {
 	return nil
 }
 
-// certLoop warns when the CA-signed server certificate is about to expire (renewal is done by root).
+// certLoop sets the certificate state of the bell and of Web Push (design 4.3), and logs it, when the CA-signed server certificate is about to expire (renewal is done by root).
 func (s *Server) certLoop(ctx context.Context, data string) {
 	for {
-		if err := CheckServerCert(data, time.Now()); err != nil {
+		err := CheckServerCert(data, time.Now())
+		if err != nil {
 			slog.Error("server certificate check failed", "err", err)
-			s.Push.Fail("cert", "The server certificate cannot be renewed or is about to expire", 1)
-		} else {
-			s.Push.Ok("cert", "The server certificate is in order again")
 		}
+		s.setServerState(&s.certFailed, err != nil)
 		select {
 		case <-ctx.Done():
 			return

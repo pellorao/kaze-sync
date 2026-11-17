@@ -3,6 +3,7 @@
 package server
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -11,7 +12,6 @@ import (
 	"errors"
 	"html/template"
 	"io"
-	"kaze-sync/internal/ntfy"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,8 +45,18 @@ type Server struct {
 	tmplMu sync.Mutex
 	tmpl   map[string]map[string]*template.Template // language -> page -> templates (web.go page)
 
-	// Push tells the user about the problems that need them (notifypush.go); nil is off.
-	Push *ntfy.Notifier
+	// Web Push (push.go, pushapi.go, webpush.go): the VAPID key, the subscriptions, and what is known of each cause.
+	vapid       *ecdsa.PrivateKey // nil when the key cannot be read or made: push is off
+	subMu       sync.Mutex        // guards subList and the writes of meta.push_subs
+	subList     []pushSub
+	subsLoaded  bool
+	pushMu      sync.Mutex // guards the fields below
+	jwts        map[string]jwtCache
+	pkeys       map[string]*pushKey
+	pushOffline map[int64]int // devices that have not connected for offlineAfter, and for how many days, at the last slow check
+	pushWin     time.Time     // start of the current hour of the cap
+	pushSent    int
+	pushWG      sync.WaitGroup // the pushes in flight
 
 	boot string // identifies this run of the server (proto.PollResp.Boot)
 
@@ -67,17 +77,20 @@ type Server struct {
 	gcRunning, gcAgain bool
 	gcWG               sync.WaitGroup
 
-	mu       sync.Mutex // guards everything below
-	sessions map[string]time.Time
-	codes    map[[32]byte]pendingCode
-	fails    map[string]*failure
-	reports  map[int64]*report
-	notify   chan struct{} // closed (and replaced) when the config changes
-	uiGen    int64         // the version of everything the Web UI shows (design 4.1)
-	uiCh     chan struct{} // closed (and replaced) when uiGen goes up
-	stats    map[int64]folderStat
-	evDone   chan struct{} // closed by StopEvents: the /events streams end
-	evOnce   sync.Once
+	mu sync.Mutex // guards everything below
+	// The server's own problems, which the bell shows and Web Push forwards (design 4.3): the data disk is nearly
+	// full, the last daily GC failed, the server certificate cannot be renewed or is about to expire.
+	diskLow, gcFailed, certFailed bool
+	sessions                      map[string]time.Time
+	codes                         map[[32]byte]pendingCode
+	fails                         map[string]*failure
+	reports                       map[int64]*report
+	notify                        chan struct{} // closed (and replaced) when the config changes
+	uiGen                         int64         // the version of everything the Web UI shows (design 4.1)
+	uiCh                          chan struct{} // closed (and replaced) when uiGen goes up
+	stats                         map[int64]folderStat
+	evDone                        chan struct{} // closed by StopEvents: the /events streams end
+	evOnce                        sync.Once
 }
 
 type pendingCode struct {
@@ -138,7 +151,12 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 	if now == nil {
 		now = time.Now
 	}
+	vapid, err := vapidKey(db)
+	if err != nil {
+		slog.Error("push is off: no VAPID key", "err", err)
+	}
 	return &Server{
+		vapid: vapid, jwts: map[string]jwtCache{}, pkeys: map[string]*pushKey{}, pushOffline: map[int64]int{}, gcFailed: MetaString(db, "last_gc_err") != "",
 		resources: resources.New(),
 		boot:      randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
 		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
@@ -228,6 +246,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.deviceRoutes(mux)
 	s.webRoutes(mux)
+	s.pushRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
 	var h http.Handler = http.NewCrossOriginProtection().Handler(mux)
 	return securityHeaders(h)

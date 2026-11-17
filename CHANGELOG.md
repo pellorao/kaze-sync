@@ -4,6 +4,25 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+Error alerts now go out as Web Push sent only by the server, replacing ntfy.
+
+### Added
+
+- Web Push (design 4.3): the server keeps a VAPID key and the browsers' subscriptions, encrypts each message per RFC 8291 and sends it with the standard library only. Every push repeats one entry of the notification bell: held changes after 2 minutes, device errors after 5 minutes, a too-old client, an offline device, low disk space, a failed garbage collection, and a certificate that cannot be renewed. Each cause is pushed once per browser, repeats wait an hour, and all pushes are capped at 20 per hour. New admin endpoints `GET /push/subscriptions`, `POST /push/subscribe`, `/push/unsubscribe` and `/push/test`, and `/sw.js`. Push needs a trusted certificate (local CA or your own certificate), and iPhone and iPad are not supported. See the user manual, section 9.1.
+- The notification bell lists four more problems: a too-old device client, low data-disk space, a failed garbage collection and a certificate that cannot be renewed, plus a warning for an invalid push subscription.
+- A client reports a `folder` error to the server when the sync cycles of a folder fail 3 times in a row.
+
+### Changed
+
+- A device that has not connected for 3 days (was 7) raises the offline warning.
+- The user manual (sections 2.4, 9 and 9.1) describes Web Push and importing the CA on a phone.
+
+### Removed
+
+- ntfy push messages and `ntfy.json`, on the server and on the clients (the `internal/ntfy` package). A leftover `ntfy.json` is no longer read; each program logs one info line about it. Turn on Web Push instead (user manual 9.1); with the default self-signed certificate, switch to the local CA first (section 2.4).
+
 ## v0.3.5 - 2026-11-18
 
 Shows each client's release version on the device pages, sizes the server's garbage-collection memory from the machine's memory, adds daily resource summaries, and publishes prebuilt packages. For full details, see the [v0.3.5 release notes](RELEASE-NOTES.md).

@@ -304,11 +304,7 @@ func (s *Server) requestGC() {
 				blockRefs = *cycle.BlockRefs
 			}
 			slog.Info("gc", "versions", st.versions, "blocks", st.blobs, "tmp", st.tmp, "passes", st.passes, "budget", GCMemoryBudget, "block_refs", blockRefs, "peak_rss_MB", cycle.PeakRSSMB, "peak_exact", cycle.PeakExact, "cpu_s", cycle.CPUSeconds, "seconds", cycle.Seconds, "coverage_seconds", cycle.CoverageSeconds, "took", time.Since(start).Round(time.Millisecond), "err", err)
-			if err != nil {
-				s.Push.Fail("gc", "The server's daily cleanup failed", 1)
-			} else {
-				s.Push.Ok("gc", "The server's daily cleanup works again")
-			}
+			s.gcDone(err)
 			s.gcMu.Lock()
 			again, s.gcAgain = s.gcAgain, false
 			s.gcRunning = again
@@ -338,5 +334,18 @@ func (s *Server) gcLoop(ctx context.Context) {
 			slog.Error("gc", "err", err)
 		}
 		s.requestGC()
+	}
+}
+
+// gcDone records how a GC ended: the bell and Web Push show a failure until a GC succeeds. The result is also kept
+// (best effort) in meta.last_gc_err, because the next GC may be a day away and a restart must not forget it.
+func (s *Server) gcDone(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	s.setServerState(&s.gcFailed, err != nil)
+	if _, e := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES('last_gc_err', ?)`, msg); e != nil {
+		slog.Warn("gc: cannot store the result", "err", e)
 	}
 }

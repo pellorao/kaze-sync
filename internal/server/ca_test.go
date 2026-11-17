@@ -2,15 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -364,8 +365,8 @@ func TestRunServesCAMode(t *testing.T) {
 	conn.Close()
 }
 
-// The first certificate check runs right after start: its alert must reach ntfy, so the notifier has to be set
-// before the loop starts.
+// The first certificate check runs right after start: its failure must reach the Web Push loop, so the state has to be
+// set before the loop looks.
 func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	f := newFakeSystem(t)
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -374,15 +375,17 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	if err := f.install(InstallOptions{Listen: addr, CA: true}); err != nil {
 		t.Fatal(err)
 	}
-	got := make(chan struct{}, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		select {
-		case got <- struct{}{}:
-		default:
-		}
-	}))
-	defer ts.Close()
-	os.WriteFile(filepath.Join(f.data, "ntfy.json"), []byte(`{"url":"`+ts.URL+`","topic":"t"}`), 0o600)
+	fp := newFakePush(t)
+	db, err := OpenDB(filepath.Join(f.data, VarDir, "meta.db"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := ecdh.P256().GenerateKey(rand.Reader)
+	sub := pushSub{ID: subID(fp.srv.URL + "/ca"), Endpoint: fp.srv.URL + "/ca", P256dh: b64.EncodeToString(k.PublicKey().Bytes()), Auth: b64.EncodeToString(make([]byte, 16)), Lang: "en", Browser: "ca"}
+	fp.keys["/ca"], fp.auths["/ca"] = k, make([]byte, 16)
+	js, _ := json.Marshal([]pushSub{sub})
+	SetMeta(db, "push_subs", string(js))
+	db.Close()
 	// A certificate that expires soon: the check fails at once, the service cannot renew it.
 	os.Remove(serverPEMPath(f.data))
 	if _, err := EnsureServerCert(f.data, ServerSANs(addr, ""), time.Now().Add(-leafLife+24*time.Hour)); err != nil {
@@ -392,11 +395,17 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, f.data) }()
 	defer func() { cancel(); <-done }()
-	select {
-	case <-got:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the alert of the first certificate check was lost")
+	deadline := time.Now().Add(pushMinGap + 10*time.Second) // the loop may look before the cert check has set its flag, then waits pushMinGap
+	for time.Now().Before(deadline) {
+		fp.mu.Lock()
+		n := len(fp.got)
+		fp.mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatal("the alert of the first certificate check was lost")
 }
 
 // A key whose certificate was never written (crash or full disk between the two writes) is not a CA: the next run

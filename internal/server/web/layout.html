@@ -58,8 +58,15 @@
 {{range .Sub}}{{template "notice-item" .}}{{end}}</details>
 {{else}}{{template "notice-item" .}}{{end}}{{end}}
 {{end}}
-{{if .Offline}}<div class="grp-h" id="ng-dev">{{t "ov.devices"}}</div>
+{{if or .Old .Offline}}<div class="grp-h" id="ng-dev">{{t "ov.devices"}}</div>
+{{range .Old}}<div class="nitem"><span class="ic err">{{icon "err"}}</span><span class="msg">{{tm "notif.old" "href" (printf "/devices/%d" .ID) "name" .Name}}</span><span class="adv">{{t "notif.oldAdvice"}}</span></div>{{end}}
 {{range .Offline}}<div class="nitem"><span class="ic warn">{{icon "warn"}}</span><span class="msg">{{tm "notif.offlineDays" "href" (printf "/devices/%d" .ID) "name" .Name "d" .Days}}</span><span class="meta">{{tm "notif.lastConn" "time" (time .Last)}}</span><span class="adv">{{t "notif.offlineAdvice"}}</span></div>{{end}}{{end}}
+{{if .Server}}<div class="grp-h" id="ng-srv">{{t "notif.server"}}</div>
+{{range .Server}}<div class="nitem"><span class="ic {{if .Error}}err{{else}}warn{{end}}">{{if .Error}}{{icon "err"}}{{else}}{{icon "warn"}}{{end}}</span>
+{{if eq .Kind "disk"}}<span class="msg">{{t "notif.srv.disk"}}</span><span class="adv">{{t "notif.srv.diskAdv"}}</span>
+{{else if eq .Kind "gc"}}<span class="msg">{{t "notif.srv.gc"}}</span><span class="adv">{{t "notif.srv.gcAdv"}}</span>
+{{else if eq .Kind "cert"}}<span class="msg">{{t "notif.srv.cert"}}</span><span class="adv">{{tm "notif.srv.certAdv"}}</span>
+{{else}}<span class="msg">{{tm "notif.srv.pushgone" "href" "/settings" "name" .Name}}</span><span class="adv">{{t "notif.srv.pushgoneAdv"}}</span>{{end}}</div>{{end}}{{end}}
 {{if not .Total}}<p class="empty">{{t "notif.none"}}</p>{{end}}
 </div>
 <div class="notif-f">{{t "notif.footer"}}</div>{{end}}

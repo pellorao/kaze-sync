@@ -15,7 +15,7 @@ import (
 )
 
 // offlineAfter is how long a device may be silent before it raises a notice (design 4.3).
-const offlineAfter = 7 * 24 * time.Hour
+const offlineAfter = 3 * 24 * time.Hour
 
 // notice is one line of a folder's notifications. Notices are computed from
 // the current state on every request; none is stored (design 4.3).
@@ -229,11 +229,20 @@ type noticeGroup struct {
 	Rows             []noticeRow
 }
 
+// srvNotice is a notification of the server's own state: the "Server" group of the popover.
+type srvNotice struct {
+	Error bool
+	Kind  string // "disk", "gc", "cert" or "pushgone"
+	Name  string // pushgone: the short name of the browser
+}
+
 // notifView is everything the popover and the bell show.
 type notifView struct {
 	Errors, Warnings int
 	Groups           []noticeGroup
 	Offline          []offlineDevice
+	Old              []offlineDevice // devices whose client is too old: the server refuses its requests (9.3)
+	Server           []srvNotice
 }
 
 func (v notifView) Total() int { return v.Errors + v.Warnings }
@@ -306,7 +315,60 @@ func (s *Server) notifications() notifView {
 		slog.Error("notifications", "err", err)
 	}
 	v.Warnings += len(v.Offline)
+	v.Old = s.oldDevices()
+	v.Errors += len(v.Old)
+	for _, n := range s.serverNotices() {
+		v.Server = append(v.Server, n)
+		if n.Error {
+			v.Errors++
+		} else {
+			v.Warnings++
+		}
+	}
 	return v
+}
+
+// oldDevices lists the devices whose last request was refused as too old (design 9.3), by name.
+func (s *Server) oldDevices() []offlineDevice {
+	s.mu.Lock()
+	var ids []int64
+	for id, rep := range s.reports {
+		if rep.tooOld > 0 {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	var out []offlineDevice
+	for _, id := range ids {
+		var d offlineDevice
+		d.ID = id
+		if s.db.QueryRow(`SELECT name FROM devices WHERE id=?`, id).Scan(&d.Name) == nil {
+			out = append(out, d)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// serverNotices lists the server's own problems and the browsers whose push subscription is invalid (design 4.3).
+func (s *Server) serverNotices() []srvNotice {
+	var out []srvNotice
+	s.mu.Lock()
+	for _, c := range []struct {
+		on   bool
+		kind string
+	}{{s.diskLow, "disk"}, {s.gcFailed, "gc"}, {s.certFailed, "cert"}} {
+		if c.on {
+			out = append(out, srvNotice{Error: true, Kind: c.kind})
+		}
+	}
+	s.mu.Unlock()
+	for _, sub := range s.subscriptions() {
+		if sub.Gone {
+			out = append(out, srvNotice{Kind: "pushgone", Name: sub.Browser})
+		}
+	}
+	return out
 }
 
 // deviceStatus is one folder line of a device in the overview.
