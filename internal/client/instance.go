@@ -37,12 +37,19 @@ func LockInstance(dir string) (release func(), err error) {
 func StopAgent(dir string) error {
 	path := filepath.Join(dir, instanceLockName)
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil // never ran
+	}
+	if err != nil {
+		return err
 	}
 	if release, err := LockInstance(dir); err == nil {
 		release() // nobody holds it: the pid in the file is stale
 		return nil
+	}
+	for i := 0; i < 10 && len(strings.TrimSpace(string(data))) == 0; i++ { // the agent has the lock but has not written its pid yet
+		time.Sleep(100 * time.Millisecond)
+		data, _ = os.ReadFile(path)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 0 || pid == os.Getpid() {
