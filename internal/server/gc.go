@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -48,7 +49,7 @@ func gcMemoryLimitPaths(membership, root string) []string {
 			}
 			base, name = filepath.Join(root, "memory"), "memory.limit_in_bytes"
 		}
-		for group := filepath.Clean(fields[2]); group != "/"; group = filepath.Dir(group) {
+		for group := path.Clean(fields[2]); group != "/"; group = path.Dir(group) {
 			paths = append(paths, filepath.Join(base, strings.TrimPrefix(group, "/"), name))
 		}
 	}

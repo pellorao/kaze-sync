@@ -126,6 +126,9 @@ func (c *Collector) day(t time.Time) *daily {
 // advance splits CPU at midnight in proportion to elapsed wall time. GC boundary
 // readings make attribution independent of the regular sampling interval.
 func (c *Collector) advance(now time.Time, r Reading) {
+	// Round(0) drops the monotonic reading: Before/Sub would otherwise compare
+	// monotonic clocks and never see a wall clock step, which day boundaries use.
+	now = now.Round(0)
 	// A backward wall clock can otherwise count an interval twice and fill a
 	// partial day with duplicate coverage. Keep that day ineligible for export.
 	if !c.last.IsZero() && now.Before(c.last) {

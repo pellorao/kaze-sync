@@ -186,3 +186,23 @@ func TestGCMemoryBudgetLog(t *testing.T) {
 		t.Fatalf("GC log lacks budget in bytes: %s", log.String())
 	}
 }
+
+// A cgroup path is always POSIX; walking its ancestors must end on any host OS
+// (filepath.Dir on Windows never reaches "/").
+func TestGCMemoryLimitPathsTerminates(t *testing.T) {
+	dir := t.TempDir()
+	m := filepath.Join(dir, "cgroup")
+	if err := os.WriteFile(m, []byte("0::/a/b/c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []string, 1)
+	go func() { done <- gcMemoryLimitPaths(m, dir) }()
+	select {
+	case paths := <-done:
+		if len(paths) != 2+3 {
+			t.Fatalf("paths %v", paths)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("gcMemoryLimitPaths does not terminate")
+	}
+}
