@@ -677,10 +677,14 @@ tar cf /backup/blobs.tar blobs
 tar cf /backup/ca.tar -C /var/lib/kaze-sync ca                                     # only in local CA mode
 ```
 
-**Restoring a backup.** To restore onto a new server or roll back in place, use a `kaze-syncd` binary of the same or a newer version and unpack all archives together (never restore only a subset of the files):
+**Restoring a backup.** To restore onto a new server or roll back in place, use a `kaze-syncd` binary of the same or a newer version and unpack all archives together (never restore only a subset of the files).
+
+When you roll back in place, **stop the service first** (on a new server there is nothing to stop yet) and delete any leftover `-wal` and `-shm` files next to the databases; unpacking over databases that a running service has open corrupts them. Shown with `systemd`, as above:
 
 ```bash
-mkdir -p /var/lib/kaze-sync/var                                                    # server
+systemctl stop kaze-sync                                                           # server; skip on a new server
+mkdir -p /var/lib/kaze-sync/var
+rm -f /var/lib/kaze-sync/var/meta.db-wal /var/lib/kaze-sync/var/meta.db-shm /var/lib/kaze-sync/var/folders/*.db-wal /var/lib/kaze-sync/var/folders/*.db-shm
 tar xf /backup/meta.tar  -C /var/lib/kaze-sync/var
 tar xf /backup/blobs.tar -C /var/lib/kaze-sync/var
 tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                     # only in local CA mode

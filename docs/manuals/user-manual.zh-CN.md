@@ -677,10 +677,14 @@ tar cf /backup/blobs.tar blobs
 tar cf /backup/ca.tar -C /var/lib/kaze-sync ca                                     # 仅本地 CA 模式
 ```
 
-**从备份还原.** 无论是迁移到新服务器还是在原机回滚, 请使用相同版本或更新版本的 `kaze-syncd` 二进制文件, 并将所有备份归档完整解压 (切勿只还原其中一部分文件):
+**从备份还原.** 无论是迁移到新服务器还是在原机回滚, 请使用相同版本或更新版本的 `kaze-syncd` 二进制文件, 并将所有备份归档完整解压 (切勿只还原其中一部分文件).
+
+在原机回滚时, **请先停止服务** (新服务器上还没有服务, 无需停止), 并删除数据库旁残留的 `-wal` 和 `-shm` 文件; 在服务正打开着数据库时解压覆盖会损坏它们. 命令以 `systemd` 为例, 与上文相同:
 
 ```bash
-mkdir -p /var/lib/kaze-sync/var                                                    # server
+systemctl stop kaze-sync                                                           # server; 新服务器上跳过
+mkdir -p /var/lib/kaze-sync/var
+rm -f /var/lib/kaze-sync/var/meta.db-wal /var/lib/kaze-sync/var/meta.db-shm /var/lib/kaze-sync/var/folders/*.db-wal /var/lib/kaze-sync/var/folders/*.db-shm
 tar xf /backup/meta.tar  -C /var/lib/kaze-sync/var
 tar xf /backup/blobs.tar -C /var/lib/kaze-sync/var
 tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                     # 仅本地 CA 模式
