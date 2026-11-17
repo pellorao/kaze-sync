@@ -4,7 +4,7 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.4.0 - 2026-11-18
 
 Error alerts now go out as Web Push sent only by the server, replacing ntfy.
 
