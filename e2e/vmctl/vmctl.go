@@ -176,7 +176,16 @@ func pipeTar(send, recv *exec.Cmd) error {
 		recv.Wait()
 		return err
 	}
-	err1, err2 := send.Wait(), recv.Wait()
+	// The parent holds the pipe's read end until send.Wait returns, so a receiver that exited early would leave
+	// the sender blocked on a full pipe for good: stop the sender when the receiver is gone.
+	recvDone := make(chan error, 1)
+	go func() {
+		err := recv.Wait()
+		send.Process.Kill() // harmless when the sender has finished
+		recvDone <- err
+	}()
+	err1 := send.Wait()
+	err2 := <-recvDone
 	if err1 != nil || err2 != nil {
 		return fmt.Errorf("tar pipe: %v %v: %s %s", err1, err2, e1.String(), e2.String())
 	}
