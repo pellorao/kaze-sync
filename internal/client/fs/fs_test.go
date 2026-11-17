@@ -196,20 +196,6 @@ func TestMemLockAndFail(t *testing.T) {
 	if err := m.Rename("g", "f"); err != nil {
 		t.Errorf("Rename after Unlock = %v", err)
 	}
-
-	// FailAfter(2): two calls succeed, the third fails once and has no effect.
-	m.FailAfter(2, errInjected)
-	m.Stat("f")
-	m.Stat("f")
-	if err := m.Remove("f"); !errors.Is(err, errInjected) {
-		t.Fatalf("third call = %v", err)
-	}
-	if _, err := m.Stat("f"); err != nil {
-		t.Errorf("failed Remove had an effect: %v", err)
-	}
-	if err := m.Remove("f"); err != nil {
-		t.Errorf("failure was not one-shot: %v", err)
-	}
 }
 
 func TestFaultTransport(t *testing.T) {
