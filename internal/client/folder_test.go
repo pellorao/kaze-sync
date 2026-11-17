@@ -422,3 +422,36 @@ func TestHashFileWholeHash(t *testing.T) {
 		}
 	}
 }
+
+// The scans' row reads leave out the block hashes; get and byHash (the readers of them) keep them.
+func TestLocalRowsReadWithoutBlocks(t *testing.T) {
+	db, err := openLocal(t.TempDir() + "/l.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	blocks := proto.JoinHashes([]proto.Hash{{1}, {2}})
+	row := localRow{Path: "d/a", Key: "d/a", Seq: 3, Hash: bytes.Repeat([]byte{9}, 32), Blocks: blocks, Size: 5}
+	top := row
+	top.Path, top.Key = "t", "t"
+	if err := db.apply([]localRow{row, top}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, q := range map[string]func() (map[string]localRow, error){"all": db.all, "under": func() (map[string]localRow, error) { return db.under("d") }, "rootFiles": db.rootFiles} {
+		m, err := q()
+		if err != nil || len(m) == 0 {
+			t.Fatalf("%s: %v %v", name, m, err)
+		}
+		for _, r := range m {
+			if len(r.Blocks) != 0 || r.Seq != 3 || r.Size != 5 || len(r.Hash) != 32 {
+				t.Errorf("%s: row %+v", name, r)
+			}
+		}
+	}
+	if r, ok, err := db.get("d/a"); err != nil || !ok || !bytes.Equal(r.Blocks, blocks) {
+		t.Errorf("get: %+v %v %v", r, ok, err)
+	}
+	if rs, err := db.byHash(row.Hash, 8); err != nil || len(rs) != 2 || !bytes.Equal(rs[0].Blocks, blocks) {
+		t.Errorf("byHash: %+v %v", rs, err)
+	}
+}

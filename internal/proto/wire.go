@@ -370,7 +370,7 @@ func ReadBlock(r io.Reader, buf []byte) (Hash, []byte, error) {
 	}
 	copy(h[:], hdr[:32])
 	n := binary.BigEndian.Uint32(hdr[32:])
-	if n > BlockSize {
+	if n > BlockSize || int(n) > len(buf) {
 		return h, nil, errors.New("block too large")
 	}
 	data := buf[:n]

@@ -95,6 +95,10 @@ func addLinkColumn(db *sql.DB) error {
 
 const localCols = `path, key, seq, hash, blocks, size, mtime_ns, exec, link`
 
+// liteCols is localCols without the block hashes (32 bytes per 256 KiB of every file): the scans read every row
+// and never look at them. A lite row must not be written back; only get and byHash return the blocks.
+const liteCols = `path, key, seq, hash, x'' AS blocks, size, mtime_ns, exec, link`
+
 func (r *localRow) scan(s interface{ Scan(...any) error }) error {
 	return s.Scan(&r.Path, &r.Key, &r.Seq, &r.Hash, &r.Blocks, &r.Size, &r.MtimeNs, &r.Exec, &r.Link)
 }
@@ -108,9 +112,9 @@ func (l *localDB) get(p string) (r localRow, ok bool, err error) {
 	return r, err == nil, err
 }
 
-// under returns the rows of all paths below dir ("" is everything).
+// under returns the rows of all paths below dir ("" is everything), without their block hashes.
 func (l *localDB) under(dir string) (map[string]localRow, error) {
-	q, args := `SELECT `+localCols+` FROM local`, []any(nil)
+	q, args := `SELECT `+liteCols+` FROM local`, []any(nil)
 	if dir != "" {
 		q += ` WHERE path >= ? AND path < ?` // "0" is the character after "/"
 		args = []any{dir + "/", dir + "0"}
@@ -130,7 +134,7 @@ func (l *localDB) byHash(h []byte, limit int) ([]localRow, error) {
 
 // rootFiles returns the rows of the files directly in the root.
 func (l *localDB) rootFiles() (map[string]localRow, error) {
-	return l.query(`SELECT ` + localCols + ` FROM local WHERE instr(path, '/') = 0`)
+	return l.query(`SELECT ` + liteCols + ` FROM local WHERE instr(path, '/') = 0`)
 }
 
 // topDirs returns the names of the root's directories that have rows below them.

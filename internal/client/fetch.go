@@ -244,7 +244,7 @@ func (r *blockReader) local(h proto.Hash) (int, bool) {
 
 func (r *blockReader) load(i int) error {
 	if r.buf == nil {
-		r.buf = make([]byte, proto.BlockSize)
+		r.buf = make([]byte, min(proto.BlockSize, r.e.Size)) // a small file needs no 256 KiB
 	}
 	h := r.e.Blocks[i]
 	n := int(min(proto.BlockSize, r.e.Size-int64(i)*proto.BlockSize))
@@ -278,7 +278,7 @@ func (r *blockReader) load(i int) error {
 		}
 	}
 	if r.pbuf == nil {
-		r.pbuf = make([]byte, proto.BlockSize)
+		r.pbuf = make([]byte, min(proto.BlockSize, r.e.Size)) // a longer block from the server is refused by ReadBlock
 	}
 	got, data, err := proto.ReadBlock(r.body, r.pbuf)
 	if err == nil && (got != h || len(data) != n) {
