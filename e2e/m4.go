@@ -339,7 +339,7 @@ func (m *m4) restartUpload() error {
 	}
 	data := randomBytes(m4RestartSize)
 	m.put(m.lroot("m4b"), "restart.bin", data)
-	if _, err := d.sh("while [ $(find %s/var/blobs -type f | wc -l) -lt %d ]; do :; done", dataDir, c0+blocks/4); err != nil {
+	if _, err := d.sh("%s", waitBlobsCmd(dataDir, c0+blocks/4, 120)); err != nil {
 		return err
 	}
 	if _, err := d.sh("/etc/init.d/kaze-sync restart"); err != nil {

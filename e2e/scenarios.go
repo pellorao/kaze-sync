@@ -208,7 +208,7 @@ func (d *driver) syncScenarios() {
 			return err
 		}
 		// One guest-side loop, so the kill follows the first blocks closely.
-		if _, err := d.sh("while [ $(find %s/var/blobs -type f | wc -l) -lt %d ]; do :; done", dataDir, c0+20); err != nil {
+		if _, err := d.sh("%s", waitBlobsCmd(dataDir, c0+20, 120)); err != nil {
 			return err
 		}
 		lin.stop(true)

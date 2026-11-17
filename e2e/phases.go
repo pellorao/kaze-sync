@@ -148,6 +148,14 @@ func (d *driver) reboot(command string) error {
 	})
 }
 
+// waitBlobsCmd is a guest-side loop that returns once the blob directory holds at least n files, and fails after
+// limitSec seconds: one loop in the guest, so a kill follows the first blocks closely, but never an endless one
+// that keeps the VM's CPUs busy when the client died.
+func waitBlobsCmd(dir string, n, limitSec int) string {
+	return fmt.Sprintf("t0=$(date +%%s); while [ $(find %s/var/blobs -type f | wc -l) -lt %d ]; do "+
+		"[ $(( $(date +%%s) - t0 )) -gt %d ] && { echo 'timeout waiting for blobs' >&2; exit 1; }; done", dir, n, limitSec)
+}
+
 func (d *driver) blobCount() (int, error) {
 	out, err := d.sh("find %s/var/blobs -type f | wc -l", dataDir)
 	if err != nil {
