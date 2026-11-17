@@ -23,6 +23,7 @@ Shows each client's release version on the device pages, sizes the server's garb
 ### Fixed
 
 - The device list and device details show the client release version (`x.y.z`) reported by poll requests instead of the integer protocol version. Older clients that do not report a release version show `-`. The protocol version remains 6.
+- The daily resource summaries now notice a wall clock that is set back: the time comparison no longer uses Go's monotonic reading, which had hidden the step, so a partial day is correctly marked as not eligible for export. The garbage-collection memory-limit lookup walks cgroup paths with POSIX path rules, so it also terminates on Windows (where the server is not supported and only the tests run).
 
 ## v0.3.4 - 2026-11-15
 
