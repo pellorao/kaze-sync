@@ -15,6 +15,10 @@ Error alerts now go out as Web Push sent only by the server, replacing ntfy.
 - The notification bell lists four more problems: a too-old device client, low data-disk space, a failed garbage collection and a certificate that cannot be renewed, plus a warning for an invalid push subscription.
 - A client reports a `folder` error to the server when the sync cycles of a folder fail 3 times in a row.
 
+### Fixed
+
+- Exclusion-rules preview: typing quickly in the filter box no longer drops characters (the box is no longer rebuilt when results arrive; stale results are discarded).
+
 ### Changed
 
 - A device that has not connected for 3 days (was 7) raises the offline warning.
