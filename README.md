@@ -22,18 +22,16 @@ The Web UI speaks Simplified Chinese, Traditional Chinese, English, Japanese, an
 
 ## Quick start
 
-If kaze-sync fits what you need, you can get a server and your first client syncing in five steps. Because no release downloads exist yet, you need Go (the version in `go.mod`) on any machine to build the binaries, and a server you can log in to as root.
+If kaze-sync fits what you need, you can get a server and your first client syncing in five steps. You need a server you can log in to as root (x86-64 Linux for the prebuilt package; for other CPUs, build from source with Go, see [Appendix A of the manual](docs/manuals/user-manual.md#appendix-a-building-from-source)).
 
-1. **Build** (on any machine):
+1. **Download and verify** (on any machine): from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page, download `kaze-sync-<version>-linux-amd64.tar.gz` (the server and the Linux client), `kaze-sync-<version>-windows-amd64.zip` (the Windows client) and `SHA256SUMS` into one directory, then check the checksums and unpack the Linux archive:
 
    ```bash
-   CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
-   CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
-   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
-   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+   sha256sum -c SHA256SUMS
+   mkdir kaze-sync && tar -xzf kaze-sync-<version>-linux-amd64.tar.gz -C kaze-sync
    ```
 
-2. **Install the server.** Copy `kaze-syncd` to your server and run these two commands as root:
+2. **Install the server.** Copy the unpacked `kaze-syncd` to your server and run these two commands as root:
 
    ```bash
    ./kaze-syncd install --data /var/lib/kaze-sync       # OpenWrt: a mounted data disk, e.g. /mnt/data/kaze-sync

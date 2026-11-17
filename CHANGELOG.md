@@ -4,9 +4,17 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.3.5 - 2026-11-18
+
+Shows each client's release version on the device pages, sizes the server's garbage-collection memory from the machine's memory, adds daily resource summaries, and publishes prebuilt packages. For full details, see the [v0.3.5 release notes](RELEASE-NOTES.md).
+
+### Added
+
+- Prebuilt release packages: `kaze-sync-X.Y.Z-linux-amd64.tar.gz` (server and Linux client), `kaze-sync-X.Y.Z-windows-amd64.zip` (Windows client and windowless agent) and `SHA256SUMS`, built reproducibly by `go run ./tools/release` and published on GitHub Releases. `go run ./tools/pubcheck` checks the tree before publishing.
 
 ### Changed
+
+- The user manual installs from the prebuilt packages by default and moves building from source to Appendix A; section 13 gains a "Memory sizing" table that relates garbage-collection memory to file count and `keep_days`, and the README quick start downloads the packages.
 
 - Both processes now sample RSS and CPU once per minute and keep today/yesterday summaries in memory. Clients attach summaries to poll requests (protocol 6); the admin-session-protected `GET /resources` returns server and device statistics. Server GC time, CPU, reference counts, budget and observed RSS peaks are reported separately, with explicit coverage and peak-certainty flags. No metrics files, database writes, new dependencies or UI controls are added.
 

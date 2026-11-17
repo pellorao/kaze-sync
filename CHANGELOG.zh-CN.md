@@ -4,9 +4,17 @@
 
 kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMAJOR.MINOR.PATCH` 格式.
 
-## 未发布
+## v0.3.5 - 2026-11-18
+
+设备页显示各客户端的发布版本, 服务端的 GC 内存按机器内存计算, 新增每日资源摘要, 并开始提供预编译包. 完整说明见 [v0.3.5 发布说明](RELEASE-NOTES.zh-CN.md).
+
+### 新增
+
+- 预编译发布包: `kaze-sync-X.Y.Z-linux-amd64.tar.gz` (服务端和 Linux 客户端), `kaze-sync-X.Y.Z-windows-amd64.zip` (Windows 客户端和无窗口 agent) 与 `SHA256SUMS`, 由 `go run ./tools/release` 可复现地构建, 发布在 GitHub Releases. 发布前用 `go run ./tools/pubcheck` 检查源码树.
 
 ### 变更
+
+- 用户手册默认从预编译包安装, 从源码编译移到附录 A; 第 13 节新增 "内存估算" 表, 把 GC 内存与文件数和 `keep_days` 联系起来; README 快速开始改为下载预编译包.
 
 - 两端进程每分钟采样 RSS 与 CPU, 在内存保留今天和昨天的摘要. 客户端随长轮询上报 (协议仍为 6), 管理员会话保护的 `GET /resources` 返回服务端与各设备统计. 服务端单列 GC 时间, CPU, 引用数, 预算与观察到的 RSS 峰值, 并明确标记覆盖程度和峰值是否可证实. 不增加统计文件, 数据库写入, 依赖或界面控件.
 

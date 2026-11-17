@@ -22,18 +22,16 @@ Web UI 提供简体中文, 繁体中文, 英文, 日文和韩文五种界面语�
 
 ## 快速开始
 
-如果以上特性符合你的需要, 只需五步就能装好服务端并让第一台电脑开始同步. 目前还没有预编译的发布包下载, 因此你需要一台装有 Go (版本见 `go.mod`) 的机器来编译二进制文件, 以及一台能以 root 登录的服务器.
+如果以上特性符合你的需要, 只需五步就能装好服务端并让第一台电脑开始同步. 你需要一台能以 root 登录的服务器 (预编译包适用于 x86-64 Linux; 其他 CPU 请用 Go 从源码编译, 见[手册附录 A](docs/manuals/user-manual.zh-CN.md#附录-a-从源码编译)).
 
-1. **构建** (在任意机器上执行):
+1. **下载并校验** (在任意机器上执行): 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面把 `kaze-sync-<版本>-linux-amd64.tar.gz` (服务端和 Linux 客户端), `kaze-sync-<版本>-windows-amd64.zip` (Windows 客户端) 和 `SHA256SUMS` 下载到同一个目录, 然后核对校验和并解压 Linux 归档:
 
    ```bash
-   CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncd ./cmd/kaze-syncd
-   CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o kaze-syncc ./cmd/kaze-syncc
-   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o kaze-syncc.exe ./cmd/kaze-syncc
-   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-syncc-agent.exe ./cmd/kaze-syncc
+   sha256sum -c SHA256SUMS
+   mkdir kaze-sync && tar -xzf kaze-sync-<版本>-linux-amd64.tar.gz -C kaze-sync
    ```
 
-2. **安装服务端.** 把编译好的 `kaze-syncd` 复制到服务器, 以 root 执行以下两条命令:
+2. **安装服务端.** 把解压出的 `kaze-syncd` 复制到服务器, 以 root 执行以下两条命令:
 
    ```bash
    ./kaze-syncd install --data /var/lib/kaze-sync       # OpenWrt: 已挂载的数据盘, 如 /mnt/data/kaze-sync

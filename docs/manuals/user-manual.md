@@ -77,7 +77,7 @@ Because clients connect to the server to enroll and receive their configuration,
 
 ### 2.1 Download and verify the server package
 
-Prebuilt release packages are published on the project's [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page for x86-64 (`amd64`) Linux and Windows only. For the server, download `kaze-sync-0.3.4-linux-amd64.tar.gz` (replacing `0.3.4` with the release version you want) together with `SHA256SUMS` into the same directory—either directly on the server, or on your workstation if you will copy the binary over afterward. That Linux archive holds both statically linked, dependency-free binaries: `kaze-syncd` (the server) and `kaze-syncc` (the Linux client). If your machine has no prebuilt package—for example, an OpenWrt router whose CPU is not x86-64—or if you prefer to compile the binaries yourself, see [Appendix A: Building from source](#appendix-a-building-from-source).
+Prebuilt release packages are published on the project's [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page for x86-64 (`amd64`) Linux and Windows only. For the server, download `kaze-sync-0.3.5-linux-amd64.tar.gz` (replacing `0.3.5` with the release version you want) together with `SHA256SUMS` into the same directory—either directly on the server, or on your workstation if you will copy the binary over afterward. That Linux archive holds both statically linked, dependency-free binaries: `kaze-syncd` (the server) and `kaze-syncc` (the Linux client). If your machine has no prebuilt package—for example, an OpenWrt router whose CPU is not x86-64—or if you prefer to compile the binaries yourself, see [Appendix A: Building from source](#appendix-a-building-from-source).
 
 Before unpacking the archive, verify its SHA-256 checksum against `SHA256SUMS` so you know the download was neither corrupted nor altered:
 
@@ -85,22 +85,22 @@ Before unpacking the archive, verify its SHA-256 checksum against `SHA256SUMS` s
 sha256sum -c SHA256SUMS
 ```
 
-If you downloaded only `kaze-sync-0.3.4-linux-amd64.tar.gz` and not `kaze-sync-0.3.4-windows-amd64.zip`, `sha256sum` will report that the Windows `.zip` file is missing; confirm that the line for `kaze-sync-0.3.4-linux-amd64.tar.gz` prints `OK` before continuing.
+If you downloaded only `kaze-sync-0.3.5-linux-amd64.tar.gz` and not `kaze-sync-0.3.5-windows-amd64.zip`, `sha256sum` will report that the Windows `.zip` file is missing; confirm that the line for `kaze-sync-0.3.5-linux-amd64.tar.gz` prints `OK` before continuing.
 
 Because the archive stores `kaze-syncd` and `kaze-syncc` at its root without a wrapper directory, create a dedicated directory and unpack into it:
 
 ```bash
-mkdir -p kaze-sync-0.3.4
-tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C kaze-sync-0.3.4
+mkdir -p kaze-sync-0.3.5
+tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C kaze-sync-0.3.5
 ```
 
-Both binaries embed the release version: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.4` and `kaze-syncc 0.3.4` (for the `0.3.4` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
+Both binaries embed the release version: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.5` and `kaze-syncc 0.3.5` (for the `0.3.5` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
 
 ### 2.2 OpenWrt
 
 If your server is an OpenWrt router, you must store data on a mounted data disk rather than on the root file system (overlay). `install` refuses a data directory on the root file system because synced files would quickly fill the router's small flash storage and a system upgrade would erase them. If your router has only a single disk, create a dedicated data partition on it first; see "OpenWrt 只有一块盘: 新建数据分区" in [`docs/operations.md`](../operations.md).
 
-The prebuilt `kaze-sync-0.3.4-linux-amd64.tar.gz` archive works only on x86-64 OpenWrt routers; there is no prebuilt package for any other OpenWrt CPU architecture (see [Appendix A](#appendix-a-building-from-source), and note in [section 18](#18-what-kaze-sync-does-not-do) that non-x86-64 servers are unsupported). Once your data disk is mounted, copy the unpacked `kaze-syncd` binary from [section 2.1](#21-download-and-verify-the-server-package) to the router (or unpack the verified archive directly on the router) and run these commands as root (`install` copies `kaze-syncd` into `/mnt/data/kaze-sync/kaze-syncd`):
+The prebuilt `kaze-sync-0.3.5-linux-amd64.tar.gz` archive works only on x86-64 OpenWrt routers; there is no prebuilt package for any other OpenWrt CPU architecture (see [Appendix A](#appendix-a-building-from-source), and note in [section 18](#18-what-kaze-sync-does-not-do) that non-x86-64 servers are unsupported). Once your data disk is mounted, copy the unpacked `kaze-syncd` binary from [section 2.1](#21-download-and-verify-the-server-package) to the router (or unpack the verified archive directly on the router) and run these commands as root (`install` copies `kaze-syncd` into `/mnt/data/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync        # server
@@ -257,7 +257,7 @@ Make sure the server URL in the command uses whatever hostname or IP address you
 
 ### 3.1 Linux client
 
-On an x86-64 (`amd64`) Linux computer, download `kaze-sync-0.3.4-linux-amd64.tar.gz` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page into the same directory. That archive holds both `kaze-syncc` and `kaze-syncd`. (If your Linux computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
+On an x86-64 (`amd64`) Linux computer, download `kaze-sync-0.3.5-linux-amd64.tar.gz` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page into the same directory. That archive holds both `kaze-syncc` and `kaze-syncd`. (If your Linux computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
 
 First verify the checksum before unpacking:
 
@@ -265,13 +265,13 @@ First verify the checksum before unpacking:
 sha256sum -c SHA256SUMS                                # client
 ```
 
-(If you did not also download the Windows `.zip`, `sha256sum` notes that it is missing; confirm that `kaze-sync-0.3.4-linux-amd64.tar.gz` prints `OK`.)
+(If you did not also download the Windows `.zip`, `sha256sum` notes that it is missing; confirm that `kaze-sync-0.3.5-linux-amd64.tar.gz` prints `OK`.)
 
 Next, unpack `kaze-syncc` into a **permanent** directory—such as `~/.local/bin/`—because the autostart service records the exact path from which you run `enroll` (so moving the binary later would break autostart):
 
 ```bash
 mkdir -p ~/.local/bin                                  # client
-tar -xzf kaze-sync-0.3.4-linux-amd64.tar.gz -C ~/.local/bin kaze-syncc
+tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C ~/.local/bin kaze-syncc
 ```
 
 Then run the enrollment command from the Web UI dialog (run `~/.local/bin/kaze-syncc` if `~/.local/bin` is not in your `PATH`):
@@ -286,18 +286,18 @@ Linux clients require a systemd user session; other init systems are not support
 
 ### 3.2 Windows client
 
-On an x86-64 (`amd64`) Windows computer, download `kaze-sync-0.3.4-windows-amd64.zip` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page. The `.zip` archive contains `kaze-syncc.exe` and the windowless `kaze-syncc-agent.exe`. (If your Windows computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
+On an x86-64 (`amd64`) Windows computer, download `kaze-sync-0.3.5-windows-amd64.zip` (using a release version compatible with your server) and `SHA256SUMS` from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page. The `.zip` archive contains `kaze-syncc.exe` and the windowless `kaze-syncc-agent.exe`. (If your Windows computer uses another CPU architecture, there is no prebuilt release package for it; see [Appendix A: Building from source](#appendix-a-building-from-source).)
 
-Verify the archive in PowerShell before unpacking, and compare the printed hash against the `kaze-sync-0.3.4-windows-amd64.zip` line in `SHA256SUMS` (PowerShell outputs uppercase hex while `SHA256SUMS` uses lowercase; case does not matter):
+Verify the archive in PowerShell before unpacking, and compare the printed hash against the `kaze-sync-0.3.5-windows-amd64.zip` line in `SHA256SUMS` (PowerShell outputs uppercase hex while `SHA256SUMS` uses lowercase; case does not matter):
 
 ```powershell
-Get-FileHash .\kaze-sync-0.3.4-windows-amd64.zip -Algorithm SHA256
+Get-FileHash .\kaze-sync-0.3.5-windows-amd64.zip -Algorithm SHA256
 ```
 
 Unpack the archive into a **permanent** directory (`<install directory>`) so both `kaze-syncc.exe` and `kaze-syncc-agent.exe` stay together in the folder that autostart will record:
 
 ```powershell
-Expand-Archive .\kaze-sync-0.3.4-windows-amd64.zip -DestinationPath <install directory>
+Expand-Archive .\kaze-sync-0.3.5-windows-amd64.zip -DestinationPath <install directory>
 ```
 
 Open a terminal in `<install directory>` and run the enrollment command from the dialog (`kaze-syncc.exe enroll ...`).
@@ -854,6 +854,6 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 
 The fourth command compiles the exact same Windows client without a console window so that Windows can run it silently at sign-in. Always keep `kaze-syncc-agent.exe` in the same directory as `kaze-syncc.exe`. Adjust `GOARCH` when cross-compiling `kaze-syncc` for a non-x86-64 client; note that the server (`kaze-syncd`) is supported only on x86-64 (so non-x86-64 OpenWrt routers and other non-x86-64 server hosts are unsupported).
 
-Both binaries embed the release version at build time: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.4` and `kaze-syncc 0.3.4` (for the `0.3.4` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
+Both binaries embed the release version at build time: `kaze-syncd --version` and `kaze-syncc --version` print `kaze-syncd 0.3.5` and `kaze-syncc 0.3.5` (for the `0.3.5` release). In the Web UI, the server version appears next to `Kaze Sync` at the top-left after you sign in (the sign-in page omits it).
 
 Once built, copy `kaze-syncd` to your server and follow [section 2.2](#22-openwrt) (OpenWrt) or [section 2.3](#23-plain-linux-systemd-or-openrc) (plain Linux) to install it, and copy the client binaries to a permanent directory on each computer to enroll them as described in [section 3](#3-installing-and-enrolling-clients).
