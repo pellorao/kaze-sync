@@ -751,8 +751,7 @@ func (d *driver) upgradePhase() {
 			if err != nil {
 				return false, err
 			}
-			w := want
-			diff = diffInfo(contentOnly(got), w)
+			diff = diffInfo(contentOnly(got), want)
 			return diff == "", fmt.Errorf("%s", diff)
 		})
 		if err == nil {

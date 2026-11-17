@@ -43,7 +43,6 @@ type driver struct {
 	web     *webClient
 	agents  []*agent
 	fails   []string
-	current string
 	only    string
 	metrics []string
 	m7      *m7State
@@ -123,7 +122,6 @@ func (d *driver) metric(format string, a ...any) {
 
 // step runs one named check and records a failure; it reports success.
 func (d *driver) step(name string, f func() error) bool {
-	d.current = name
 	t := time.Now()
 	if err := f(); err != nil {
 		log.Printf("FAIL %s: %v", name, err)

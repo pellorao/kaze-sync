@@ -99,8 +99,7 @@ func (a *agent) restart() error {
 
 // stateLog returns the agent's own log file contents (kaze-syncc.log in its state directory).
 func (a *agent) stateLog() string {
-	dir := a.state
-	b, _ := os.ReadFile(filepath.Join(dir, "kaze-sync", "kaze-syncc.log"))
+	b, _ := os.ReadFile(filepath.Join(a.stateDir(), "kaze-syncc.log"))
 	return string(b)
 }
 
