@@ -103,6 +103,17 @@
       if (on) on.focus();
     }
   }
+  // A dialog the URL opened has no opener to give the focus back to when it closes: the link on the page that leads to
+  // the same dialog (same value of the URL parameter that opened it) takes it, and the keyboard goes on from there.
+  function returnFocus(dlg, params) { // params: [name, value] pairs of the URL the dialog was opened with
+    const f = document.activeElement;
+    if (f && f !== document.body && !dlg.contains(f)) return; // a dialog opened by a button already got the focus back from the browser
+    const links = Array.from(document.querySelectorAll("a[href]")).filter((a) => a.getClientRects().length);
+    for (const [n, v] of params) {
+      const hit = links.find((a) => { try { return new URL(a.href, location.href).searchParams.get(n) === v; } catch (_) { return false; } });
+      if (hit) { hit.focus(); return; }
+    }
+  }
   document.addEventListener("click", (e) => {
     const t = e.target.closest("[data-dialog]");
     if (t) { openDialog($("#" + t.dataset.dialog)); return; }
@@ -115,8 +126,10 @@
     const names = e.target.dataset && e.target.dataset.clear;
     if (!names) return;
     const u = new URL(location.href);
+    const was = names.split(",").filter((n) => u.searchParams.has(n)).map((n) => [n, u.searchParams.get(n)]);
     names.split(",").forEach((n) => u.searchParams.delete(n));
     history.replaceState(null, "", u);
+    returnFocus(e.target, was);
   }, true);
 
   const cf = $("#dlg-confirm");
@@ -989,13 +1002,19 @@
     $("[data-mixwarn]", f).hidden = picked.size < 2;
   });
 
-  // ---- version history: the restore asks in its own row
+  // ---- version history: the restore asks in a panel under the table; a question inside the row would widen the table
   document.addEventListener("click", (e) => {
     const a = e.target.closest("[data-ask], [data-ask-cancel]");
     if (!a) return;
-    const td = a.closest("td"), asking = "ask" in a.dataset;
-    $("form.ask", td).hidden = !asking;
-    a.closest("tr").classList.toggle("asking", asking);
+    const asking = "ask" in a.dataset, id = asking ? a.dataset.ask : a.dataset.askCancel, dlg = a.closest("dialog");
+    $$("form.ask", dlg).forEach((f) => { f.hidden = !asking || f.id !== "ask-" + id; });
+    $$("tr.asking", dlg).forEach((r) => { r.classList.remove("asking"); $("[data-ask]", r).setAttribute("aria-expanded", "false"); });
+    const btn = $("[data-ask='" + id + "']", dlg);
+    if (asking) {
+      btn.closest("tr").classList.add("asking");
+      btn.setAttribute("aria-expanded", "true");
+      $("[data-ask-cancel]", $("#ask-" + id)).focus(); // the panel is out of the row's tab order; the safe answer takes the focus
+    } else btn.focus(); // the panel closed: the focus goes back to the row's button
   });
 
   // ---- exclusion-rule editors: a highlighted layer behind the textarea, errors from the server's own parser

@@ -221,7 +221,7 @@ dialog.dlg.restore { width: 1000px; }
 .dlg-h { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .dlg-h h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; flex: 1; min-width: 0; }
 .dlg-h .x { color: var(--muted); }
-.dlg-b { padding: 16px 20px; display: grid; gap: 16px; }
+.dlg-b { padding: 16px 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; } /* the one column may shrink below its content: a wide table scrolls in its own box instead of widening the dialog */
 .dlg-f { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--raised); } /* a tall dialog scrolls under its buttons, they stay in view */
 .dlg-f .sp { flex: 1; }
 .field { display: grid; gap: 6px; }
@@ -394,10 +394,12 @@ details.fold > .nitem { padding-left: 38px; background: color-mix(in srgb, var(-
 .nitem .ic { display: flex; align-items: flex-start; }
 .nitem { position: relative; }
 .nitem.hit, tr.hit td { background: color-mix(in srgb, var(--accent) 22%, transparent) !important; }
-form.ask { display: inline-flex; align-items: center; gap: 6px; }
+/* the restore question of a version row: a panel under the table, so the table keeps its columns */
+form.ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 12px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 9%, transparent); }
+form.ask[hidden] { display: none; }
+form.ask .acts { display: inline-flex; gap: 8px; margin-left: auto; }
 tr.asking td { background: color-mix(in srgb, var(--warn) 9%, transparent) !important; }
-tr.asking .q { color: var(--warn); font-size: var(--fs-sm); }
-tr.asking > td:last-child > .btn[data-ask] { display: none; }
+form.ask .q { color: var(--warn); font-size: var(--fs-sm); }
 .dlg .vers td { height: 40px; }
 .dlg-b .okbar { margin-bottom: 2px; }
 .dlg-b .preview { display: block; }
