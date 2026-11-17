@@ -21,7 +21,7 @@ func TestSystemdUserUnit(t *testing.T) {
 	if !strings.Contains(string(unit), `ExecStart="/opt/kaze sync/kaze-syncc" run`) || !strings.Contains(string(unit), "WantedBy=default.target") {
 		t.Fatalf("unit:\n%s", unit)
 	}
-	if len(cmds) != 2 || cmds[0] != "daemon-reload" || cmds[1] != "enable --now kaze-sync.service" {
+	if len(cmds) != 3 || cmds[0] != "daemon-reload" || cmds[1] != "enable kaze-sync.service" || cmds[2] != "restart kaze-sync.service" {
 		t.Fatalf("commands %v", cmds)
 	}
 }

@@ -21,7 +21,7 @@ WantedBy=default.target
 `, exe)
 }
 
-// ConfigureAutostart installs and starts a systemd user unit running "exe run".
+// ConfigureAutostart installs and (re)starts a systemd user unit running "exe run".
 func ConfigureAutostart(exe string) error {
 	cfg, err := os.UserConfigDir()
 	if err != nil {
@@ -47,5 +47,9 @@ func configureAutostart(exe, configDir string, systemctl func(args ...string) er
 	if err := systemctl("daemon-reload"); err != nil {
 		return err
 	}
-	return systemctl("enable", "--now", "kaze-sync.service")
+	if err := systemctl("enable", "kaze-sync.service"); err != nil {
+		return err
+	}
+	// restart, not "enable --now": an agent that is already running would go on with the old device.json.
+	return systemctl("restart", "kaze-sync.service")
 }

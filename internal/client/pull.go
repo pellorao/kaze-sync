@@ -294,7 +294,7 @@ func (f *Folder) prepareLive(e proto.Entry) (applied, *fetchJob, error) {
 	case have && !consistent(row, st):
 		return done, nil, nil
 	}
-	if have && bytes.Equal(row.Hash, e.Hash[:]) && row.Link == e.Link {
+	if have && bytes.Equal(row.Hash, e.Hash[:]) && row.Link == e.Link && (f.OS == "windows" || row.Exec == (e.Exec && !e.Link)) {
 		row.Seq = e.Seq // same content: only the base moves
 		return done, nil, f.DB.apply([]localRow{row}, nil)
 	}

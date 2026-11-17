@@ -618,7 +618,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	for _, p := range paths {
 		e := files[p].e
 		row, have := local[p]
-		if have && row.Size == e.Size && row.MtimeNs == e.MtimeNs && row.Link == e.IsLink {
+		if have && row.Size == e.Size && row.MtimeNs == e.MtimeNs && row.Link == e.IsLink && f.execKept(row, e) {
 			continue
 		}
 		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
@@ -656,12 +656,9 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 			f.retryFile(p) // written while we read it
 			continue
 		}
-		exec := e.Exec && !e.IsLink
-		if f.OS == "windows" {
-			exec = row.Exec // Windows does not know the bit: keep the base's
-		}
+		exec := f.execOf(row, e)
 		r := localRow{Path: p, Key: pp.Key(p), Hash: h.whole[:], Blocks: proto.JoinHashes(h.blocks), Size: e.Size, MtimeNs: e.MtimeNs, Exec: exec, Link: e.IsLink}
-		if have && bytes.Equal(row.Hash, r.Hash) && row.Link == r.Link {
+		if have && bytes.Equal(row.Hash, r.Hash) && row.Link == r.Link && row.Exec == exec {
 			r.Seq = row.Seq
 			puts = append(puts, r) // only the stat fields changed
 			reverted[p] = true
@@ -784,6 +781,17 @@ func (f *Folder) walkRoot(files map[string]found, failed map[string]bool, local 
 	}
 	return scope, nil
 }
+
+// execOf is the execute bit to commit for a local entry; Windows does not know the bit and keeps the base's.
+func (f *Folder) execOf(row localRow, e cfs.Entry) bool {
+	if f.OS == "windows" {
+		return row.Exec
+	}
+	return e.Exec && !e.IsLink
+}
+
+// execKept reports whether the entry's execute bit is the base's, so that a chmod alone is not skipped as unchanged.
+func (f *Folder) execKept(row localRow, e cfs.Entry) bool { return f.execOf(row, e) == row.Exec }
 
 // pruneDirs sorts dirs and drops the ones below another. "" (events may have been lost) or "/" means everything,
 // returned as nil. A "." (a change directly in the root) is not that: it is reported as rootOnly (see walkRoot).

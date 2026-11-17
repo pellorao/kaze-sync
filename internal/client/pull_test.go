@@ -326,3 +326,34 @@ func TestSecondDeviceAdoptsIdenticalFilesWithoutDownloads(t *testing.T) {
 		t.Fatalf("adopted files committed again: %+v", rep)
 	}
 }
+
+// A chmod alone (same size, same mtime) is a change: it commits and the other device gets the bit (design 6.4).
+func TestChmodOnlyIsSynced(t *testing.T) {
+	e, f, g1, g2, _ := pair(t)
+	g1.put("run.sh", []byte("#!/bin/sh\n"))
+	st, err := g1.fs.Stat("run.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g1.scan()
+	g2.sync()
+	if rep := g1.scan(); rep.Committed != 0 {
+		t.Fatalf("idle scan committed: %+v", rep)
+	}
+	if err := g1.fs.SetMeta("run.sh", st.MtimeNs, true); err != nil {
+		t.Fatal(err)
+	}
+	if rep := g1.scan(); rep.Committed != 1 {
+		t.Fatalf("chmod +x was not committed: %+v", rep)
+	}
+	if n := e.count(f, `SELECT count(*) FROM files WHERE path='run.sh' AND exec=1`); n != 1 {
+		t.Fatalf("server exec bit not set (%d rows)", n)
+	}
+	g2.sync()
+	if st2, err := g2.fs.Stat("run.sh"); err != nil || !st2.Exec {
+		t.Fatalf("the other device did not get the bit: %+v %v", st2, err)
+	}
+	if rep := g2.scan(); rep.Committed != 0 {
+		t.Fatalf("the downloaded bit came back as a change: %+v", rep)
+	}
+}

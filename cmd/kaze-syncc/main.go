@@ -116,6 +116,11 @@ func enroll(dir string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if runtime.GOOS == "windows" { // the Run key only starts agents; a running one keeps the old token
+		if err := client.StopAgent(dir); err != nil {
+			return err
+		}
+	}
 	return client.ConfigureAutostart(exe)
 }
 
@@ -124,6 +129,11 @@ func run(dir string) error {
 	if err != nil {
 		return fmt.Errorf("not enrolled (run enroll first): %w", err)
 	}
+	release, err := client.LockInstance(dir)
+	if err != nil {
+		return err
+	}
+	defer release()
 	logFile := filepath.Join(dir, "kaze-syncc.log")
 	lf, err := openLog(logFile, maxLogSize)
 	if err != nil {
