@@ -32,7 +32,7 @@ func TestVersionRestoreQuestionIsOutsideTheTable(t *testing.T) {
 	if len(ids) != 1 {
 		t.Fatalf("%d restore buttons, want 1 (the other version is the current one)", len(ids))
 	}
-	for _, want := range []string{`<form method="post" action="/folders/` + itoa(l.f) + `/restore" class="ask" id="ask-` + ids[0][1] + `" hidden>`, `data-ask-cancel="` + ids[0][1] + `"`, `name="version" value="` + ids[0][1] + `"`} {
+	for _, want := range []string{`<form method="post" action="/folders/` + itoa(l.f) + `/restore" class="ask" id="ask-` + ids[0][1] + `" role="group" aria-labelledby="ask-q-` + ids[0][1] + `" hidden>`, `data-ask-cancel="` + ids[0][1] + `"`, `name="version" value="` + ids[0][1] + `"`} {
 		if !strings.Contains(page[i+j:], want) {
 			t.Errorf("the page has no %q after the table", want)
 		}

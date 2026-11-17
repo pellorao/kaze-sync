@@ -135,10 +135,10 @@
 <tbody>
 {{range .Versions}}<tr>
 <td class="num">{{time .Time}}</td><td class="r num">{{if not .Deleted}}{{size .Size}}{{end}}</td><td>{{.Device}}</td>
-<td class="r">{{if .Current}}{{if .Deleted}}<span class="tag">{{t "fo.deleted"}}</span>{{else}}<span class="tag ok">{{t "ver.current"}}</span>{{end}}{{else}}<button type="button" class="btn sm" data-ask="{{.ID}}" aria-expanded="false">{{icon "restore"}}{{t "common.restore"}}</button>{{end}}</td>
+<td class="r">{{if .Current}}{{if .Deleted}}<span class="tag">{{t "fo.deleted"}}</span>{{else}}<span class="tag ok">{{t "ver.current"}}</span>{{end}}{{else}}<button type="button" class="btn sm" data-ask="{{.ID}}" aria-expanded="false" aria-controls="ask-{{.ID}}">{{icon "restore"}}{{t "common.restore"}}</button>{{end}}</td>
 </tr>{{else}}<tr><td colspan="4" class="muted">{{t "ver.none"}}</td></tr>{{end}}
 </tbody></table></div>
-{{range .Versions}}{{if not .Current}}<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="ask" id="ask-{{.ID}}" hidden><span class="q">{{time .Time}} - {{t "ver.ask"}}</span><span class="acts"><button type="button" class="btn sm" data-ask-cancel="{{.ID}}">{{t "common.cancel"}}</button> <button class="btn sm primary">{{t "common.restore"}}</button></span>
+{{range .Versions}}{{if not .Current}}<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="ask" id="ask-{{.ID}}" role="group" aria-labelledby="ask-q-{{.ID}}" hidden><span class="q" id="ask-q-{{.ID}}">{{time .Time}} - {{t "ver.ask"}}</span><span class="acts"><button type="button" class="btn sm" data-ask-cancel="{{.ID}}">{{t "common.cancel"}}</button> <button class="btn sm primary">{{t "common.restore"}}</button></span>
 <input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"></form>{{end}}{{end}}
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.close"}}</button></div>

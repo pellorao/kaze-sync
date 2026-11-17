@@ -399,6 +399,7 @@ form.ask { display: flex; flex-wrap: wrap; align-items: center; justify-content:
 form.ask[hidden] { display: none; }
 form.ask .acts { display: inline-flex; gap: 8px; margin-left: auto; }
 tr.asking td { background: color-mix(in srgb, var(--warn) 9%, transparent) !important; }
+table.vers tr.asking td:last-child { background: color-mix(in srgb, var(--warn) 9%, var(--raised)) !important; } /* the sticky action column stays opaque, the cells that scroll under it do not show through */
 form.ask .q { color: var(--warn); font-size: var(--fs-sm); }
 .dlg .vers td { height: 40px; }
 .dlg-b .okbar { margin-bottom: 2px; }
