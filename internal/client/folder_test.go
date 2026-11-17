@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io/fs"
 	"testing"
@@ -398,5 +399,26 @@ func TestScanRemovesStaleDownloadParts(t *testing.T) {
 	}
 	if _, err := g.fs.Stat("keep.txt"); err != nil {
 		t.Errorf("an ordinary file: %v", err)
+	}
+}
+
+// The whole-file hash is the SHA-256 of the content for every size around a block boundary; a file of one block
+// is hashed once (its block hash is the whole's).
+func TestHashFileWholeHash(t *testing.T) {
+	_, _, _, g := setup(t)
+	buf := make([]byte, proto.BlockSize)
+	for _, n := range []int{0, 1, proto.BlockSize - 1, proto.BlockSize, proto.BlockSize + 1, 2*proto.BlockSize + 5} {
+		data := pseudoRandom(n, byte(n))
+		g.put("f.bin", data)
+		h, err := g.f.hashFile("f.bin", found{}, buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := sha256.Sum256(data); h.whole != want || h.size != int64(n) {
+			t.Errorf("size %d: whole hash or size wrong", n)
+		}
+		if want := (n + proto.BlockSize - 1) / proto.BlockSize; len(h.blocks) != want {
+			t.Errorf("size %d: %d blocks, want %d", n, len(h.blocks), want)
+		}
 	}
 }

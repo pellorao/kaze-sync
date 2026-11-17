@@ -483,7 +483,9 @@ func (f *Folder) hashFile(p string, fd found, buf []byte) (h hashed, err error) 
 			if first && busy && string(buf[:min(n, len(sqliteMagic))]) == sqliteMagic {
 				return h, errInUse
 			}
-			whole.Write(buf[:n])
+			if !(first && (err == io.EOF || err == io.ErrUnexpectedEOF)) { // a file of one block: its hash is the whole's
+				whole.Write(buf[:n])
+			}
 			h.blocks = append(h.blocks, sha256.Sum256(buf[:n]))
 			h.size += int64(n)
 		}
@@ -494,7 +496,11 @@ func (f *Folder) hashFile(p string, fd found, buf []byte) (h hashed, err error) 
 			return h, err
 		}
 	}
-	copy(h.whole[:], whole.Sum(nil))
+	if len(h.blocks) == 1 {
+		h.whole = h.blocks[0]
+	} else {
+		copy(h.whole[:], whole.Sum(nil))
+	}
 	return h, nil
 }
 
