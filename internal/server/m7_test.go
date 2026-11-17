@@ -176,6 +176,7 @@ func TestGCWait(t *testing.T) {
 		{now.Add(-25 * time.Hour), time.Minute}, // overdue
 		{now.Add(-23 * time.Hour), time.Hour},   // due in an hour
 		{now.Add(-time.Minute), 24*time.Hour - time.Minute},
+		{now.Add(5 * 365 * 24 * time.Hour), time.Minute}, // a last_gc in the future (clock jump) counts as due
 	} {
 		if got := gcWait(tc.last, now); got != tc.want {
 			t.Errorf("gcWait(%v) = %v, want %v", now.Sub(tc.last), got, tc.want)

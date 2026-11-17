@@ -318,7 +318,13 @@ func (s *Server) requestGC() {
 }
 
 // gcWait is how long to wait before the next daily GC; the first minute after a start is left alone.
-func gcWait(last, now time.Time) time.Duration { return max(last.Add(gcEvery).Sub(now), time.Minute) }
+// A last time in the future (the clock was ahead or jumped) counts as overdue, so the wait never exceeds a day.
+func gcWait(last, now time.Time) time.Duration {
+	if last.After(now) {
+		return time.Minute
+	}
+	return max(last.Add(gcEvery).Sub(now), time.Minute)
+}
 
 // gcLoop requests a GC once a day; the time of the last request survives restarts in meta.
 func (s *Server) gcLoop(ctx context.Context) {
