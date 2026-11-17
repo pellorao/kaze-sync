@@ -139,7 +139,6 @@ func (f *Folder) Requeue() error {
 			return err
 		}
 	}
-	f.heldDirty = true
 	return nil
 }
 
@@ -162,7 +161,6 @@ func (f *Folder) hold(items []*item, why string) error {
 		}
 		rows = append(rows, h)
 	}
-	f.heldDirty = true
 	return f.DB.putHeld(rows)
 }
 
@@ -381,7 +379,6 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 		if reverted[h.Path] || gone || same { // same: the base was written over it, like a fetch of equal content
 			f.DB.dropHeld(h.Path)
 			scopes[h.Scope] = true
-			f.heldDirty = true
 		}
 	}
 	for sc := range scopes {
@@ -502,7 +499,6 @@ func (f *Folder) Resolve(ctx context.Context, act proto.Action) error {
 	case err != nil:
 		return f.failNote(p, "failed", err)
 	}
-	f.heldDirty = true
 	if err := f.DB.dropHeld(p); err != nil {
 		return err
 	}
@@ -515,7 +511,6 @@ func (f *Folder) failNote(p, note string, err error) error {
 		f.heldNote = map[string]string{}
 	}
 	f.heldNote[p] = note
-	f.heldDirty = true
 	return err
 }
 

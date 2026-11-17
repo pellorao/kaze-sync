@@ -79,7 +79,6 @@ type Folder struct {
 	savedTS        string               // the time directory in .syncsaved of the running scan or pull
 	wc             []wcRule             // the write-control settings, the root first (design 2.8.2)
 	frozen         map[string]int64     // the frozen scopes and the cursor their pulls stop at (design 2.8.5)
-	heldDirty      bool                 // the held list may differ from what the server has
 	heldSig        string
 	heldErrAt      int64  // when the report of the held changes began to fail
 	heldErr        string // why the last report of the held changes failed, "" when it did not
