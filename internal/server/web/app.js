@@ -1328,16 +1328,19 @@
         return;
       }
       const key = b64u(data.key), stale = (data.subs || []).some((x) => x.id === mine && x.gone);
-      let sub;
+      let sub, old = "";
       try {
         sub = await reg.pushManager.getSubscription();
         // one made for another server key, or one the push service has dropped, is replaced
-        if (sub && (stale || !sameBytes(sub.options.applicationServerKey, key))) { await sub.unsubscribe(); sub = null; }
+        if (sub && (stale || !sameBytes(sub.options.applicationServerKey, key))) { old = sub.endpoint; await sub.unsubscribe(); sub = null; }
         if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
       } catch (e) {
         say(msg, "err", e && e.name === "NotAllowedError" ? rt("js.push.denied") : rt("js.push.failed", { err: errName(e) }));
         return;
       }
+      // The replaced subscription is dead in the browser already: its row would stay on the list (with the bell's warning)
+      // and keep a slot until deleted, so it goes first.
+      if (old && old !== sub.endpoint) await post("/push/unsubscribe", { endpoint: old }).catch(() => {});
       const r = await post("/push/subscribe", sub.toJSON());
       if (r.ok) { say(msg, "", rt("js.push.onDone")); return; }
       const code = await errCode(r);
