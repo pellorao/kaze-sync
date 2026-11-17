@@ -46,7 +46,7 @@ type m4 struct {
 func (m *m4) lroot(f string) string { return filepath.Join(m.linRoot, f) }
 func (m *m4) wroot(f string) string { return filepath.Join(m.winRoot, f) }
 
-// until polls every 300 ms.
+// until polls every second.
 func until(what string, timeout time.Duration, f func() (bool, error)) (time.Duration, error) {
 	start := time.Now()
 	var last error
@@ -59,8 +59,34 @@ func until(what string, timeout time.Duration, f func() (bool, error)) (time.Dur
 		if time.Since(start) > timeout {
 			return 0, fmt.Errorf("timeout waiting for %s (last: %v)", what, last)
 		}
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(time.Second)
 	}
+}
+
+// sizes maps the relative path of every synced file below root to its size, without reading the content: a poll
+// that differs here need not hash anything (a poll that read and hashed two trees every time, the Windows one
+// over 9P, slowed down the very clients it waited for).
+func sizes(root string) (map[string]int64, error) {
+	out := map[string]int64{}
+	err := filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			return nil
+		}
+		if n := e.Name(); n == ".syncroot" || strings.HasPrefix(n, ".syncpart-") {
+			return nil
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		out[filepath.ToSlash(rel)] = info.Size()
+		return nil
+	})
+	return out, err
 }
 
 // tree maps the relative path of every synced file below root to the hash of its content.
@@ -90,6 +116,9 @@ func tree(root string) (map[string]string, error) {
 
 // sameTrees reports whether the folder holds the same files on both clients (and at least min of them).
 func (m *m4) sameTrees(f string, min int) (bool, error) {
+	if ok, err := sameSizes(m.lroot(f), m.wroot(f), min); !ok {
+		return false, err
+	}
 	a, err := tree(m.lroot(f))
 	if err != nil {
 		return false, err
@@ -108,6 +137,30 @@ func (m *m4) sameTrees(f string, min int) (bool, error) {
 	}
 	if len(a) != len(b) {
 		return false, fmt.Errorf("%d files on Linux, %d on Windows", len(a), len(b))
+	}
+	return true, nil
+}
+
+// sameSizes is the cheap first check of sameTrees: the same files with the same sizes, and at least min of them.
+func sameSizes(lroot, wroot string, min int) (bool, error) {
+	a, err := sizes(lroot)
+	if err != nil {
+		return false, err
+	}
+	b, err := sizes(wroot)
+	if err != nil {
+		return false, err
+	}
+	if len(a) < min {
+		return false, fmt.Errorf("%d files on Linux, want at least %d", len(a), min)
+	}
+	if len(a) != len(b) {
+		return false, fmt.Errorf("%d files on Linux, %d on Windows", len(a), len(b))
+	}
+	for p, n := range a {
+		if bn, ok := b[p]; !ok || bn != n {
+			return false, fmt.Errorf("%s differs in size or is missing on Windows (%d files)", p, len(a))
+		}
 	}
 	return true, nil
 }
