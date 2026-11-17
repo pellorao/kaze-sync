@@ -1085,11 +1085,18 @@
             hitsBox.replaceChildren(el("div", { class: "err-msg" }, rt("js.previewFail")));
             shown = null;
           } else {
-            const doc = new DOMParser().parseFromString(html, "text/html");
-            const typing = old && document.activeElement === old;
-            hitsBox.replaceChildren(...Array.from(doc.body.childNodes).map((n) => document.importNode(n, true)));
-            const nf = $("[data-hits-filter]", hitsBox); // the page draws it hidden: without script the filter would do nothing
-            if (nf) { nf.hidden = false; if (typing) { nf.focus(); nf.setSelectionRange(nf.value.length, nf.value.length); } }
+            // The filter box the person types in stays the same element: it is not rebuilt from the answer, so its
+            // value, caret and focus are untouched. An answer for an older filter text is dropped; the typing that
+            // changed it has already scheduled the next question.
+            if (old && old.value !== filter) return;
+            const frag = document.createDocumentFragment();
+            frag.append(...Array.from(new DOMParser().parseFromString(html, "text/html").body.childNodes).map((n) => document.importNode(n, true)));
+            const nf = $("[data-hits-filter]", frag); // the page draws it hidden: without script the filter would do nothing
+            const typing = old && document.activeElement === old, at = old ? [old.selectionStart, old.selectionEnd] : null;
+            if (nf && old) nf.replaceWith(old);
+            const keep = nf && (old || nf);
+            hitsBox.replaceChildren(frag);
+            if (keep) { keep.hidden = false; if (typing) { keep.focus(); keep.setSelectionRange(at[0], at[1]); } }
             shown = text;
           }
           label();
