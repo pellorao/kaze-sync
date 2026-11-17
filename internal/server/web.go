@@ -1220,35 +1220,25 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	freed, err := releaseExclusive(tx, d.ID, 0) // a revoked device would leave its range frozen
-	if err != nil {
-		return err
-	}
-	if freed > 0 { // the configuration of the other devices changes
-		if _, err := tx.Exec(`UPDATE meta SET value=value+1 WHERE key='config_version'`); err != nil {
-			return err
+	err = s.configChange(func(tx *sql.Tx) (bool, error) {
+		freed, err := releaseExclusive(tx, d.ID, 0) // a revoked device would leave its range frozen; the other devices' configuration changes
+		if err != nil {
+			return false, err
 		}
-	}
-	for _, q := range []string{`DELETE FROM mappings WHERE device_id=?`, `DELETE FROM devices WHERE id=?`} {
-		if _, err := tx.Exec(q, d.ID); err != nil {
-			return err
+		for _, q := range []string{`DELETE FROM mappings WHERE device_id=?`, `DELETE FROM devices WHERE id=?`} {
+			if _, err := tx.Exec(q, d.ID); err != nil {
+				return false, err
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		return freed > 0, nil
+	})
+	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	delete(s.reports, d.ID)
 	s.bumpLocked()
 	s.mu.Unlock()
-	if freed > 0 {
-		s.broadcast()
-	}
 	slog.Info("device revoked", "device", d.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
