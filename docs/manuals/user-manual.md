@@ -193,7 +193,7 @@ With the server running and the port open, open `https://<server>:<port>/` in a 
 
 You can run `admin-password` again at any time—for example, if you forget the password or get locked out. Each run generates a new random password (you cannot choose a custom password), prints it once, and restarts the service, which immediately signs out all active browser sessions and clears all failed-login lockouts. Run it as `<data>/kaze-syncd admin-password`, or run another copy of the binary with `--data DIR`.
 
-**Resource usage.** The server uses about 24 MB of memory on a small data set and 35 to 65 MB on the maintainer's own deployment of about 37,000 files, and daily garbage collection (section 13) adds a bounded amount on top. A machine with 512 MB of RAM can garbage-collect up to about 512 GB of stored data in a single pass; if you store more than that, garbage collection simply scans in multiple passes rather than using more memory.
+**Resource usage.** The server's resident memory is about 24 MB on a small data set and 35 to 65 MB on the maintainer's own deployment of about 37,000 files. Daily garbage collection (section 13) needs extra memory on top, in proportion to the number of files and to how many versions you retain; section 13 ("Memory sizing") has a table. In short, up to about a million files with the default 30-day retention need roughly 100 MB of extra memory during garbage collection, and a machine with 512 MB of RAM can run that in a single pass. If the data is larger than the memory budget allows, garbage collection scans in several passes: it takes longer but never fails and never uses more memory.
 
 ### 2.6 Ports and firewall rules
 
@@ -631,8 +631,30 @@ Keeping every overwritten or deleted file forever would eventually fill your ser
 - **Retention period.** Every overwrite or delete keeps the superseded version for `keep_days` days, which you configure under **Version retention** (`版本保留`) on the Settings page (1 to 3650 days, default 30). If you lower this number to free up space, saving the setting triggers a garbage collection pass immediately without needing a service restart.
 - **When garbage collection runs.** The server runs garbage collection once a day (starting one minute after the server process boots, and every 24 hours thereafter), plus immediately whenever you save a new retention setting. A collection run first deletes version records older than `keep_days`, then deletes any data blocks that are no longer referenced by any current file or retained version and are more than one hour old, and finally cleans up stale temporary files in `var/tmp/`. The one-hour grace period protects blocks that a client has just uploaded as part of an in-progress sync but has not yet committed. Garbage collection runs in the background and does not interrupt syncing.
 - **When disk space actually shrinks.** Because unreferenced blocks are removed by garbage collection rather than at the moment you delete a file, disk usage drops only after the next collection pass finishes. Each run logs a single summary line with `msg=gc` showing how many versions and blocks were removed, how many scan passes it took, and the total duration (on OpenWrt, view it with `logread | grep 'msg=gc '`).
-- **Memory cap.** Garbage collection is capped at 64 MB of RAM; if your server holds a very large dataset, it simply performs more scan passes rather than allocating more memory (see section 7 of `docs/design.md` for the table of dataset size versus memory).
+- **Memory cap.** Garbage collection never uses more than a fixed memory budget (3/8 of the machine's RAM, at least 64 MB); with a very large data set it performs more scan passes instead. How much memory a given number of files needs is in "Memory sizing" below.
 - **Frequently changing files.** Every time a file changes, the previous content becomes a retained version. If an application rewrites a cache or status file every few seconds, it will generate thousands of versions; add an exclusion rule for such files (section 7).
+
+### Memory sizing
+
+Garbage collection keeps one 32-byte hash per block reference in memory. The array is sized from the actual number of references, so a small data set uses very little, and it never grows past a budget of 3/8 of the machine's RAM (or of the memory limit of its container or service, if lower), with a minimum of 64 MB. A 512 MB machine therefore has a budget of 192 MB, which is about 6 million references in one pass. If there are more references than that, garbage collection splits the work into as many passes as needed (up to 256): it only takes longer, it does not fail. This is extra memory used while garbage collection runs; the server's resident memory (section 2.5, "Resource usage") is separate.
+
+The number of references is the sum, over every current file and every retained historical version, of its number of blocks (blocks are 256 KiB; a file smaller than that is one block; a block shared by several files or versions is counted each time). So:
+
+```text
+references  ~  files x (1 + v) x average blocks per file
+GC memory   =  min(references x 32 bytes, budget)
+```
+
+Here `v` is the average number of historical versions each file has inside the retention period. Every overwrite or delete of a file adds one version, and a version is dropped once it is older than `keep_days`, so `v` grows with both the retention period and how often your files change: with the default 30 days, a file edited once a week has about 4 versions, one that never changes has none, and one rewritten every day has about 30. Doubling `keep_days` roughly doubles `v` for files that change regularly (files that never change are unaffected). The table assumes `v = 2` and one block per file, which is an assumption for a typical document and source-code collection, not a measurement; to use your own value, multiply by `(1 + v) / 3` and by the average blocks per file. Each run of garbage collection logs `block_refs=<n>` on its `msg=gc` line, so after a run you can divide it by your file count to get the real `(1 + v) x blocks` for your data.
+
+| Files (v = 2, 1 block each) | References | GC extra memory | On a 512 MB machine (budget 192 MB) |
+|---|---|---|---|
+| 10,000 | 30,000 | about 1 MB | one pass |
+| 100,000 | 300,000 | about 10 MB | one pass |
+| 1,000,000 | 3,000,000 | about 96 MB | one pass |
+| 5,000,000 | 15,000,000 | 480 MB wanted, capped at the budget | 3 passes, only more scan time |
+
+Large files count per block: a 1 GB file has 4,096 blocks per version, so if it changes every day for 30 days it adds about 127,000 references (about 4 MB). Keeping the resident memory and the garbage-collection memory both in mind, a 512 MB machine is comfortable for a million files at the default retention; the number to watch when you raise `keep_days` or sync many large, frequently changing files is how many passes the `msg=gc` line reports.
 
 ## 14. Backup and restore of the server
 
