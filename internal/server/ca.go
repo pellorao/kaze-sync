@@ -47,10 +47,16 @@ func serverPEMPath(data string) string { return filepath.Join(data, VarDir, TLSD
 // EnsureCA creates the CA in dir when absent (certificate 0644, key 0600, directory 0700).
 func EnsureCA(dir string) error {
 	certPath, keyPath := filepath.Join(dir, caCertFile), filepath.Join(dir, caKeyFile)
-	if _, err := os.Stat(keyPath); err == nil {
+	// Both files make a CA; a key without its certificate (a crash or a full disk between the two writes) starts over.
+	_, keyErr := os.Stat(keyPath)
+	_, certErr := os.Stat(certPath)
+	if keyErr == nil && certErr == nil {
 		return nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+	}
+	for _, err := range []error{keyErr, certErr} {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err

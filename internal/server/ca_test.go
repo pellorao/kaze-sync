@@ -398,3 +398,19 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 		t.Fatal("the alert of the first certificate check was lost")
 	}
 }
+
+// A key whose certificate was never written (crash or full disk between the two writes) is not a CA: the next run
+// creates both again instead of failing on every start.
+func TestEnsureCARecoversFromKeyWithoutCert(t *testing.T) {
+	data := caData(t)
+	dir := filepath.Join(data, CADir)
+	if err := os.Remove(filepath.Join(dir, caCertFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureCA(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureServerCert(data, []string{"localhost"}, time.Now()); err != nil {
+		t.Fatalf("no usable CA after recovery: %v", err)
+	}
+}
