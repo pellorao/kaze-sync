@@ -140,15 +140,18 @@ func (s *Server) refreshOffline() {
 // pushCheck is one look at the causes: it starts the pushes that are due and returns how long until the next
 // cause leaves its wait (0: none is waiting). full adds the slow part (disk, offline devices).
 func (s *Server) pushCheck(full bool) time.Duration {
-	if s.vapid == nil {
-		return 0
-	}
-	if full {
+	if full { // the bell shows these whether or not push is on
 		s.checkDisk()
 		s.refreshOffline()
 	}
-	evs := s.pushEvents()
+	if s.vapid == nil {
+		return 0
+	}
 	subs := s.subscriptions()
+	if len(subs) == 0 {
+		return 0
+	}
+	evs := s.pushEvents()
 	now := s.now()
 	type job struct {
 		ev      pushEvent
@@ -282,6 +285,13 @@ func (s *Server) pushSend(ev pushEvent, targets []pushSub) {
 			s.pushMu.Unlock()
 			continue
 		}
+		s.pushMu.Lock() // the targets of one job go one after another: keep the guard of the later ones alive
+		if k := s.pkeys[ev.key]; k != nil && k.active {
+			r := k.retry[sub.ID]
+			r.at = s.now().Add(2 * pushTimeout)
+			k.retry[sub.ID] = r
+		}
+		s.pushMu.Unlock()
 		res := s.sendTo(context.Background(), sub, pushPayload(body, ev.key), pushTopic(ev.key))
 		s.pushResult(ev.key, sub, res)
 		if res.OK() {
@@ -361,5 +371,16 @@ func (s *Server) pushLoop(ctx context.Context) {
 		if stop {
 			return
 		}
+	}
+}
+
+// forgetSub drops what the checks know about a subscription that was made again, so that the causes still active are
+// pushed to it (an earlier 410 had marked them done for it).
+func (s *Server) forgetSub(id string) {
+	s.pushMu.Lock()
+	defer s.pushMu.Unlock()
+	for _, k := range s.pkeys {
+		delete(k.done, id)
+		delete(k.retry, id)
 	}
 }

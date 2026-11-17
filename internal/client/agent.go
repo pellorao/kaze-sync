@@ -161,7 +161,7 @@ func (a *Agent) states() []proto.FolderState {
 			st.State, st.PendingUp, st.PendingDown, st.Errors, st.Held = r.report.State, r.report.PendingUp, r.report.PendingDown, r.report.Errors, r.report.Held
 		}
 		if r.failN >= failuresBeforeReport { // the server must know that sync keeps failing (design 3.6, 4.3)
-			st.Errors = append(slices.Clone(st.Errors), proto.FileError{Kind: proto.KindFolder, Message: "sync failed " + itoa(int64(r.failN)) + " cycles in a row: " + r.failMsg, Since: r.failSince})
+			st.Errors = append(slices.Clone(st.Errors), proto.FileError{Kind: proto.KindFolder, Message: "sync failed repeatedly: " + r.failMsg, Since: r.failSince})
 			st.State = "error"
 		}
 		if r.busy && time.Since(r.busyAt) >= syncingAfter {

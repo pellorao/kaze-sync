@@ -25,7 +25,7 @@ func TestSyncFailuresAreReportedAfterRetries(t *testing.T) {
 	}
 	a.trackFailures(r, boom)
 	st := a.states()[0]
-	if len(st.Errors) != 1 || st.Errors[0].Kind != proto.KindFolder || !strings.Contains(st.Errors[0].Message, "3 cycles in a row: write x: disk full") || st.State != "error" {
+	if len(st.Errors) != 1 || st.Errors[0].Kind != proto.KindFolder || !strings.Contains(st.Errors[0].Message, "sync failed repeatedly: write x: disk full") || st.State != "error" {
 		t.Fatalf("status %+v", st)
 	}
 	a.trackFailures(r, context.Canceled) // a shutdown is not a failure

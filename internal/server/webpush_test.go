@@ -1,10 +1,18 @@
 package server
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -113,4 +121,77 @@ func TestVapidKeyIsMadeOnceAndJWTVerifies(t *testing.T) {
 	if c, _ := e.s.jwtFor("https://push.example"); c == a {
 		t.Error("a JWT with under an hour left was kept")
 	}
+}
+
+// decryptPush is the receiving side of encryptPush.
+func decryptPush(body, uaPriv, auth []byte) ([]byte, error) {
+	if len(body) < 16+4+1+65+17 {
+		return nil, errors.New("short body")
+	}
+	salt, idlen := body[:16], int(body[20])
+	if len(body) < 21+idlen+17 {
+		return nil, errors.New("short body")
+	}
+	asPubB, ct := body[21:21+idlen], body[21+idlen:]
+	priv, err := ecdh.P256().NewPrivateKey(uaPriv)
+	if err != nil {
+		return nil, err
+	}
+	asPub, err := ecdh.P256().NewPublicKey(asPubB)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := priv.ECDH(asPub)
+	if err != nil {
+		return nil, err
+	}
+	prk, _ := hkdf.Extract(sha256.New, secret, auth)
+	keyInfo := append(append([]byte("WebPush: info\x00"), priv.PublicKey().Bytes()...), asPubB...)
+	ikm, _ := hkdf.Expand(sha256.New, prk, string(keyInfo), 32)
+	prk, _ = hkdf.Extract(sha256.New, ikm, salt)
+	cek, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: aes128gcm\x00", 16)
+	nonce, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: nonce\x00", 12)
+	blk, _ := aes.NewCipher(cek)
+	gcm, _ := cipher.NewGCM(blk)
+	pt, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return nil, err
+	}
+	i := bytes.LastIndexByte(pt, 2)
+	if i < 0 {
+		return nil, errors.New("no record delimiter")
+	}
+	return pt[:i], nil
+}
+
+// verifyJWT checks a token made by signJWT and returns its claims (tests).
+func verifyJWT(pub *ecdsa.PublicKey, tok string) (map[string]any, error) {
+	var parts [3]string
+	n := 0
+	for i, start := 0, 0; i <= len(tok); i++ {
+		if i == len(tok) || tok[i] == '.' {
+			if n == 3 {
+				return nil, errors.New("too many parts")
+			}
+			parts[n], start = tok[start:i], i+1
+			n++
+		}
+	}
+	if n != 3 {
+		return nil, errors.New("not a JWT")
+	}
+	sig, err := b64.DecodeString(parts[2])
+	if err != nil || len(sig) != 64 {
+		return nil, errors.New("bad signature")
+	}
+	h := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if !ecdsa.Verify(pub, h[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
+		return nil, errors.New("signature does not verify")
+	}
+	raw, err := b64.DecodeString(parts[1])
+	if err != nil {
+		return nil, err
+	}
+	var c map[string]any
+	return c, json.Unmarshal(raw, &c)
 }

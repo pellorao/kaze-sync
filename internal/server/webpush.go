@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -108,51 +107,14 @@ func encryptPush(plain, uaPub, auth []byte, asPriv *ecdh.PrivateKey, salt []byte
 	return gcm.Seal(out.Bytes(), nonce, append(append([]byte{}, plain...), 2), nil), nil
 }
 
-// decryptPush is the receiving side, for tests (and for the daily check's receiver).
-func decryptPush(body, uaPriv, auth []byte) ([]byte, error) {
-	if len(body) < 16+4+1+65+17 {
-		return nil, errors.New("short body")
-	}
-	salt, idlen := body[:16], int(body[20])
-	if len(body) < 21+idlen+17 {
-		return nil, errors.New("short body")
-	}
-	asPubB, ct := body[21:21+idlen], body[21+idlen:]
-	priv, err := ecdh.P256().NewPrivateKey(uaPriv)
-	if err != nil {
-		return nil, err
-	}
-	asPub, err := ecdh.P256().NewPublicKey(asPubB)
-	if err != nil {
-		return nil, err
-	}
-	secret, err := priv.ECDH(asPub)
-	if err != nil {
-		return nil, err
-	}
-	prk, _ := hkdf.Extract(sha256.New, secret, auth)
-	keyInfo := append(append([]byte("WebPush: info\x00"), priv.PublicKey().Bytes()...), asPubB...)
-	ikm, _ := hkdf.Expand(sha256.New, prk, string(keyInfo), 32)
-	prk, _ = hkdf.Extract(sha256.New, ikm, salt)
-	cek, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: aes128gcm\x00", 16)
-	nonce, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: nonce\x00", 12)
-	blk, _ := aes.NewCipher(cek)
-	gcm, _ := cipher.NewGCM(blk)
-	pt, err := gcm.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return nil, err
-	}
-	i := bytes.LastIndexByte(pt, 2)
-	if i < 0 {
-		return nil, errors.New("no record delimiter")
-	}
-	return pt[:i], nil
-}
-
 // vapidKey returns the server's VAPID key, creating it when the database has none. It runs before the server takes
 // requests, so two keys are never made. The private key (PKCS #8) lives in meta.vapid_key and nowhere else.
 func vapidKey(db *sql.DB) (*ecdsa.PrivateKey, error) {
-	if v := MetaString(db, "vapid_key"); v != "" {
+	var v string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key='vapid_key'`).Scan(&v); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err // never make a new key over a read error: every subscription is bound to the old one
+	}
+	if v != "" {
 		der, err := decodeB64(v)
 		if err != nil {
 			return nil, err
@@ -204,38 +166,6 @@ func signJWT(k *ecdsa.PrivateKey, aud string, exp time.Time) (string, error) {
 	return msg + "." + b64.EncodeToString(sig), nil
 }
 
-// verifyJWT checks a token made by signJWT and returns its claims (tests).
-func verifyJWT(pub *ecdsa.PublicKey, tok string) (map[string]any, error) {
-	var parts [3]string
-	n := 0
-	for i, start := 0, 0; i <= len(tok); i++ {
-		if i == len(tok) || tok[i] == '.' {
-			if n == 3 {
-				return nil, errors.New("too many parts")
-			}
-			parts[n], start = tok[start:i], i+1
-			n++
-		}
-	}
-	if n != 3 {
-		return nil, errors.New("not a JWT")
-	}
-	sig, err := b64.DecodeString(parts[2])
-	if err != nil || len(sig) != 64 {
-		return nil, errors.New("bad signature")
-	}
-	h := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if !ecdsa.Verify(pub, h[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
-		return nil, errors.New("signature does not verify")
-	}
-	raw, err := b64.DecodeString(parts[1])
-	if err != nil {
-		return nil, err
-	}
-	var c map[string]any
-	return c, json.Unmarshal(raw, &c)
-}
-
 // jwtFor is the cached JWT for a push service origin: one per origin, signed again when less than jwtRenew is left.
 func (s *Server) jwtFor(aud string) (string, error) {
 	s.pushMu.Lock()
@@ -264,7 +194,7 @@ type pushResult struct {
 	Err    string        // what failed when Status is 0 (no URL: it is a credential)
 }
 
-// Temporary says that trying again later may work (design 4.3 "去重与限流").
+// Temporary says that trying again later may work (design 4.3).
 func (r pushResult) Temporary() bool {
 	return r.Status == 0 || r.Status == http.StatusTooManyRequests || r.Status >= 500
 }

@@ -417,3 +417,32 @@ func TestPushLoopRunsAndStops(t *testing.T) {
 	}
 	t.Fatal("the loop pushed nothing")
 }
+
+func TestResubscribingGetsTheCausesStillActive(t *testing.T) {
+	e := newEnv(t)
+	fp := newFakePush(t)
+	fp.sub(e, "phone", "en")
+	fp.setStatus("/phone", 410)
+	e.s.setServerState(&e.s.gcFailed, true)
+	e.check()
+	if len(fp.take()) != 1 {
+		t.Fatal("no first push")
+	}
+	fp.setStatus("/phone", 201)
+	e.s.forgetSub(subID(fp.srv.URL + "/phone")) // what POST /push/subscribe does for the same endpoint
+	e.editSubsGone(false)
+	e.clk.Add(time.Minute)
+	e.check()
+	if got := fp.take(); len(got) != 1 {
+		t.Fatalf("not pushed after subscribing again: %+v", got)
+	}
+}
+
+func (e *env) editSubsGone(gone bool) {
+	e.s.editSubs(func(l []pushSub) ([]pushSub, error) {
+		for i := range l {
+			l[i].Gone = gone
+		}
+		return l, nil
+	})
+}

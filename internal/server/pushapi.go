@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-// The subscriptions of the user's browsers and the endpoints that manage them (design 4.3 "Web Push 推送").
+// The subscriptions of the user's browsers and the endpoints that manage them (design 4.3).
 // Subscriptions live in meta.push_subs as JSON: no table, no schema change.
 
 const (
@@ -174,7 +174,7 @@ func (s *Server) pushAPI(h func(http.ResponseWriter, *http.Request)) http.Handle
 }
 
 // tlsMode says how this server gets its certificate: "ca", "file" or "selfsigned". Browsers register a service worker
-// only on a trusted certificate, so Web Push needs the first two (design 4.3 "证书要求").
+// only on a trusted certificate, so Web Push needs the first two (design 4.3).
 func (s *Server) tlsMode() string {
 	switch {
 	case MetaString(s.db, "cert") != "":
@@ -260,6 +260,7 @@ func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 		pushError(w, http.StatusInternalServerError, "store")
 		return
 	}
+	s.forgetSub(sub.ID)
 	slog.Info("push: subscribed", "host", pushHost(sub.Endpoint), "browser", sub.Browser)
 	s.uiBump()
 	writeJSON(w, map[string]string{"id": sub.ID})
