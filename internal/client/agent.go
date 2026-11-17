@@ -436,6 +436,13 @@ func (a *Agent) applyConfig() {
 	for _, fc := range cfg.Folders {
 		want[fc.ID] = fc
 	}
+	a.mu.Lock()
+	for id := range a.openRetry { // a folder that left the configuration has nothing left to retry (its entry would make nextWake spin)
+		if _, ok := want[id]; !ok {
+			delete(a.openRetry, id)
+		}
+	}
+	a.mu.Unlock()
 	for id, r := range a.runners {
 		if fc, ok := want[id]; ok && reflect.DeepEqual(fc, r.cfg) {
 			a.mu.Lock()

@@ -409,3 +409,17 @@ func TestSkippedWarningsDoNotBlockLastSynced(t *testing.T) {
 		}
 	}
 }
+
+// A folder whose state could not be opened and that then left the configuration must not keep its retry entry:
+// the entry's due time is in the past, so nextWake would return 0 and the loop would spin.
+func TestRemovedFolderLeavesNoOpenRetry(t *testing.T) {
+	a := &Agent{runners: map[int64]*runner{}, openRetry: map[int64]*openFail{7: {at: time.Now().Add(-time.Second)}}}
+	a.cfg = proto.Config{Folders: []proto.FolderConfig{}}
+	a.applyConfig()
+	if len(a.openRetry) != 0 {
+		t.Fatalf("openRetry = %v", a.openRetry)
+	}
+	if w := a.nextWake(); w == 0 {
+		t.Fatal("nextWake spins")
+	}
+}
