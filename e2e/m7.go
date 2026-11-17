@@ -527,7 +527,7 @@ func (d *driver) restorePhase() {
 		return
 	}
 	if !d.step("M7 install over the restored data: service, certificate, admin password and ownership", func() error {
-		out, err := d.install()
+		_, err := d.install()
 		if err != nil {
 			return err
 		}
@@ -535,7 +535,6 @@ func (d *driver) restorePhase() {
 		if d.fp != s.fp || d.port != s.port {
 			return fmt.Errorf("fingerprint %q port %s after the restore, were %q %s", d.fp, d.port, s.fp, s.port)
 		}
-		_ = out
 		if _, err := d.waitService(""); err != nil {
 			return err
 		}

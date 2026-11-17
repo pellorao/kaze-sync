@@ -198,13 +198,11 @@ func (d *driver) boot() error {
 	if _, err := d.vm.Vmrun("start", "nogui"); err != nil {
 		return err
 	}
-	return d.waitBack(true)
+	return d.waitBack()
 }
 
-func (d *driver) waitBack(first bool) error {
-	if err := d.vm.WaitIP(bootTimeout); err != nil {
-		return err
-	}
+func (d *driver) waitBack() error {
+	d.vm.SetIP()
 	return d.vm.WaitSSH(bootTimeout)
 }
 
