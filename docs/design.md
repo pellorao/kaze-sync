@@ -1299,7 +1299,7 @@ var ErrTargetChanged, ErrHashMismatch, ErrLocked error
 
 ### 12.4 文件系统接口与测试替身 `internal/client/fs`
 
-接口与验收测试不变 (`ReadDir`, `Stat`, `Open`, `OpenAppend`, `Sync`, `Rename`, `Remove`, `MkdirAll`, `SetMeta`; 内存替身的 `CaseInsensitive`, `Lock`, `FailAfter`; `RoundTripper` 故障注入). 下载复用本地块需要在任意偏移读取, 由 `Open` 返回的读取器加 `io.Seeker` 断言或 `Read` 跳过实现; 若实现时发现必须改为 `io.ReadSeekCloser`, 这是唯一可能的调整.
+接口与验收测试不变 (`ReadDir`, `Stat`, `Open`, `OpenAppend`, `Sync`, `Rename`, `Remove`, `MkdirAll`, `SetMeta`; 内存替身的 `CaseInsensitive`, `Lock`; `RoundTripper` 故障注入). 下载复用本地块需要在任意偏移读取, 由 `Open` 返回的读取器加 `io.Seeker` 断言或 `Read` 跳过实现; 若实现时发现必须改为 `io.ReadSeekCloser`, 这是唯一可能的调整.
 
 ### 12.5 目录变化监视 `internal/client/watch`
 
