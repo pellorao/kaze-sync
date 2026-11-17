@@ -1053,19 +1053,17 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request, ds *dialogSt
 		return err
 	}
 	nLocks := 0
-	if err == nil {
-		type lc struct{ folder, n int64 }
-		cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
-			`SELECT folder_id, count(*) FROM writectl WHERE mode='exclusive' AND device_id=? GROUP BY folder_id`, d.ID)
-		if lerr != nil {
-			return lerr
-		}
-		for _, c := range cnt {
-			nLocks += int(c.n)
-			for i := range maps {
-				if maps[i].FolderID == c.folder {
-					maps[i].Locks = int(c.n)
-				}
+	type lc struct{ folder, n int64 }
+	cnt, lerr := queryAll(s.db, func(rows *sql.Rows, c *lc) error { return rows.Scan(&c.folder, &c.n) },
+		`SELECT folder_id, count(*) FROM writectl WHERE mode='exclusive' AND device_id=? GROUP BY folder_id`, d.ID)
+	if lerr != nil {
+		return lerr
+	}
+	for _, c := range cnt {
+		nLocks += int(c.n)
+		for i := range maps {
+			if maps[i].FolderID == c.folder {
+				maps[i].Locks = int(c.n)
 			}
 		}
 	}
