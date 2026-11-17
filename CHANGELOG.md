@@ -11,6 +11,7 @@ Error alerts now go out as Web Push sent only by the server, replacing ntfy.
 ### Added
 
 - Web Push (design 4.3): the server keeps a VAPID key and the browsers' subscriptions, encrypts each message per RFC 8291 and sends it with the standard library only. Every push repeats one entry of the notification bell: held changes after 2 minutes, device errors after 5 minutes, a too-old client, an offline device, low disk space, a failed garbage collection, and a certificate that cannot be renewed. Each cause is pushed once per browser, repeats wait an hour, and all pushes are capped at 20 per hour. New admin endpoints `GET /push/subscriptions`, `POST /push/subscribe`, `/push/unsubscribe` and `/push/test`, and `/sw.js`. Push needs a trusted certificate (local CA or your own certificate), and iPhone and iPad are not supported. See the user manual, section 9.1.
+- The settings page has a **Push notifications** card: turn push on or off in this browser, see every subscription with its last push, and send a test push to or delete any of them. When push cannot be turned on in a browser (self-signed certificate, untrusted certificate, unsupported browser, notifications blocked), the card says why and what to do next.
 - The notification bell lists four more problems: a too-old device client, low data-disk space, a failed garbage collection and a certificate that cannot be renewed, plus a warning for an invalid push subscription.
 - A client reports a `folder` error to the server when the sync cycles of a folder fail 3 times in a row.
 

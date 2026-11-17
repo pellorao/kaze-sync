@@ -66,7 +66,7 @@
 {{if eq .Kind "disk"}}<span class="msg">{{t "notif.srv.disk"}}</span><span class="adv">{{t "notif.srv.diskAdv"}}</span>
 {{else if eq .Kind "gc"}}<span class="msg">{{t "notif.srv.gc"}}</span><span class="adv">{{t "notif.srv.gcAdv"}}</span>
 {{else if eq .Kind "cert"}}<span class="msg">{{t "notif.srv.cert"}}</span><span class="adv">{{tm "notif.srv.certAdv"}}</span>
-{{else}}<span class="msg">{{tm "notif.srv.pushgone" "href" "/settings" "name" .Name}}</span><span class="adv">{{t "notif.srv.pushgoneAdv"}}</span>{{end}}</div>{{end}}{{end}}
+{{else}}<span class="msg">{{tm "notif.srv.pushgone" "href" "/settings#push" "name" .Name}}</span><span class="adv">{{t "notif.srv.pushgoneAdv"}}</span>{{end}}</div>{{end}}{{end}}
 {{if not .Total}}<p class="empty">{{t "notif.none"}}</p>{{end}}
 </div>
 <div class="notif-f">{{t "notif.footer"}}</div>{{end}}

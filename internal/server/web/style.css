@@ -469,3 +469,19 @@ td > a.dn { display: inline-flex; align-items: center; min-height: 24px; min-wid
 .cnt, .toggle, .notice-link, .linkbtn, button.cnt, details.glob summary, .held-grp summary, .check, .held-acts .chk { min-height: 24px; }
 /* the action column (Restore, Current) stays in view while a narrow dialog scrolls the table */
 table.vers th:last-child, table.vers td:last-child { position: sticky; right: 0; background: var(--raised); }
+/* settings: the push notifications card (design 4.3); the switch is a button, its row actions are touch-size buttons */
+button.toggle { border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-md); min-height: 32px; }
+.toggle[aria-disabled="true"] { color: var(--faint); cursor: default; }
+.toggle[aria-disabled="true"] .sw::after { background: var(--faint); }
+.note.err { color: #f0a0a6; }
+.pname, .plast { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+table.push-subs th { white-space: nowrap; }
+table.push-subs td { padding-top: 6px; padding-bottom: 6px; }
+table.push-subs td > .plast { flex-direction: column; align-items: flex-start; } /* the time under the result, on every row */
+table.push-subs .acts { display: inline-flex; gap: 8px; }
+#push, [data-push-msg] { scroll-margin-top: 64px; } /* clear of the sticky bar, for the bell's link and a row action's result */
+@media (max-width: 640px) {
+  table.push-subs .sm-meta { display: block; padding-left: 0; }
+  table.push-subs .sm-meta > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; }
+  table.push-subs .acts { flex-direction: column; } /* stacked, so both stay in view beside the name */
+}

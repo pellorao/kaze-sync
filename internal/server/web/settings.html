@@ -45,5 +45,18 @@
 <div data-hitsbox>{{template "hits" .Hits}}</div></div>
 <div class="card-f">{{template "rulesgo" .Hits}}</div>
 </form>
+
+<section class="card" id="push" data-pushcard aria-labelledby="push-h">
+<div class="card-h"><h2 id="push-h">{{t "set.push"}}</h2><span class="count" data-push-count></span><span class="muted small">{{t "set.pushNote"}}</span></div>
+<div class="card-b stack">
+<p class="muted small" data-push-nojs>{{t "set.pushNoJs"}}</p>
+<div class="push-me" data-push-me hidden><button type="button" class="toggle" role="switch" aria-checked="false" aria-describedby="push-why" data-push-toggle><span class="sw"></span><span>{{t "set.pushHere"}}</span></button></div>
+<p class="note warn" id="push-why" data-push-why hidden></p>
+<p class="note" role="status" data-push-msg hidden></p>
+<div class="tscroll" data-push-list hidden><table class="push-subs">
+<thead><tr><th>{{t "set.pushBrowser"}}</th><th class="hide-sm">{{t "js.push.since"}} <span class="tzn" data-tzname>(UTC)</span></th><th class="hide-sm">{{t "js.push.last"}}</th><th class="r"><span class="sr">{{t "js.menu.actions"}}</span></th></tr></thead>
+<tbody></tbody></table></div>
+</div>
+</section>
 </div>
 {{end}}

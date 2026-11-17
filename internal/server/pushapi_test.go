@@ -6,7 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -199,4 +202,39 @@ func TestSubscriptionsSurviveAndOffGivesNoPush(t *testing.T) {
 	}
 	s2.vapid = nil // no key: push is off and nothing panics
 	s2.pushCheck(true)
+}
+
+// The push card's helpers (which problem it names, this browser's subscription id, the server key) are tested with node's
+// built-in runner; the id must be the server's subID of the same endpoint.
+func TestPushCardScript(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	ep := "https://fcm.googleapis.com/fcm/send/dXk3:APA91b-Hx_y"
+	cmd := exec.Command(node, "--test", "push.test.js")
+	cmd.Dir = "jstest"
+	cmd.Env = append(os.Environ(), "KZ_PUSH_ENDPOINT="+ep, "KZ_PUSH_ID="+subID(ep))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+// The settings page carries the push card (filled by app.js) with a no-JavaScript line, and the bell's warning about an
+// invalid subscription links to the card.
+func TestSettingsHasThePushCard(t *testing.T) {
+	e := newEnv(t)
+	e.setAdminPassword("pw")
+	c := e.webClient()
+	e.login(c, "pw")
+	_, body := e.get(c, "/settings")
+	for _, want := range []string{`id="push" data-pushcard`, "data-push-nojs", `role="switch"`, "data-push-toggle", "data-push-list"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the settings page lacks %s", want)
+		}
+	}
+	lay, _ := fs.ReadFile(webFS, "web/layout.html")
+	if !strings.Contains(string(lay), `"notif.srv.pushgone" "href" "/settings#push"`) {
+		t.Error("the bell's pushgone item does not link to the push card")
+	}
 }

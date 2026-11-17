@@ -524,6 +524,7 @@
       if (keep) keep();
     }
     dropStaleTip();
+    if (pushReload) pushReload(); // the subscriptions: one may have been marked invalid, or added in another browser
   }
   // The hint "content updated" is for changes that the listing shows. The event says that the folder changed; the
   // server says whether that touched the directory on the page (a direct child, or a subdirectory that came or went).
@@ -1195,6 +1196,188 @@
     sel.addEventListener("change", update);
     update();
   }
+
+  // ---- settings: the push notifications card (design 4.3). The switch turns push on in this browser (permission,
+  // service worker, subscription, then the server stores it) and off (the server forgets it, then the browser does); the
+  // list is the server's, each row with a test push and delete. A note says what stops push in this browser.
+  // pushProblem names the first thing that stops push here, "" when nothing does. s: {err (of the list request),
+  // available (the server's certificate allows push), secure, sw, push (the browser has the APIs), perm}.
+  function pushProblem(s) {
+    if (s.err === "login") return "js.push.login";
+    if (s.err === "network") return "js.push.network";
+    if (s.err) return "js.push.server";
+    if (!s.available) return "js.push.selfsigned";
+    if (!s.secure || !s.sw) return "js.push.insecure";
+    if (!s.push) return "js.push.unsupported";
+    if (s.perm === "denied") return "js.push.denied";
+    return "";
+  }
+  // pushSubID is the server's id of a subscription: the first 16 hex digits of the SHA-256 of its endpoint.
+  async function pushSubID(endpoint) {
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)));
+    return Array.from(h.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const b64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  const sameBytes = (a, b) => !!a && a.byteLength === b.byteLength && new Uint8Array(a).every((x, i) => x === b[i]);
+  function pushCard(pc) {
+    const tg = $("[data-push-toggle]", pc), why = $("[data-push-why]", pc), msg = $("[data-push-msg]", pc);
+    const listBox = $("[data-push-list]", pc), tb = $("tbody", listBox), count = $("[data-push-count]", pc);
+    const sw = navigator.serviceWorker;
+    const hasAPI = () => !!window.PushManager && !!window.Notification;
+    let data = { err: "" }, mine = "", working = false, testing = "", seq = 0;
+    $("[data-push-nojs]", pc).remove();
+    const say = (box, kind, text) => {
+      box.hidden = !text;
+      box.className = "note" + (kind ? " " + kind : "");
+      box.replaceChildren(...(text ? [icon(kind || "info"), el("span", {}, text)] : []));
+    };
+    const post = (url, body) => fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    async function errCode(r) {
+      try { return (await r.json()).error || String(r.status); } catch (e) { return String(r.status); }
+    }
+    const fail = (code) => rt(code === "login" ? "js.push.login" : "js.push.saveFail", { code });
+    const errName = (e) => (e && (e.name || e.message)) || String(e);
+    async function own() { // this browser's subscription; registers nothing
+      if (!sw || !window.isSecureContext || !hasAPI()) return null;
+      try { const reg = await sw.getRegistration("/"); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
+    }
+    async function load() {
+      const n = ++seq;
+      let d;
+      try {
+        const r = await fetch("/push/subscriptions", { credentials: "same-origin", cache: "no-store" });
+        d = r.ok ? await r.json() : { err: await errCode(r) };
+      } catch (e) { d = { err: "network" }; }
+      const s = await own();
+      const id = s ? await pushSubID(s.endpoint).catch(() => "") : "";
+      if (n !== seq) return; // a newer load is under way
+      data = d;
+      mine = id;
+      render();
+    }
+    function last(s) {
+      const l = s.last;
+      if (!l) return el("span", { class: "muted" }, "-");
+      const ok = l.status >= 200 && l.status < 300;
+      return el("span", { class: "plast" }, el("span", { class: "tag " + (ok ? "ok" : "err") }, icon(ok ? "check" : "err"),
+        l.status ? l.status + " · " + l.ms + " ms" : rt("js.push.noAnswer") + " (" + (l.err || "-") + ")"),
+      el("time", { datetime: utc(l.at * 1000), class: "muted small" }));
+    }
+    function row(s) {
+      const name = el("span", { class: "pname" }, el("span", { id: "pn-" + s.id }, s.browser));
+      if (s.id === mine) name.append(el("span", { class: "tag" }, rt("js.push.this")));
+      if (s.gone) name.append(el("span", { class: "tag warn" }, icon("warn"), rt("js.push.gone")));
+      const since = () => el("time", { datetime: utc(s.at * 1000) });
+      const busy = s.id === testing;
+      const test = el("button", { type: "button", class: "btn", "data-push-test": s.id, "aria-describedby": "pn-" + s.id }, rt(busy ? "js.push.sending" : "js.push.test"));
+      const del = el("button", { type: "button", class: "btn", "data-push-del": s.id, "aria-describedby": "pn-" + s.id }, rt("common.delete"));
+      if (working) { test.setAttribute("aria-disabled", "true"); del.setAttribute("aria-disabled", "true"); }
+      // on a narrow screen the two hidden columns show under the name, each with its column's name
+      return el("tr", {},
+        el("td", {}, name, el("div", { class: "sm-meta" },
+          el("div", {}, el("span", {}, rt("js.push.since")), since()), el("div", {}, el("span", {}, rt("js.push.last")), last(s)))),
+        el("td", { class: "hide-sm time" }, since()),
+        el("td", { class: "hide-sm" }, last(s)),
+        el("td", { class: "r" }, el("span", { class: "acts" }, test, del)));
+    }
+    function render() {
+      const subs = data.subs || [];
+      const p = pushProblem({ err: data.err, available: data.available, secure: window.isSecureContext, sw: !!sw, push: hasAPI(),
+        perm: window.Notification ? Notification.permission : "" });
+      const on = !!mine && subs.some((x) => x.id === mine && !x.gone);
+      const gone = !!mine && subs.some((x) => x.id === mine && x.gone);
+      say(why, "warn", p ? rt(p, { code: data.err }) : gone ? rt("js.push.ownGone") : "");
+      $("[data-push-me]", pc).hidden = !!data.err;
+      tg.setAttribute("aria-checked", String(on));
+      tg.classList.toggle("on", on);
+      // push that is on can always be turned off, whatever stops it from working now
+      if (working || (p && !on)) tg.setAttribute("aria-disabled", "true"); else tg.removeAttribute("aria-disabled");
+      listBox.hidden = !!data.err;
+      count.textContent = data.err ? "" : subs.length + " / " + data.max;
+      // The rows are made anew: the focus goes back to the same button of the same subscription (or to the switch when
+      // that row is gone).
+      const f = document.activeElement, fk = f && tb.contains(f) ? (f.dataset.pushTest ? "pushTest" : "pushDel") : "", fv = fk && f.dataset[fk];
+      tb.replaceChildren(...(subs.length ? subs.map(row) : [el("tr", {}, el("td", { colspan: "4", class: "muted" }, rt("js.push.none")))]));
+      renderTimes(listBox);
+      if (fk) { const n = $$("button", tb).find((b) => b.dataset[fk] === fv); (n || tg).focus({ preventScroll: true }); }
+      dropStaleTip();
+    }
+    async function act(fn) {
+      if (working) return;
+      working = true;
+      say(msg, "", ""); // the last action's result goes with it
+      render();
+      try { await fn(); } catch (e) { say(msg, "err", rt("js.push.failed", { err: errName(e) })); } finally {
+        working = false;
+        testing = "";
+        await load();
+        // the result shows above the list: a long list on a phone would leave it off-screen after a row's action
+        if (!msg.hidden) msg.scrollIntoView({ block: "nearest" });
+      }
+    }
+    async function turnOn() {
+      // asked first, while the click still counts as the user's: browsers ask for the permission only then
+      const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (perm !== "granted") { say(msg, "warn", rt(perm === "denied" ? "js.push.denied" : "js.push.notAllowed")); return; }
+      let reg;
+      try {
+        await sw.register("/sw.js", { scope: "/" });
+        reg = await sw.ready;
+      } catch (e) { // an untrusted certificate fails here even where the page itself was let through
+        say(msg, "err", e && e.name === "SecurityError" ? rt("js.push.insecure") : rt("js.push.failed", { err: errName(e) }));
+        return;
+      }
+      const key = b64u(data.key), stale = (data.subs || []).some((x) => x.id === mine && x.gone);
+      let sub;
+      try {
+        sub = await reg.pushManager.getSubscription();
+        // one made for another server key, or one the push service has dropped, is replaced
+        if (sub && (stale || !sameBytes(sub.options.applicationServerKey, key))) { await sub.unsubscribe(); sub = null; }
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      } catch (e) {
+        say(msg, "err", e && e.name === "NotAllowedError" ? rt("js.push.denied") : rt("js.push.failed", { err: errName(e) }));
+        return;
+      }
+      const r = await post("/push/subscribe", sub.toJSON());
+      if (r.ok) { say(msg, "", rt("js.push.onDone")); return; }
+      const code = await errCode(r);
+      if (code === "full") {
+        await sub.unsubscribe().catch(() => {});
+        say(msg, "err", rt("js.push.full", { n: data.max }));
+      } else say(msg, "err", fail(code));
+    }
+    async function turnOff() {
+      const s = await own();
+      const r = await post("/push/unsubscribe", s ? { endpoint: s.endpoint } : { id: mine });
+      if (!r.ok) { say(msg, "err", fail(await errCode(r))); return; }
+      if (s) await s.unsubscribe().catch(() => {});
+      say(msg, "", rt("js.push.offDone"));
+    }
+    async function del(id, name) {
+      if (id === mine) { await turnOff(); return; }
+      const r = await post("/push/unsubscribe", { id });
+      say(msg, r.ok ? "" : "err", r.ok ? rt("js.push.delDone", { name }) : fail(await errCode(r)));
+    }
+    async function test(id, name) {
+      const r = await post("/push/test", { id });
+      if (!r.ok) { say(msg, "err", fail(await errCode(r))); return; }
+      const o = await r.json();
+      if (o.status >= 200 && o.status < 300) say(msg, "", rt("js.push.testOk", { name, status: o.status, ms: o.ms }));
+      else if (o.status === 404 || o.status === 410) say(msg, "err", rt("js.push.testGone", { name, status: o.status }));
+      else say(msg, "err", rt("js.push.testFail", { name, result: o.status ? String(o.status) : rt("js.push.noAnswer") + " (" + (o.err || "-") + ")" }));
+    }
+    pc.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || working || b.getAttribute("aria-disabled") === "true") return;
+      const id = b.dataset.pushTest || b.dataset.pushDel, s = id && (data.subs || []).find((x) => x.id === id), name = s ? s.browser : id;
+      if (b === tg) act(tg.getAttribute("aria-checked") === "true" ? turnOff : turnOn);
+      else if (b.dataset.pushTest) { testing = id; act(() => test(id, name)); }
+      else if (b.dataset.pushDel) ask(rt("js.push.delAsk", { name }), rt("common.delete"), () => act(() => del(id, name)));
+    });
+    load();
+    return load;
+  }
+  const pushReload = $("[data-pushcard]") ? pushCard($("[data-pushcard]")) : null;
 
   // ---- small things: copy buttons, the enrollment countdown, the result bar
   document.addEventListener("click", async (e) => {
