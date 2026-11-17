@@ -1020,7 +1020,7 @@
   // ---- exclusion-rule editors: a highlighted layer behind the textarea, errors from the server's own parser
   function ruleEditor(box) {
     const ta = $("textarea", box), pre = $("pre", box), list = box.nextElementSibling;
-    const LH = 20, PAD = 6;
+    const LH = parseFloat(getComputedStyle(ta).lineHeight) || 24, PAD = 6; // the row height comes from the stylesheet (24px)
     let errs = new Map(), seq = 0, tipLine = 0; // tipLine: the line the tip was last asked for (Esc closes it until the line changes)
     box.classList.add("js");
     function draw() {
