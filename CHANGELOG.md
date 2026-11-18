@@ -4,6 +4,14 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.5.1 - 2026-11-18
+
+Patch release: the held-changes bulk buttons no longer do nothing silently.
+
+### Fixed
+
+- Held-changes dialog: **Upload** under **Set the checked rows to** is disabled, with the reason written beside the buttons, when no row it would apply to can take it (a group that folds into directory rows only offers Overwrite and Discard). When some checked rows cannot take the chosen action, the dialog says "N rows keep their action".
+
 ## v0.5.0 - 2026-11-18
 
 Devices can be renamed, and held changes can be handled in bulk.

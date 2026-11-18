@@ -237,6 +237,8 @@
  "flash.restored": "복원했습니다",
  "flash.restoredN": "파일 {n}개를 복원했습니다",
  "flash.restoredFailed": "파일 {n}개를 복원했고 {f}개는 실패했습니다 (이름 충돌 또는 동시에 수정됨)",
+ "js.held.cant": "이 행에는 {action} 동작을 쓸 수 없습니다",
+ "js.held.kept": "{n}개 행은 원래 동작을 유지합니다",
  "js.now": "지금",
  "js.future": "현재 이후",
  "js.ago_m": "{m}분 전",

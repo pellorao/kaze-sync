@@ -488,6 +488,7 @@
     const nu = $("#dlg-held .dlg-b", new DOMParser().parseFromString(await r.text(), "text/html"));
     const cur = $(".dlg-b", d);
     if (nu && cur && d.open) cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
+    $$(".held-grp", d).forEach(bulkState);
     renderTimes(d);
     dropStaleTip();
   }
@@ -521,6 +522,7 @@
       if (cur === notif && notif.matches(":popover-open")) { dirty = true; continue; } // only the count changes while it is read
       const keep = focusSlot(cur);
       cur.replaceChildren(...Array.from(nu.childNodes).map((n) => document.importNode(n, true)));
+      $$(".held-grp", cur).forEach(bulkState); // new markup starts with the server's static buttons
       renderTimes(cur);
       if (keep) keep();
     }
@@ -1008,18 +1010,27 @@
     $("[data-mixwarn]", f).hidden = picked.size < 2;
   }
   // Rows are checked one by one or all at once; the action buttons above the table set the action of the checked rows
-  // (a row that cannot take it keeps its own) and stay disabled, with a tip saying why, while no row is checked.
+  // (a row that cannot take it keeps its own, and the page says so). A button is disabled while no row is checked (a tip
+  // says why) and when no row it applies to can take its action (a line beside the buttons says why).
+  const canTake = (tr, a) => { const sel = $(ACTION_SEL, tr); return !!sel && Array.from(sel.options).some((o) => o.value === a && !o.disabled); };
   function bulkState(f) {
     const all = $$("input[data-sel]", f), n = all.filter((c) => c.checked).length, sa = $("input[data-selall]", f), w = $(".held-bulk-b", f);
     if (sa) { sa.checked = all.length > 0 && n === all.length; sa.indeterminate = n > 0 && n < all.length; }
     if (!w) return;
-    const id = w.dataset.tipId || (w.dataset.tipId = w.dataset.tip);
+    const id = w.dataset.tipId || (w.dataset.tipId = w.dataset.tip), msg = $("[data-bulkmsg]", f), cant = [];
     if (n) w.removeAttribute("data-tip"); else w.dataset.tip = id;
+    // A button that no checked row can take (Upload when only folder rows are checked) is disabled and says why; with
+    // nothing checked the same test runs over the whole table (a group of folder rows only never offers Upload).
+    const scope = (n ? all.filter((c) => c.checked) : all).map((c) => c.closest("tr"));
     for (const b of $$("button[data-bulk]", w)) {
-      b.setAttribute("aria-disabled", n ? "false" : "true");
-      if (n) b.removeAttribute("aria-describedby"); else b.setAttribute("aria-describedby", id);
+      const ok = scope.length === 0 || scope.some((tr) => canTake(tr, b.dataset.bulk));
+      if (!ok) cant.push(b.textContent.trim());
+      b.setAttribute("aria-disabled", n && ok ? "false" : "true");
+      if (n && ok) b.removeAttribute("aria-describedby"); else b.setAttribute("aria-describedby", ok ? id : msg.id);
     }
+    msg.textContent = cant.length ? rt("js.held.cant", { action: cant.join(", ") }) : "";
   }
+  $$(".held-grp").forEach(bulkState);
   document.addEventListener("change", (e) => {
     const c = e.target.closest("input[data-sel], input[data-selall]");
     if (c) {
@@ -1033,10 +1044,13 @@
   document.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-bulk]");
     if (!b || b.getAttribute("aria-disabled") === "true") return;
+    let kept = 0;
     for (const c of $$("input[data-sel]", b.form)) {
-      const sel = c.checked && $(ACTION_SEL, c.closest("tr"));
-      if (sel && Array.from(sel.options).some((o) => o.value === b.dataset.bulk && !o.disabled)) sel.value = b.dataset.bulk;
+      if (!c.checked) continue;
+      const tr = c.closest("tr");
+      if (canTake(tr, b.dataset.bulk)) $(ACTION_SEL, tr).value = b.dataset.bulk; else kept++;
     }
+    $("[data-bulkmsg]", b.form).textContent = kept ? rt("js.held.kept", { n: kept }) : "";
     mixWarn(b.form);
   });
 

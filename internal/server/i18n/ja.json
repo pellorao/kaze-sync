@@ -237,6 +237,8 @@
  "flash.restored": "復元しました",
  "flash.restoredN": "{n} 件のファイルを復元しました",
  "flash.restoredFailed": "{n} 件のファイルを復元し、{f} 件は失敗しました (名前の衝突、または同時に変更されたため)",
+ "js.held.cant": "これらの行では {action} を使えません",
+ "js.held.kept": "{n} 行は元の操作のままです",
  "js.now": "現在",
  "js.future": "現在より後",
  "js.ago_m": "{m} 分前",

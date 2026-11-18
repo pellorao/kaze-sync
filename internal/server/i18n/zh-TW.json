@@ -237,6 +237,8 @@
  "flash.restored": "已還原",
  "flash.restoredN": "已還原 {n} 個檔案",
  "flash.restoredFailed": "已還原 {n} 個檔案, {f} 個失敗 (名稱衝突或被同時修改)",
+ "js.held.cant": "這些行不能用 {action}",
+ "js.held.kept": "{n} 行保留原動作",
  "js.now": "現在",
  "js.future": "晚於現在",
  "js.ago_m": "{m} 分鐘前",

@@ -49,7 +49,7 @@ func TestHeldDialogFoldsByDirectory(t *testing.T) {
 		t.Fatalf("%d directory rows, want 11", dirs)
 	}
 	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
-	for want, n := range map[string]int{`name="dr"`: 11, `name="r"`: 3, `data-sel `: 14, `data-selall`: 1, `data-bulk="overwrite"`: 1} {
+	for want, n := range map[string]int{`name="dr"`: 11, `name="r"`: 3, `data-sel `: 14, `data-selall`: 1, `data-bulk="overwrite"`: 1, `data-bulkmsg`: 1} {
 		if c := strings.Count(page, want); c != n {
 			t.Errorf("%s appears %d times, want %d", want, c, n)
 		}
