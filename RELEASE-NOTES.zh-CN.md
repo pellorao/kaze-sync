@@ -1,19 +1,20 @@
-# kaze-sync v0.4.1 发布说明
+# kaze-sync v0.5.0 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.4.1` (发布于 2026-11-18) 是 `v0.4.0` Web Push 的补丁版本. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包 (`kaze-sync-0.4.1-linux-amd64.tar.gz`, `kaze-sync-0.4.1-windows-amd64.zip`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.4.1` 识别构建.
+`v0.5.0` (发布于 2026-11-18) 新增设备改名, 以及待处理改动框中的批量勾选. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包 (`kaze-sync-0.5.0-linux-amd64.tar.gz`, `kaze-sync-0.5.0-windows-amd64.zip`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.5.0` 识别构建.
 
 ## 主要更新
 
-- **每次推送都提醒.** 与仍在显示的通知同 tag 的新通知过去会静默替换旧的, 桌面浏览器只有第一次测试推送会提醒. 带 tag 的通知现在设置 `renotify`, 每次测试推送使用不同的 tag.
-- **订阅失败说得更清楚.** 开启推送时浏览器连不上推送服务 (`AbortError`, 例如没有 Google Play 服务的 Android Chrome), 推送通知卡片会明确说明.
+- **设备改名.** 设备页的 **⋯** 菜单新增 **设备改名…**. 设备保留原有令牌和映射, 不需要重新注册; 当前文件, 待处理改动和通知显示新名称, 旧版本保留写入时的名称. 客户端从配置中取得新名称并记入 `device.json`.
+- **待处理改动的批量操作.** 待处理改动框的每一行都有复选框 (表头的复选框全选), **把勾选的行设为** 对勾选的行统一设定动作. 一组超过 2000 个改动时按目录折叠.
+- **可读性.** 灰色小字的对比度达到 4.5:1, 表头带有 `scope`.
 
 ## 升级
 
-同步协议仍为版本 6, 最低客户端版本不变, 数据库表结构也未变化, 所以不会进行数据迁移. 改动只在服务端的网页资源里, 客户端无需为此升级, 但为保持版本一致仍建议一并升级. 先升级服务端, 再升级客户端 ([用户手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级)): 在服务端以 root 执行 `./kaze-syncd install --data <同一目录>`; 在每台客户端替换二进制文件并重启 agent. 服务端升级后, 浏览器在下一次更新检查时取得新的 service worker.
+同步协议仍为版本 6 (配置中新增可选的设备名, 旧客户端会忽略它), 最低客户端版本不变, 数据库表结构也未变化, 所以不会进行数据迁移. 先升级服务端, 再升级客户端 ([用户手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级)): 在服务端以 root 执行 `./kaze-syncd install --data <同一目录>`; 在每台客户端替换二进制文件并重启 agent. 比本版本旧的客户端在设备改名后, 升级前仍使用注册时的名称.
 
 ## 已知限制
 

@@ -4,11 +4,18 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.5.0 - 2026-11-18
+
+Devices can be renamed, and held changes can be handled in bulk.
 
 ### Added
 
-- Device rename: the device page's title-row **⋯** menu has **Rename device…**. The new name follows the enrollment rules and must not clash with another device. The device keeps its token and mappings and is not enrolled again; current files, pending changes and notifications show the new name, while older versions keep the name they were written under. Clients take the new name from their configuration and write it into `device.json` (older clients keep using the enrolled name until upgraded).
+- Device rename: the device page's title-row **⋯** menu has **Rename device…**. The new name follows the enrollment rules and must not clash with another device. The device keeps its token and mappings and is not enrolled again; current files, pending changes and notifications show the new name, while older versions keep the name they were written under. Clients take the new name from their configuration and write it into `device.json` (older clients keep using the enrolled name until upgraded). `tools/adminstatus -rename OLD=NEW` submits the same form from a script.
+- Held-changes dialog: a checkbox on each row (the header box selects all) and **Set the checked rows to** upload, upload and overwrite, or discard. A group with more than 2000 changes is folded by directory; a directory row's action applies to every held change under it.
+
+### Changed
+
+- Small muted text reaches 4.5:1 contrast on every surface, and every table header carries `scope="col"`.
 
 ## v0.4.1 - 2026-11-18
 
