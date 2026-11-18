@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -152,7 +153,17 @@ func storePassword(path string, r *os.File) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(line+"\n"), 0o600); err != nil {
+	os.Remove(tmp) // a stale file could have a loose mode or be a link
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(line + "\n")
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -164,7 +175,7 @@ func readPassword(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("password file %s: %v (create it with -setup)", path, errors.Unwrap(err))
 	}
-	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 {
+	if !fi.Mode().IsRegular() || (runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0) { // Windows has no such bits
 		return "", fmt.Errorf("password file %s must be a regular file with mode 0600 (is %v)", path, fi.Mode())
 	}
 	b, err := os.ReadFile(path)
@@ -257,7 +268,9 @@ func collect(c *http.Client, base, pw string) (*report, error) {
 			Mode      string `json:"mode"`
 			Subs      []sub  `json:"subs"`
 		}
-		if json.Unmarshal(pb, &p) == nil {
+		if err := json.Unmarshal(pb, &p); err != nil || p.Mode == "" {
+			rep.Problems = append(rep.Problems, "/push/subscriptions answered something unreadable")
+		} else {
 			rep.PushAvailable, rep.PushMode, rep.Subs = p.Available, p.Mode, p.Subs
 		}
 	} else {
@@ -310,9 +323,7 @@ func check(rep *report, expect string) {
 			rep.Problems = append(rep.Problems, fmt.Sprintf("device %s client version %s, expected %s", d.Name, d.Version, expect))
 		}
 	}
-	if rep.PushMode != "" && !rep.PushAvailable {
-		rep.Problems = append(rep.Problems, "notifications unavailable: certificate mode "+rep.PushMode+" cannot register a service worker")
-	}
+	// A self-signed certificate is a supported mode in which Web Push is off by design (design 4.3): shown, not a problem.
 	for _, s := range rep.Subs {
 		switch {
 		case s.Gone:

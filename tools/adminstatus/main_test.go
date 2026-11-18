@@ -37,7 +37,6 @@ func TestParseAndCheck(t *testing.T) {
 	if b.Online || b.LastSeen != "2026-11-17 09:00" || b.Version != "0.3.0" || !b.TooOld {
 		t.Errorf("%+v", b)
 	}
-	rep.PushMode, rep.PushAvailable = "ca", true
 	check(rep, "0.4.0")
 	if len(rep.Problems) != 3 { // offline, too old, wrong version
 		t.Errorf("problems: %v", rep.Problems)
