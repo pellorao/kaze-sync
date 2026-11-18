@@ -141,7 +141,8 @@ func (s *Server) serverSeq(folder int64, p string) int64 {
 // resolveHandler takes the user's decisions (POST /folders/{id}/resolve). The rows of the dialog come as parallel
 // fields r (expect, size, mtime and path, tab-separated) and a (the action, "" for none); a button with scope and
 // action decides on every held change of that scope that the server has not changed since the dialog was drawn
-// (field seen is the folder's latest seq then).
+// (field seen is the folder's latest seq then); a folded directory row comes as parallel fields dr (the directory)
+// and da (overwrite or discard) and does the same for the changes under that directory.
 func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 	f, err := s.loadFolder(r)
 	if err != nil {
@@ -154,13 +155,16 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 	save := r.FormValue("save") != ""
 	var acts []proto.Action
 	valid := func(a string) bool { return a == proto.ActUpload || a == proto.ActOverwrite || a == proto.ActDiscard }
-	if scope, act := r.FormValue("scope"), r.FormValue("action"); scope != "" && valid(act) {
-		seen, _ := strconv.ParseInt(r.FormValue("seen"), 10, 64)
+	scope := r.FormValue("scope")
+	seen, _ := strconv.ParseInt(r.FormValue("seen"), 10, 64)
+	// batch decides on every held change of the scope under prefix ("" for all of it) that the server has not changed
+	// since the dialog was drawn.
+	batch := func(prefix, act string) {
 		s.mu.Lock()
 		var items []proto.HeldItem
 		if rep := s.reports[devID]; rep != nil {
 			for _, it := range rep.held[f.ID] {
-				if it.Scope == scope {
+				if it.Scope == scope && strings.HasPrefix(it.Path, prefix) {
 					items = append(items, it)
 				}
 			}
@@ -171,6 +175,9 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 				acts = append(acts, proto.Action{Folder: f.ID, Path: it.Path, Action: act, Expect: &cur, Size: it.Size, MtimeNs: it.MtimeNs, Save: save})
 			}
 		}
+	}
+	if act := r.FormValue("action"); scope != "" && valid(act) {
+		batch("", act)
 	} else {
 		rows, as := r.PostForm["r"], r.PostForm["a"]
 		for i := 0; i < len(rows) && i < len(as); i++ {
@@ -182,6 +189,13 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 			size, _ := strconv.ParseInt(parts[1], 10, 64)
 			mtime, _ := strconv.ParseInt(parts[2], 10, 64)
 			acts = append(acts, proto.Action{Folder: f.ID, Path: parts[3], Action: as[i], Expect: &exp, Size: size, MtimeNs: mtime, Save: save})
+		}
+		// a folded directory row (design 2.8.11) takes the whole-scope actions for what is under it
+		dirs, das := r.PostForm["dr"], r.PostForm["da"]
+		for i := 0; i < len(dirs) && i < len(das); i++ {
+			if scope != "" && dirs[i] != "" && (das[i] == proto.ActOverwrite || das[i] == proto.ActDiscard) {
+				batch(dirs[i]+"/", das[i])
+			}
 		}
 	}
 	s.mu.Lock()
@@ -225,13 +239,16 @@ type heldRowView struct {
 	CurGone, Changed         bool
 	CanUpload, Waiting       bool
 	Field                    string // the value of the row's r field
+	Dir                      bool   // a folded directory (Path without the trailing slash) of N held changes
+	N                        int
 }
 
 type heldGroupView struct {
 	Scope, Path, Reason, Other string
 	Rows                       []heldRowView
 	Total                      int
-	Decided                    int // how many of Total have a decision waiting for the device
+	Decided                    int  // how many of Total have a decision waiting for the device
+	Folded                     bool // the rows are folded by directory
 }
 
 type heldDevView struct {
@@ -291,24 +308,95 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 		idx[g.Scope] = i
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+	byGroup := make([][]proto.HeldItem, len(v.Groups))
 	for _, it := range items {
-		g := &v.Groups[idx[it.Scope]]
-		g.Total++
-		if waiting[it.Path] {
-			g.Decided++
+		byGroup[idx[it.Scope]] = append(byGroup[idx[it.Scope]], it)
+	}
+	for gi, its := range byGroup {
+		g := &v.Groups[gi]
+		paths := make([]string, len(its))
+		for i, it := range its {
+			paths[i] = it.Path
 		}
-		if len(g.Rows) >= maxHeldRows {
-			continue
+		k := heldFoldDepth(paths, g.Path)
+		g.Folded = k > 0
+		for _, it := range its {
+			g.Total++
+			if waiting[it.Path] {
+				g.Decided++
+			}
+			if dir := dirAt(it.Path, k); dir != "" { // folded: one row for the directory
+				if n := len(g.Rows); n > 0 && g.Rows[n-1].Dir && g.Rows[n-1].Path == dir {
+					g.Rows[n-1].N++
+					g.Rows[n-1].Waiting = g.Rows[n-1].Waiting && waiting[it.Path]
+				} else {
+					g.Rows = append(g.Rows, heldRowView{Path: dir, Dir: true, N: 1, Waiting: waiting[it.Path]})
+				}
+				continue
+			}
+			if len(g.Rows) >= maxHeldRows {
+				continue
+			}
+			row := heldRowView{Mtime: it.MtimeNs / 1e9, Path: it.Path, Kind: it.Kind, Reason: it.Reason, Note: it.Note, Size: it.Size, MtimeNs: it.MtimeNs, At: it.At, BaseSeq: it.BaseSeq, Waiting: waiting[it.Path]}
+			var hash []byte
+			if err := db.QueryRow(`SELECT seq, hash, device, created_at FROM files WHERE path=?`, it.Path).Scan(&row.CurSeq, &hash, &row.CurDevice, &row.CurTime); err == nil {
+				row.CurGone = hash == nil
+			}
+			row.Changed = row.CurSeq != it.BaseSeq
+			row.CanUpload = !row.Changed && it.Reason != "type"
+			row.Field = strconv.FormatInt(row.CurSeq, 10) + "\t" + strconv.FormatInt(it.Size, 10) + "\t" + strconv.FormatInt(it.MtimeNs, 10) + "\t" + it.Path
+			g.Rows = append(g.Rows, row)
 		}
-		row := heldRowView{Mtime: it.MtimeNs / 1e9, Path: it.Path, Kind: it.Kind, Reason: it.Reason, Note: it.Note, Size: it.Size, MtimeNs: it.MtimeNs, At: it.At, BaseSeq: it.BaseSeq, Waiting: waiting[it.Path]}
-		var hash []byte
-		if err := db.QueryRow(`SELECT seq, hash, device, created_at FROM files WHERE path=?`, it.Path).Scan(&row.CurSeq, &hash, &row.CurDevice, &row.CurTime); err == nil {
-			row.CurGone = hash == nil
-		}
-		row.Changed = row.CurSeq != it.BaseSeq
-		row.CanUpload = !row.Changed && it.Reason != "type"
-		row.Field = strconv.FormatInt(row.CurSeq, 10) + "\t" + strconv.FormatInt(it.Size, 10) + "\t" + strconv.FormatInt(it.MtimeNs, 10) + "\t" + it.Path
-		g.Rows = append(g.Rows, row)
 	}
 	return v, nil
+}
+
+// heldFoldDepth folds the sorted paths of one scope for the decision dialog (design 2.8.11: at most maxHeldRows rows,
+// more are folded by directory). It returns the deepest k such that showing every path with more than k components
+// as its directory of k components gives at most maxHeldRows rows; 0 when the paths fit unfolded, or when even the
+// first level under the scope does not fit (the dialog then draws the first maxHeldRows rows). The paths under one
+// directory are contiguous in sorted order, so counting changes of the row key counts the rows.
+func heldFoldDepth(paths []string, scope string) int {
+	if len(paths) <= maxHeldRows {
+		return 0
+	}
+	base := 0
+	if scope != "" {
+		base = strings.Count(scope, "/") + 1
+	}
+	k := 0
+	for d := base + 1; ; d++ {
+		rows, last := 0, ""
+		for _, p := range paths {
+			key := p
+			if dir := dirAt(p, d); dir != "" {
+				key = dir + "/"
+			}
+			if rows == 0 || key != last {
+				rows, last = rows+1, key
+			}
+		}
+		if rows > maxHeldRows {
+			return k
+		}
+		if rows > 1 { // one directory row for all of them says no more than the whole-scope buttons
+			k = d
+		}
+	}
+}
+
+// dirAt is the directory of the first d components of p, or "" when p has no more than d components.
+func dirAt(p string, d int) string {
+	if d <= 0 {
+		return ""
+	}
+	i := -1
+	for n := 0; n < d; n++ {
+		j := strings.IndexByte(p[i+1:], '/')
+		if j < 0 {
+			return ""
+		}
+		i += j + 1
+	}
+	return p[:i]
 }

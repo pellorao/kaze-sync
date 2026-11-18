@@ -13,7 +13,7 @@
 {{if .Free}}<button type="button" class="btn" data-dialog="dlg-map-add">{{icon "plus"}}{{t "ma.title"}}</button>
 {{else}}<button type="button" class="btn" aria-disabled="true" data-tip="ma-none" aria-describedby="ma-none">{{icon "plus"}}{{t "ma.title"}}<span class="tip-c" id="ma-none" hidden><span class="tp">{{t "dev.noFree"}}</span></span></button>{{end}}</div>
 <div class="tscroll" data-live="maps"><table class="maps">
-<thead><tr><th>{{t "ov.folders"}}</th><th class="hide-sm">{{t "ma.path"}}</th><th class="hide-sm">{{t "dev.adopt"}}</th><th>{{t "ov.status"}}</th><th class="act"></th></tr></thead>
+<thead><tr><th scope="col">{{t "ov.folders"}}</th><th scope="col" class="hide-sm">{{t "ma.path"}}</th><th scope="col" class="hide-sm">{{t "dev.adopt"}}</th><th scope="col">{{t "ov.status"}}</th><th scope="col" class="act"></th></tr></thead>
 <tbody>
 {{range .Mappings}}<tr data-folder="{{.FolderID}}" data-name="{{.Folder}}" data-path="{{.Path}}"{{if .Adopt}} data-adopt="1"{{end}}{{if .Locks}} data-locks="{{.Locks}}"{{end}}>
 <td><a href="/folders/{{.FolderID}}">{{icon "folder"}} {{.Folder}}</a><span class="sm-meta mono">{{.Path}}</span></td><td class="hide-sm mono small">{{.Path}}</td><td class="hide-sm">{{if .Adopt}}{{t "common.yes"}}{{else}}{{t "common.no"}}{{end}}</td>

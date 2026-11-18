@@ -14,7 +14,7 @@
 <section class="card" data-menu-area="blank" data-path="{{.Dir}}">
 <div class="list-h"><span>{{t "fo.items" "n" (len .Entries)}}</span><span class="sp"></span><button type="button" class="update-hint" data-reload hidden>{{icon "refresh"}}{{t "fo.reload"}}</button></div>
 {{if .Entries}}<div class="tscroll"><table class="files">
-<thead><tr><th>{{t "ov.name"}}</th><th class="size r">{{t "fo.size"}}</th><th class="time">{{t "fo.modified"}} <span class="tzn" data-tzname>(UTC)</span></th><th class="act"></th></tr></thead>
+<thead><tr><th scope="col">{{t "ov.name"}}</th><th scope="col" class="size r">{{t "fo.size"}}</th><th scope="col" class="time">{{t "fo.modified"}} <span class="tzn" data-tzname>(UTC)</span></th><th scope="col" class="act"></th></tr></thead>
 <tbody>
 {{range $i, $_ := .Entries}}<tr class="{{if .Gone}}gone{{end}}{{if .Unsynced}} unsynced{{end}}" data-kind="{{if .IsDir}}dir{{else if .Unsynced}}unsynced{{else if .Gone}}gone{{else}}file{{end}}" data-path="{{.Path}}" data-name="{{.Name}}"{{if not .Unsynced}}{{template "wc-data" .WC}}{{end}}{{if .Note}} data-msg="{{.Note.Message}}" data-device="{{.Note.Device}}" data-since="{{.Note.Since}}" data-advice="{{noteAdvice .Note}}"{{end}}>
 <td class="name"><div class="fname">{{if .IsDir}}{{wcIcon .WC .IsDir .HeldN (printf "wt%d" $i)}}<a class="nm" aria-describedby="wt{{$i}}" href="/folders/{{$.Folder.ID}}?dir={{.Path}}{{if $.Deleted}}&amp;deleted=1{{end}}">{{.Name}}</a>
@@ -36,7 +36,7 @@
 <div class="dlg-b">
 {{if not .Groups}}<p class="muted">{{t "dlg.held.none"}}</p>{{end}}
 {{if and .Groups (not .Online)}}<p class="note">{{icon "info"}}<span>{{t "dlg.held.offline" "device" .Device}}</span></p>{{end}}
-{{range .Groups}}<form method="post" action="/folders/{{$.Folder.ID}}/resolve" class="held-grp">
+{{range $gi, $_ := .Groups}}<form method="post" action="/folders/{{$.Folder.ID}}/resolve" class="held-grp">
 <button class="sr" tabindex="-1" aria-hidden="true"></button><input type="hidden" name="device" value="{{$.HeldView.DeviceID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><input type="hidden" name="scope" value="{{.Scope}}"><input type="hidden" name="seen" value="{{$.HeldView.Seen}}">
 <div class="held-h"><span class="mono">/{{.Path}}</span><span class="muted">{{t "held.n" "n" .Total}} · {{heldWhy .Reason .Other}}</span></div>
 {{if and .Total (eq .Decided .Total)}}<p class="note" data-waiting>{{icon "info"}}<span>{{t "dlg.held.groupWaiting" "device" $.HeldView.Device}}</span></p>{{end}}
@@ -44,16 +44,21 @@
 <label class="chk"><input type="checkbox" name="save" value="1" checked> {{t "dlg.held.save"}}</label></div>
 <details class="disc"><summary>{{icon "open" "chev"}}{{t "dlg.held.expand"}}</summary>
 <p class="note warn" data-mixwarn hidden>{{icon "warn"}}<span>{{t "dlg.held.mixed"}}</span></p>
-<div class="tscroll"><table class="held-rows"><thead><tr><th>{{t "ov.name"}}</th><th>{{t "dlg.held.local"}}</th><th>{{t "dlg.held.base"}}</th><th>{{t "dlg.held.server"}}</th><th>{{t "dlg.held.action"}}</th></tr></thead><tbody>
-{{range .Rows}}<tr><td class="mono">{{.Path}}</td>
+<div class="held-bulk"><span class="muted">{{t "dlg.held.bulk"}}</span><span class="held-bulk-b" data-tip="hb{{$gi}}"><button type="button" class="btn sm" data-bulk="upload" aria-disabled="true" aria-describedby="hb{{$gi}}">{{t "dlg.held.upload"}}</button><button type="button" class="btn sm" data-bulk="overwrite" aria-disabled="true" aria-describedby="hb{{$gi}}">{{t "dlg.held.overwrite"}}</button><button type="button" class="btn sm" data-bulk="discard" aria-disabled="true" aria-describedby="hb{{$gi}}">{{t "dlg.held.discard"}}</button><span class="tip-c" id="hb{{$gi}}" hidden>{{t "dlg.held.bulkNone"}}</span></span></div>
+<div class="tscroll"><table class="held-rows"><thead><tr><th scope="col" class="sel"><input type="checkbox" data-selall aria-label="{{t "dlg.held.selAll"}}"></th><th scope="col">{{t "ov.name"}}</th><th scope="col">{{t "dlg.held.local"}}</th><th scope="col">{{t "dlg.held.base"}}</th><th scope="col">{{t "dlg.held.server"}}</th><th scope="col">{{t "dlg.held.action"}}</th></tr></thead><tbody>
+{{range .Rows}}<tr{{if .Dir}} class="dir"{{end}}><td class="sel">{{if not .Waiting}}<input type="checkbox" data-sel aria-label="{{t "dlg.held.selRow" "path" .Path}}">{{end}}</td>
+{{if .Dir}}<td class="mono"><span class="dn">{{icon "folder"}}{{.Path}}/</span></td><td>{{t "held.n" "n" .N}}</td><td>-</td><td>-</td>
+<td>{{if .Waiting}}<span class="muted">{{t "dlg.held.waiting" "device" $.HeldView.Device}}</span>{{else}}<input type="hidden" name="dr" value="{{.Path}}"><select name="da" aria-label="{{t "dlg.held.action"}}"><option value="">-</option>
+<option value="overwrite">{{t "dlg.held.overwrite"}}</option><option value="discard">{{t "dlg.held.discard"}}</option></select>{{end}}</td></tr>
+{{else}}<td class="mono">{{.Path}}</td>
 <td>{{t (printf "held.kind.%s" .Kind)}}{{if ne .Kind "delete"}} · {{size .Size}} · {{time .Mtime}}{{end}}</td>
 <td class="num">#{{.BaseSeq}}</td>
 <td>{{if not .CurSeq}}<span class="muted">{{t "dlg.held.noEntry"}}</span>{{else}}#{{.CurSeq}} · {{.CurDevice}} · {{time .CurTime}}{{if .CurGone}} · {{t "fo.deleted"}}{{end}} · {{if .Changed}}<span class="cnt warn">{{t "dlg.held.changed" "device" .CurDevice}}</span>{{else}}{{t "dlg.held.same"}}{{end}}{{end}}</td>
 <td>{{if .Waiting}}<span class="muted">{{t "dlg.held.waiting" "device" $.HeldView.Device}}</span>{{else}}<input type="hidden" name="r" value="{{.Field}}"><select name="a" aria-label="{{t "dlg.held.action"}}"><option value="">-</option>
 <option value="upload"{{if not .CanUpload}} disabled{{end}}>{{t "dlg.held.upload"}}</option><option value="overwrite">{{t "dlg.held.overwrite"}}</option><option value="discard">{{t "dlg.held.discard"}}</option></select>
 {{if .Note}}<span class="err-msg">{{t (printf "held.note.%s" .Note)}}</span>{{else if not .CanUpload}}<span class="help">{{if eq .Reason "type"}}{{t "dlg.held.whyType"}}{{else}}{{t "dlg.held.whyChanged"}}{{end}}</span>{{end}}{{end}}</td></tr>
-{{end}}</tbody></table></div>
-{{if gt .Total (len .Rows)}}<p class="muted small">{{t "dlg.held.more" "n" (len .Rows) "m" .Total}}</p>{{end}}
+{{end}}{{end}}</tbody></table></div>
+{{if .Folded}}<p class="muted small">{{t "dlg.held.folded" "n" (len .Rows) "m" .Total}}</p>{{else if gt .Total (len .Rows)}}<p class="muted small">{{t "dlg.held.more" "n" (len .Rows) "m" .Total}}</p>{{end}}
 <div class="held-go"><button class="btn primary">{{t "dlg.held.apply"}}</button></div>
 </details></form>
 {{end}}
@@ -131,7 +136,7 @@
 <div class="dlg-b">
 {{if .Restored}}<div class="okbar">{{icon "check"}}{{tm "ver.restoredTo" "time" (time .Restored)}}</div>{{end}}
 <div class="tscroll"><table class="vers">
-<thead><tr><th>{{t "rs.time"}} <span class="tzn" data-tzname>(UTC)</span></th><th class="r">{{t "fo.size"}}</th><th>{{t "ver.device"}}</th><th class="r"></th></tr></thead>
+<thead><tr><th scope="col">{{t "rs.time"}} <span class="tzn" data-tzname>(UTC)</span></th><th scope="col" class="r">{{t "fo.size"}}</th><th scope="col">{{t "ver.device"}}</th><th scope="col" class="r"></th></tr></thead>
 <tbody>
 {{range .Versions}}<tr>
 <td class="num">{{time .Time}}</td><td class="r num">{{if not .Deleted}}{{size .Size}}{{end}}</td><td>{{.Device}}</td>

@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   --bg: #282c34; --bar: #21252b; --surface: #2c313a; --raised: #323842; --hover: #353b45; --line: #3e4451;
-  --fg: #dcdfe4; --muted: #9198a4; --faint: #5c6370;
+  --fg: #dcdfe4; --muted: #9299a5; --faint: #5c6370;
   --accent: #61afef; --ok: #98c379; --warn: #e5c07b; --danger: #e06c75; --code: #56b6c2;
   --sans: "Kaze Sans", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", "Kaze Han Sans CN", "Source Han Sans CN", "Noto Sans CJK SC", "Microsoft YaHei", monospace;
@@ -10,6 +10,8 @@
   /* type scale of the status page (Primer): 12, 14, 16, 20 px; font-size on :root scales the whole page. Mono (JetBrains Mono, larger x-height) sits beside the 16px sans at 14px. */
   --fs-xs: 0.75rem; --fs-sm: 0.875rem; --fs-md: 1rem; --fs-lg: 1.25rem;
 }
+/* raised surfaces (menus, the notice pop-over, dialogs, toasts): --muted is a lighter step there, 4.75:1 on --raised and 4.54:1 on --hover (the page's #9299a5 only reaches 4.1:1 and 3.9:1) */
+.pop, .dlg, .toast { --muted: #9ea5af; }
 /* Fonts: Kaze Sans (a renamed subset of an Adobe Source face, see fonts/SOURCE.md) and JetBrains Mono for Latin text, Kaze Serif for the headings (like the status page: sans body, serif titles), the embedded Source Han Sans (Serif for headings) subset of the page language
    (<html lang>) for Han, kana and hangul, so that Han characters take the shapes of that language; a character outside
    the subset falls to a Source Han Sans or Noto Sans CJK installed on the machine, then to a system font (fonts.css). */
@@ -111,7 +113,7 @@ td.top { vertical-align: top; padding-top: 12px; padding-bottom: 12px; }
 .btn[aria-disabled="true"] { color: var(--faint); cursor: default; }
 .btn[aria-disabled="true"]:hover { border-color: var(--line); }
 .btn .n { color: var(--muted); font-weight: 400; }
-.more { width: 32px; height: 32px; border-radius: 6px; border: 0; background: none; color: var(--faint); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.more { width: 32px; height: 32px; border-radius: 6px; border: 0; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hover); }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--muted); cursor: pointer; user-select: none; }
 .toggle .sw { width: 34px; height: 20px; border-radius: 10px; background: var(--line); position: relative; }
@@ -126,8 +128,8 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .tag.dev { color: var(--fg); background: var(--hover); border-color: transparent; }
-.tag.dev.off { color: var(--faint); background: none; border-color: var(--line); }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); margin-right: 6px; vertical-align: 1px; }
+.tag.dev.off { color: var(--muted); background: none; border-color: var(--line); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--danger); }
 .cnt { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); margin-right: 8px; }
 .cnt.err { color: #f0a0a6; } .cnt.warn { color: var(--warn); }
@@ -207,7 +209,7 @@ td.act { width: 44px; padding: 0 6px; text-align: right; }
 .menu .mi:hover, .menu .mi.focus { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .menu .mi.danger { color: #f0a0a6; } .menu .mi.danger svg { color: var(--danger); }
 .menu .mi:disabled { color: var(--faint); cursor: default; } .menu .mi:disabled:hover { background: none; }
-.menu .hint { font-size: var(--fs-xs); color: var(--faint); padding: 0 10px 6px 36px; margin-top: -4px; }
+.menu .hint { font-size: var(--fs-xs); color: var(--muted); padding: 0 10px 6px 36px; margin-top: -4px; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .menu .mh { font-size: var(--fs-xs); color: var(--muted); padding: 6px 10px 4px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 288px; }
 
@@ -457,6 +459,13 @@ form.inl { display: inline; margin-left: 12px; }
 table.held-rows { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: var(--fs-sm); }
 table.held-rows th, table.held-rows td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.held-rows .num { font-variant-numeric: tabular-nums; }
+/* checking rows and setting their action at once (design 2.8.11); a folded directory row stands for every held change under it */
+.held-bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: var(--fs-sm); }
+.held-bulk-b { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+table.held-rows .sel { width: 1%; padding-right: 0; }
+table.held-rows .sel input { width: 16px; height: 16px; margin: 4px 0 0; }
+table.held-rows tr.dir .dn { display: inline-flex; align-items: center; gap: 4px; }
+table.held-rows tr.dir .dn svg.i { width: 16px; height: 16px; color: var(--muted); }
 .held-go { margin-top: 8px; text-align: right; }
 /* version history: a time never breaks inside itself; a narrow dialog scrolls the table in its own box */
 table.vers { min-width: 27rem; }

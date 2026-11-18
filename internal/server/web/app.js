@@ -480,7 +480,7 @@
   // place as long as the user has not started choosing rows.
   async function refreshHeld() {
     const d = $("dialog#dlg-held[open]");
-    if (!d || !$("[data-waiting]", d) || $$(".held-rows select", d).some((s) => s.value)) return;
+    if (!d || !$("[data-waiting]", d) || $$(".held-rows select", d).some((s) => s.value) || $(".held-rows input[data-sel]:checked", d)) return;
     let r;
     try { r = await fetch(location.href, { credentials: "same-origin" }); } catch (e) { return; }
     if (!r.ok) return;
@@ -1001,11 +1001,41 @@
   const openRestore = (path, isDir) => restore.open(path, isDir);
 
   // ---- decision dialog: different actions chosen row by row may leave the scope a mix of two devices' versions
-  document.addEventListener("change", (e) => {
-    const sel = e.target.closest(".held-rows select");
-    if (!sel) return;
-    const f = sel.form, picked = new Set(Array.from(f.querySelectorAll("select[name=a]"), (x) => x.value).filter(Boolean));
+  function mixWarn(f) {
+    const picked = new Set(Array.from(f.querySelectorAll("select[name=a], select[name=da]"), (x) => x.value).filter(Boolean));
     $("[data-mixwarn]", f).hidden = picked.size < 2;
+  }
+  // Rows are checked one by one or all at once; the action buttons above the table set the action of the checked rows
+  // (a row that cannot take it keeps its own) and stay disabled, with a tip saying why, while no row is checked.
+  function bulkState(f) {
+    const all = $$("input[data-sel]", f), n = all.filter((c) => c.checked).length, sa = $("input[data-selall]", f), w = $(".held-bulk-b", f);
+    if (sa) { sa.checked = all.length > 0 && n === all.length; sa.indeterminate = n > 0 && n < all.length; }
+    if (!w) return;
+    const id = w.dataset.tipId || (w.dataset.tipId = w.dataset.tip);
+    if (n) w.removeAttribute("data-tip"); else w.dataset.tip = id;
+    for (const b of $$("button[data-bulk]", w)) {
+      b.setAttribute("aria-disabled", n ? "false" : "true");
+      if (n) b.removeAttribute("aria-describedby"); else b.setAttribute("aria-describedby", id);
+    }
+  }
+  document.addEventListener("change", (e) => {
+    const c = e.target.closest("input[data-sel], input[data-selall]");
+    if (c) {
+      if (c.matches("[data-selall]")) for (const x of $$("input[data-sel]", c.form)) x.checked = c.checked;
+      bulkState(c.form);
+      return;
+    }
+    const sel = e.target.closest(".held-rows select");
+    if (sel) mixWarn(sel.form);
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-bulk]");
+    if (!b || b.getAttribute("aria-disabled") === "true") return;
+    for (const c of $$("input[data-sel]", b.form)) {
+      const sel = c.checked && $("select[name=a], select[name=da]", c.closest("tr"));
+      if (sel && Array.from(sel.options).some((o) => o.value === b.dataset.bulk && !o.disabled)) sel.value = b.dataset.bulk;
+    }
+    mixWarn(b.form);
   });
 
   // ---- version history: the restore asks in a panel under the table; a question inside the row would widen the table

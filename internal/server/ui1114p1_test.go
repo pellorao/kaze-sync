@@ -87,7 +87,7 @@ func TestMappingTablePutsThePathUnderTheNameOnNarrowScreens(t *testing.T) {
 	if !regexp.MustCompile(`<td class="hide-sm mono small">/home/a/docs</td>`).MatchString(row) {
 		t.Errorf("the path column is not hidden on a narrow screen:\n%s", row)
 	}
-	if !regexp.MustCompile(`<th class="hide-sm">[^<]*</th><th class="hide-sm">`).MatchString(body) {
+	if !regexp.MustCompile(`<th scope="col" class="hide-sm">[^<]*</th><th scope="col" class="hide-sm">`).MatchString(body) {
 		t.Error("the path header is not hidden on a narrow screen")
 	}
 	css, _ := fs.ReadFile(webFS, "web/style.css")
