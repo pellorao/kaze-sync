@@ -1001,8 +1001,9 @@
   const openRestore = (path, isDir) => restore.open(path, isDir);
 
   // ---- decision dialog: different actions chosen row by row may leave the scope a mix of two devices' versions
+  const ACTION_SEL = "select[name=a], select[name=da]"; // a file row's action, a folded directory row's action
   function mixWarn(f) {
-    const picked = new Set(Array.from(f.querySelectorAll("select[name=a], select[name=da]"), (x) => x.value).filter(Boolean));
+    const picked = new Set(Array.from(f.querySelectorAll(ACTION_SEL), (x) => x.value).filter(Boolean));
     $("[data-mixwarn]", f).hidden = picked.size < 2;
   }
   // Rows are checked one by one or all at once; the action buttons above the table set the action of the checked rows
@@ -1032,7 +1033,7 @@
     const b = e.target.closest("button[data-bulk]");
     if (!b || b.getAttribute("aria-disabled") === "true") return;
     for (const c of $$("input[data-sel]", b.form)) {
-      const sel = c.checked && $("select[name=a], select[name=da]", c.closest("tr"));
+      const sel = c.checked && $(ACTION_SEL, c.closest("tr"));
       if (sel && Array.from(sel.options).some((o) => o.value === b.dataset.bulk && !o.disabled)) sel.value = b.dataset.bulk;
     }
     mixWarn(b.form);

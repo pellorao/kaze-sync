@@ -157,27 +157,34 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 	valid := func(a string) bool { return a == proto.ActUpload || a == proto.ActOverwrite || a == proto.ActDiscard }
 	scope := r.FormValue("scope")
 	seen, _ := strconv.ParseInt(r.FormValue("seen"), 10, 64)
-	// batch decides on every held change of the scope under prefix ("" for all of it) that the server has not changed
-	// since the dialog was drawn.
-	batch := func(prefix, act string) {
+	// batch decides on every held change of the scope that the server has not changed since the dialog was drawn and
+	// to which pick gives an action; like the whole-scope buttons it replaces a decision still waiting for the device.
+	batch := func(pick func(path string) string) {
+		type picked struct {
+			it  proto.HeldItem
+			act string
+		}
 		s.mu.Lock()
-		var items []proto.HeldItem
+		var items []picked
 		if rep := s.reports[devID]; rep != nil {
 			for _, it := range rep.held[f.ID] {
-				if it.Scope == scope && strings.HasPrefix(it.Path, prefix) {
-					items = append(items, it)
+				if it.Scope != scope {
+					continue
+				}
+				if act := pick(it.Path); act != "" {
+					items = append(items, picked{it, act})
 				}
 			}
 		}
 		s.mu.Unlock()
-		for _, it := range items {
-			if cur := s.serverSeq(f.ID, it.Path); cur <= seen {
-				acts = append(acts, proto.Action{Folder: f.ID, Path: it.Path, Action: act, Expect: &cur, Size: it.Size, MtimeNs: it.MtimeNs, Save: save})
+		for _, p := range items {
+			if cur := s.serverSeq(f.ID, p.it.Path); cur <= seen {
+				acts = append(acts, proto.Action{Folder: f.ID, Path: p.it.Path, Action: p.act, Expect: &cur, Size: p.it.Size, MtimeNs: p.it.MtimeNs, Save: save})
 			}
 		}
 	}
 	if act := r.FormValue("action"); scope != "" && valid(act) {
-		batch("", act)
+		batch(func(string) string { return act })
 	} else {
 		rows, as := r.PostForm["r"], r.PostForm["a"]
 		for i := 0; i < len(rows) && i < len(as); i++ {
@@ -190,12 +197,24 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 			mtime, _ := strconv.ParseInt(parts[2], 10, 64)
 			acts = append(acts, proto.Action{Folder: f.ID, Path: parts[3], Action: as[i], Expect: &exp, Size: size, MtimeNs: mtime, Save: save})
 		}
-		// a folded directory row (design 2.8.11) takes the whole-scope actions for what is under it
+		// a folded directory row (design 2.8.11) takes the whole-scope actions for what is under it; one pass over the
+		// held changes looks each one's parent directories up, instead of one pass per directory row
+		dirAct := map[string]string{}
 		dirs, das := r.PostForm["dr"], r.PostForm["da"]
 		for i := 0; i < len(dirs) && i < len(das); i++ {
-			if scope != "" && dirs[i] != "" && (das[i] == proto.ActOverwrite || das[i] == proto.ActDiscard) {
-				batch(dirs[i]+"/", das[i])
+			if dirs[i] != "" && (das[i] == proto.ActOverwrite || das[i] == proto.ActDiscard) {
+				dirAct[dirs[i]] = das[i]
 			}
+		}
+		if scope != "" && len(dirAct) > 0 {
+			batch(func(p string) string {
+				for i := strings.LastIndexByte(p, '/'); i > 0; i = strings.LastIndexByte(p[:i], '/') {
+					if act, ok := dirAct[p[:i]]; ok {
+						return act
+					}
+				}
+				return ""
+			})
 		}
 	}
 	s.mu.Lock()
@@ -325,7 +344,8 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 			if waiting[it.Path] {
 				g.Decided++
 			}
-			if dir := dirAt(it.Path, k); dir != "" { // folded: one row for the directory
+			if key := heldRowKey(it.Path, k); key != it.Path { // folded: one row for the directory
+				dir := strings.TrimSuffix(key, "/")
 				if n := len(g.Rows); n > 0 && g.Rows[n-1].Dir && g.Rows[n-1].Path == dir {
 					g.Rows[n-1].N++
 					g.Rows[n-1].Waiting = g.Rows[n-1].Waiting && waiting[it.Path]
@@ -368,11 +388,7 @@ func heldFoldDepth(paths []string, scope string) int {
 	for d := base + 1; ; d++ {
 		rows, last := 0, ""
 		for _, p := range paths {
-			key := p
-			if dir := dirAt(p, d); dir != "" {
-				key = dir + "/"
-			}
-			if rows == 0 || key != last {
+			if key := heldRowKey(p, d); rows == 0 || key != last {
 				rows, last = rows+1, key
 			}
 		}
@@ -383,6 +399,15 @@ func heldFoldDepth(paths []string, scope string) int {
 			k = d
 		}
 	}
+}
+
+// heldRowKey is the row a path is shown in when the dialog folds at depth d: its directory of d components (with a
+// trailing slash, so that it differs from a file of that name), or the path itself.
+func heldRowKey(p string, d int) string {
+	if dir := dirAt(p, d); dir != "" {
+		return dir + "/"
+	}
+	return p
 }
 
 // dirAt is the directory of the first d components of p, or "" when p has no more than d components.
