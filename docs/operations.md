@@ -142,6 +142,20 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 - 切换到本地 CA 或证书文件模式后, 浏览器重新信任证书才能注册 Service Worker (用户手册 2.4); 无需改 VAPID.
 - `-wc-local` 的演练用本机假推送服务收推送 (`METRIC` 行里的 "web push"); 对远端服务端不设假推送服务, 延迟用设置页的测试推送测.
 
+## 用脚本检查服务器状态
+
+`go run ./tools/adminstatus` 以管理员身份登录 Web UI (`POST /login`, 与浏览器相同), 取总览页和 `/push/subscriptions`, 打印服务端版本, 各设备的在线状态, 最近连接, 客户端版本, "版本过旧" 标记, 以及通知 (Web Push) 的证书模式和各订阅的状态; 给自动化 (定期巡检) 用, 不必开浏览器.
+
+```
+go run ./tools/adminstatus -setup                      # 一次: 从标准输入读密码, 存入 ~/.config/kaze-sync/admin-password (0600)
+go run ./tools/adminstatus -url https://HOST:PORT [-ca CA.pem | -fp sha256:HEX] [-expect 0.4.0] [-json]
+```
+
+- 密码只从密码文件读 (`-pwfile` 改路径; 文件必须是普通文件且权限为 0600, 否则拒绝), 不进命令行, 环境变量, 输出或日志. `-setup` 在终端上关闭回显.
+- 证书: 本地 CA 模式用 `-ca` 给出 `kaze-syncd ca --export -` 导出的 CA 证书; 自签名用 `-fp` 钉住证书指纹; 都不给则按系统信任库. `-url`, `-fp`, `-ca` 也可由 `KAZE_STATUS_URL`, `KAZE_STATUS_FP`, `KAZE_STATUS_CA` 提供.
+- 检查项 (任何一项不过则退出码 1 并在结果里列出): 设备离线, 设备被标 "版本过旧", `-expect` 给出时服务端或任一设备版本不符, 通知不可用 (自签名证书无法注册 Service Worker), 订阅失效 (`gone`) 或最近一次推送状态不是 2xx. 无法登录或读取为退出码 2 (密码错误会计入登录失败锁定, 脚本不重试).
+- 页面改版会使解析失败: 找不到服务端版本或设备时报告为问题, 不静默通过.
+
 ## 客户端调试日志
 
 默认日志只记启动, 警告和错误. 诊断同步延迟时, 在客户端状态目录 (Linux `~/.local/state/kaze-sync`, Windows `%LOCALAPPDATA%\kaze-sync`) 里创建一个名为 `debug` 的空文件并重启 agent, 日志 (`kaze-syncc.log`) 就多出 `level=DEBUG` 的时间线: 文件事件 (`watcher event`), 去抖到点后的任务 (`task planned`), 扫描 (`scan`) 与拉取 (`pull`) 的耗时和结果, 到服务端的请求 (`poll`, `server commit`, `upload blocks`, `changes`, `download blocks`, 带耗时 `ms`) 和轮询带来的通知 (`poll news`). 用完删掉该文件并重启 agent; 日志仍受 10 MB 轮转限制.
