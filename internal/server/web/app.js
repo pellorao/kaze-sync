@@ -1219,6 +1219,12 @@
     if (s.perm === "denied") return "js.push.denied";
     return "";
   }
+  // pushSubFail is the message key for a failed pushManager.subscribe: AbortError is the browser failing to reach its
+  // push service (Android Chrome without Google Play services, or without a route to FCM), NotAllowedError a refusal.
+  function pushSubFail(e) {
+    const n = e && e.name;
+    return n === "NotAllowedError" ? "js.push.denied" : n === "AbortError" ? "js.push.noService" : "js.push.failed";
+  }
   // pushSubID is the server's id of a subscription: the first 16 hex digits of the SHA-256 of its endpoint.
   async function pushSubID(endpoint) {
     const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)));
@@ -1342,7 +1348,7 @@
         if (sub && (stale || !sameBytes(sub.options.applicationServerKey, key))) { old = sub.endpoint; await sub.unsubscribe(); sub = null; }
         if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
       } catch (e) {
-        say(msg, "err", e && e.name === "NotAllowedError" ? rt("js.push.denied") : rt("js.push.failed", { err: errName(e) }));
+        say(msg, "err", rt(pushSubFail(e), { err: errName(e) }));
         return;
       }
       // The replaced subscription is dead in the browser already: its row would stay on the list (with the bell's warning)

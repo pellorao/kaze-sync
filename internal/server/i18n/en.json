@@ -410,6 +410,7 @@
  "js.push.ownGone": "The push service has dropped this browser's subscription. Turn the switch on again to renew it.",
  "js.push.saveFail": "The server did not complete this ({code}). Try again later.",
  "js.push.failed": "That did not work: {err}",
+ "js.push.noService": "The browser could not reach its push service (Google's FCM on Android Chrome). A phone without Google Play services, or one that cannot reach Google, cannot receive Web Push here. Check that Google Play services is installed and the phone can reach the internet, then try again.",
  "js.push.noAnswer": "No answer",
  "js.push.this": "This browser",
  "js.push.gone": "Invalid",

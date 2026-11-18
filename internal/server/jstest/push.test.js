@@ -11,7 +11,7 @@ const src = fs.readFileSync(path.join(__dirname, "..", "web", "app.js"), "utf8")
 const a = src.indexOf("  function pushProblem(s) {");
 const b = src.indexOf("  function pushCard(pc) {", a);
 assert.ok(a > 0 && b > a, "the push helpers were not found in app.js");
-const { pushProblem, pushSubID, b64u, sameBytes } = new Function(src.slice(a, b) + "\nreturn { pushProblem, pushSubID, b64u, sameBytes };")();
+const { pushProblem, pushSubFail, pushSubID, b64u, sameBytes } = new Function(src.slice(a, b) + "\nreturn { pushProblem, pushSubFail, pushSubID, b64u, sameBytes };")();
 
 const fine = { err: "", available: true, secure: true, sw: true, push: true, perm: "default" };
 const dicts = ["en", "zh-CN", "zh-TW", "ja", "ko"].map((l) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "i18n", l + ".json"), "utf8")));
@@ -59,4 +59,11 @@ test("the server key decodes from unpadded base64url and compares by bytes", () 
   const other = raw.slice();
   other[64] ^= 1;
   assert.ok(!sameBytes(other.buffer, k));
+});
+
+test("a failed subscribe names its cause: no push service, refused, or other", () => {
+  for (const [e, want] of [[{ name: "AbortError" }, "js.push.noService"], [{ name: "NotAllowedError" }, "js.push.denied"], [{ name: "TypeError" }, "js.push.failed"], [null, "js.push.failed"]]) {
+    assert.strictEqual(pushSubFail(e), want);
+    for (const d of dicts) assert.ok(d[want]);
+  }
 });

@@ -380,6 +380,7 @@
  "js.push.ownGone": "推播服務已註銷本瀏覽器的訂閱. 重新開啟開關即可.",
  "js.push.saveFail": "伺服器端沒有完成這項操作 ({code}), 請稍後再試.",
  "js.push.failed": "操作沒有完成: {err}",
+ "js.push.noService": "瀏覽器連不上它的推送服務 (Android Chrome 使用 Google 的 FCM). 沒有 Google Play 服務, 或手機連不上 Google 的裝置收不到網頁推送. 請確認已安裝 Google Play 服務且手機能上網, 再重試.",
  "js.push.noAnswer": "無回應",
  "js.push.this": "本瀏覽器",
  "js.push.gone": "已失效",

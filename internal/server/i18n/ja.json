@@ -380,6 +380,7 @@
  "js.push.ownGone": "プッシュサービスがこのブラウザーの購読を取り消しました。スイッチをもう一度オンにすれば更新されます。",
  "js.push.saveFail": "サーバーでこの操作が完了しませんでした ({code})。しばらくしてからもう一度お試しください。",
  "js.push.failed": "操作が完了しませんでした: {err}",
+ "js.push.noService": "ブラウザーがプッシュサービス (Android Chrome では Google の FCM) に接続できませんでした。Google Play 開発者サービスがない端末や Google に接続できない端末では Web プッシュを受信できません。Google Play 開発者サービスの有無とネット接続を確認して、もう一度お試しください。",
  "js.push.noAnswer": "応答なし",
  "js.push.this": "このブラウザー",
  "js.push.gone": "無効",
