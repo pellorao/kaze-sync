@@ -97,6 +97,14 @@ func TestRenameDevice(t *testing.T) {
 	if st, _ := e.post(c, page+"/rename", url.Values{"name": {"Laptop-2"}}); st != 303 { // only the case changes
 		t.Fatalf("case-only rename: %d", st)
 	}
+	// A commit authenticated under the old name that reaches the folder after the rename writes the current name.
+	if res, err := e.s.commitFor(f, id, "laptop", []proto.Op{e.op("c.txt", 0, "c")}); err != nil || res[0].Status != "ok" {
+		t.Fatalf("late commit: %v %+v", err, res)
+	}
+	var dev string
+	if db.QueryRow(`SELECT device FROM files WHERE path='c.txt'`).Scan(&dev); dev != "Laptop-2" {
+		t.Fatalf("late commit wrote %q", dev)
+	}
 	if st, _ := e.post(c, "/devices/add", url.Values{"name": {"laptop"}}); st != 200 { // the old name is free again
 		t.Fatalf("add a device under the old name: %d", st)
 	}

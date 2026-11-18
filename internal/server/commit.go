@@ -107,6 +107,11 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 		return nil, err
 	}
 	defer tx.Rollback()
+	if devID != 0 { // read under the folder's write lock: a rename (design 2.5) either finished first or rewrites these rows after
+		if err := s.db.QueryRow(`SELECT name FROM devices WHERE id=?`, devID).Scan(&device); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
 	now := s.now().Unix()
 	res := make([]proto.Result, len(ops))
 	var owner []*proto.OwnerInfo

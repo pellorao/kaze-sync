@@ -1265,7 +1265,7 @@ func (s *Server) renameDevice(w http.ResponseWriter, r *http.Request) error {
 	back := "/devices/" + strconv.FormatInt(d.ID, 10)
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == d.Name {
-		http.Redirect(w, r, back, http.StatusSeeOther)
+		http.Redirect(w, r, back+"?ok=saved", http.StatusSeeOther)
 		return nil
 	}
 	s.mu.Lock()
@@ -1278,6 +1278,9 @@ func (s *Server) renameDevice(w http.ResponseWriter, r *http.Request) error {
 		_, err := tx.Exec(`UPDATE devices SET name=? WHERE id=?`, name, d.ID)
 		return true, err
 	})
+	if err != nil && strings.Contains(err.Error(), "UNIQUE") { // another rename or an enrollment took the name since the check
+		return fieldErr(s.devicePage, http.StatusConflict, "dlg-rename", "name", "err.deviceDup")
+	}
 	if err != nil {
 		return err
 	}
