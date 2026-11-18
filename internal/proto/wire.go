@@ -112,7 +112,10 @@ type WCRule struct {
 }
 
 type Config struct {
-	Version int64          `json:"version"`
+	Version int64 `json:"version"`
+	// Name is the device's current name (design 2.5): renaming a device on the server changes it, and the client
+	// takes it in place of the name it was enrolled with. Older servers do not send it.
+	Name    string         `json:"name,omitempty"`
 	Folders []FolderConfig `json:"folders"`
 }
 

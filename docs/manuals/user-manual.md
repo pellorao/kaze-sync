@@ -323,7 +323,7 @@ Every page shares the same top navigation bar: the **kaze-sync** logo (which tak
 | Sign-in | `/login` | Enter the admin password |
 | Overview (`总览`) | `/` | View the folder table and device table; **New folder** (`新建文件夹`) and **Add device** (`添加设备`) buttons |
 | Folder | `/folders/<id>` | Browse files, restore old versions, set write control (section 5.1), decide held changes (section 8), edit folder exclusion rules, or delete the folder |
-| Device | `/devices/<id>` | Add, edit, or delete the device's folder mappings, or revoke the device |
+| Device | `/devices/<id>` | Add, edit, or delete the device's folder mappings, rename or revoke the device |
 | Settings (`设置`) | `/settings` | Configure time zone, language, version retention, the single-writer time window, and global exclusion rules |
 
 On the **Overview** page, the two tables give you the status of your entire setup at a glance:
@@ -414,9 +414,11 @@ In the Web UI, write control is shown with icons rather than text labels. Every 
 
 ## 6. Devices
 
-Once your devices are enrolled (section 3) and syncing folders, you can monitor their connection status or retire them from the Web UI.
+Once your devices are enrolled (section 3) and syncing folders, you can monitor their connection status, rename them, or retire them from the Web UI.
 
 In the device table, a device is shown as **Online** whenever it has an active long-poll request open to the server, or had one end within the last 90 seconds. If an enrolled device does not connect for 3 days, the server raises a warning notification (section 9) so you notice if a background agent has stopped running.
+
+**Rename a device.** Open its device page, click the **⋯** menu in the title row, and choose **Rename device…** (`设备改名…`). The new name follows the same rules as when adding a device (letters, digits, `-` and `_`, at most 32 characters) and must not be used by another device. The device keeps syncing with its existing token and mappings; you do not enroll it again. Current files, pending changes and notifications show the new name right away, while older entries in version history keep the name the device had when it wrote them. The client agent picks up the new name on its next configuration update and records it locally (clients older than this release keep using the enrolled name until upgraded).
 
 **Revoke a device.** If a computer is lost, retired, or being reinstalled, open its device page, click the **⋯** menu in the title row, and choose **Revoke device…** (`吊销设备…`). The device's authentication token stops working immediately and all of its folder mappings are deleted on the server, while its local files stay untouched on disk. If the revoked client agent is still running, it logs `sync is stopped, the server does not accept this device` and slows its retry attempts to about once every ten minutes. To remove the client software from the computer afterward, follow section 16.1.
 

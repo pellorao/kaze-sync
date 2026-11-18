@@ -4,6 +4,12 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Added
+
+- Device rename: the device page's title-row **⋯** menu has **Rename device…**. The new name follows the enrollment rules and must not clash with another device. The device keeps its token and mappings and is not enrolled again; current files, pending changes and notifications show the new name, while older versions keep the name they were written under. Clients take the new name from their configuration and write it into `device.json` (older clients keep using the enrolled name until upgraded).
+
 ## v0.4.1 - 2026-11-18
 
 Patch release: repeated push notifications now alert every time.

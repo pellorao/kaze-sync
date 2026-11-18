@@ -53,7 +53,7 @@ type Agent struct {
 	Dir                      string // state directory
 	API                      *API
 	NewFS                    func(root string) cfs.FS
-	OS, Hostname, DeviceName string
+	OS, Hostname, DeviceName string // DeviceName: from device.json, then from the configuration; only the Run loop uses it
 	Stable                   time.Duration
 	ScanInterval             time.Duration   // full scan period (design 5.2)
 	RetryAfter               time.Duration   // delay before running again after a failure or postponed work
@@ -211,7 +211,7 @@ func (a *Agent) cycle(ctx context.Context) {
 		if r.busy {
 			continue
 		}
-		r.f.Epoch = a.epoch
+		r.f.Epoch, r.f.DeviceName = a.epoch, a.DeviceName
 		p, ok := r.s.take(now)
 		if !ok {
 			continue
@@ -437,6 +437,11 @@ func (a *Agent) applyConfig() {
 	a.mu.Lock()
 	cfg := a.cfg
 	a.mu.Unlock()
+	if cfg.Name != "" && cfg.Name != a.DeviceName { // the device was renamed on the server (design 2.5); cycle hands it to the folders
+		slog.Info("device renamed on the server", "old", a.DeviceName, "new", cfg.Name)
+		a.DeviceName = cfg.Name
+		a.saveName()
+	}
 	want := map[int64]proto.FolderConfig{}
 	for _, fc := range cfg.Folders {
 		want[fc.ID] = fc
@@ -506,6 +511,21 @@ func (a *Agent) applyConfig() {
 		a.runners[id] = r
 		a.mu.Unlock()
 		go a.consume(r)
+	}
+}
+
+// saveName writes the device name into device.json, unless the file now holds another enrollment (its token differs).
+func (a *Agent) saveName() {
+	d, err := LoadDevice(a.Dir)
+	if err == nil && (a.API == nil || d.Token != a.API.Token) {
+		return
+	}
+	if err == nil {
+		d.Name = a.DeviceName
+		err = SaveDevice(a.Dir, d)
+	}
+	if err != nil {
+		slog.Warn("cannot store the new device name in device.json", "err", err)
 	}
 }
 

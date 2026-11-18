@@ -215,7 +215,7 @@
         [rt("js.menu.delFolder"), "trash", "del-folder", { danger: true, disabled: n > 0, hint: n > 0 ? rt("js.menu.delFolderHint", { n }) : "" }]];
     },
     "map-row": () => [[rt("js.menu.editMap"), "edit", "edit-map"], [rt("js.menu.delMap"), "trash", "del-map", { danger: true }]],
-    "dev-head": () => [[rt("js.menu.revoke"), "trash", "revoke", { danger: true }]],
+    "dev-head": () => [[rt("js.menu.rename"), "edit", "rename"], [rt("js.menu.revoke"), "trash", "revoke", { danger: true }]],
   };
   const ACTIONS = {
     open: (c) => { location.href = $("a.nm", c.row).href; },
@@ -254,6 +254,7 @@
       f.dataset.confirm = rt("js.delMapConfirm", { name: r.name, path: r.path }) + (n ? " " + rt("js.locks.release", { n }) : "");
       f.requestSubmit();
     },
+    rename: () => { const d = $("#dlg-rename"); $("form", d).reset(); openDialog(d); },
     revoke: () => $("#f-revoke").requestSubmit(),
     "del-folder": () => $("#f-del-folder").requestSubmit(),
   };

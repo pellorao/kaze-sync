@@ -267,6 +267,7 @@ func (s *Server) webRoutes(mux *http.ServeMux) {
 		"GET /devices/{id}":                 s.devicePageH,
 		"POST /devices/{id}/mapping":        s.saveMapping,
 		"POST /devices/{id}/revoke":         s.revoke,
+		"POST /devices/{id}/rename":         s.renameDevice,
 		"GET /folders/{id}":                 s.folderPageH,
 		"GET /folders/{id}/restore-preview": s.restorePreviewPage,
 		"GET /folders/{id}/restore-ticks":   s.restoreTicksPage,
@@ -605,17 +606,18 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 
 var deviceName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 
-func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
-	name := strings.TrimSpace(r.FormValue("name"))
+// nameErrLocked checks a device name for enrollment and renaming alike (design 2.5): the pattern, the reserved name of
+// restores, and no other device (self is the device being renamed, 0 for a new one) or pending enrollment code of that
+// name. It returns the HTTP status and message key of the problem, or 0. The caller holds s.mu, which guards the codes.
+func (s *Server) nameErrLocked(name string, self int64) (int, string) {
 	if !deviceName.MatchString(name) {
-		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "err.deviceName")
+		return http.StatusBadRequest, "err.deviceName"
 	}
 	if strings.EqualFold(name, "web") { // the device name of restores: a device of that name would be bound by the write window
-		return fieldErr(s.overviewPage, http.StatusBadRequest, "dlg-add-device", "name", "err.deviceReserved")
+		return http.StatusBadRequest, "err.deviceReserved"
 	}
 	var n int
-	s.db.QueryRow(`SELECT count(*) FROM devices WHERE name=?`, name).Scan(&n)
-	s.mu.Lock()
+	s.db.QueryRow(`SELECT count(*) FROM devices WHERE name=? AND id<>?`, name, self).Scan(&n)
 	for k, c := range s.codes {
 		if s.now().After(c.expires) {
 			delete(s.codes, k)
@@ -624,8 +626,17 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if n > 0 {
+		return http.StatusConflict, "err.deviceDup"
+	}
+	return 0, ""
+}
+
+func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
+	name := strings.TrimSpace(r.FormValue("name"))
+	s.mu.Lock()
+	if status, key := s.nameErrLocked(name, 0); status != 0 {
 		s.mu.Unlock()
-		return fieldErr(s.overviewPage, http.StatusConflict, "dlg-add-device", "name", "err.deviceDup")
+		return fieldErr(s.overviewPage, status, "dlg-add-device", "name", key)
 	}
 	code := group(randomBase32(12), 4)
 	expires := s.now().Add(codeLife)
@@ -1242,6 +1253,58 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	slog.Info("device revoked", "device", d.Name)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	return nil
+}
+
+// renameDevice gives a device another name (design 2.5). The device keeps its token and mappings; the configuration
+// version goes up, so that the device learns its new name from the next poll. Rows written under the old name keep it.
+func (s *Server) renameDevice(w http.ResponseWriter, r *http.Request) error {
+	d, err := s.loadDevice(r)
+	if err != nil {
+		return err
+	}
+	back := "/devices/" + strconv.FormatInt(d.ID, 10)
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == d.Name {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return nil
+	}
+	s.mu.Lock()
+	status, key := s.nameErrLocked(name, d.ID)
+	s.mu.Unlock()
+	if status != 0 {
+		return fieldErr(s.devicePage, status, "dlg-rename", "name", key)
+	}
+	err = s.configChange(func(tx *sql.Tx) (bool, error) {
+		_, err := tx.Exec(`UPDATE devices SET name=? WHERE id=?`, name, d.ID)
+		return true, err
+	})
+	if err != nil {
+		return err
+	}
+	slog.Info("device renamed", "device_id", d.ID, "old", d.Name, "new", name)
+	s.renameWriter(d.Name, name)
+	http.Redirect(w, r, back+"?ok=saved", http.StatusSeeOther)
+	return nil
+}
+
+// renameWriter puts a renamed device's new name on the current rows it wrote, in every folder (design 2.5): the
+// write-control judgement (2.8.3) and the own-commit check (6.1) compare writers by name, and would take the device's
+// own recent writes for another device's. Old versions keep the name they were written under.
+func (s *Server) renameWriter(old, name string) {
+	ids, err := queryAll(s.db, func(rows *sql.Rows, id *int64) error { return rows.Scan(id) }, `SELECT id FROM folders`)
+	if err != nil {
+		slog.Warn("device renamed: cannot list the folders", "err", err)
+	}
+	for _, id := range ids {
+		db, err := s.folderDB(id)
+		if err == nil {
+			_, err = db.Exec(`UPDATE files SET device=? WHERE device=?`, name, old)
+		}
+		if err != nil {
+			slog.Warn("device renamed: the folder's current rows keep the old name", "folder", id, "err", err)
+		}
+	}
+	s.uiBump()
 }
 
 // wcIcon is the icon of a directory or file that shows its write control (design 2.8.11): the shape and color follow

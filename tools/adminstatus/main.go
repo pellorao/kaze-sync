@@ -4,6 +4,7 @@
 //
 //	go run ./tools/adminstatus -url https://HOST:PORT [-fp sha256:HEX | -ca CA.pem] [-pwfile FILE] [-expect VERSION] [-json]
 //	go run ./tools/adminstatus -setup           # store the password in the password file (read from stdin)
+//	go run ./tools/adminstatus -rename OLD=NEW  # rename a device (design 2.5), then print the state as above
 //
 // The password is read only from the password file (default $XDG_CONFIG_HOME/kaze-sync/admin-password, which must
 // be a regular file readable by its owner only) and is never printed, put on a command line or logged. -url, -fp
@@ -76,6 +77,7 @@ func main() {
 		expect = flag.String("expect", "", "every device and the server must show this version")
 		asJSON = flag.Bool("json", false, "print JSON")
 		setup  = flag.Bool("setup", false, "read the password from stdin and store it in -pwfile (mode 0600)")
+		rename = flag.String("rename", "", "rename a device first: OLD=NEW")
 	)
 	flag.Parse()
 	if *setup {
@@ -96,7 +98,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	rep, err := collect(c, strings.TrimRight(*base, "/"), pw)
+	rep, err := collect(c, strings.TrimRight(*base, "/"), pw, *rename)
 	if err != nil {
 		fail(err)
 	}
@@ -240,7 +242,9 @@ func get(c *http.Client, u string) ([]byte, int, error) {
 	return b, resp.StatusCode, err
 }
 
-func collect(c *http.Client, base, pw string) (*report, error) {
+// collect logs in and reads the state; with rename (OLD=NEW) it renames that device after reading the overview and
+// reads the overview again.
+func collect(c *http.Client, base, pw, rename string) (*report, error) {
 	req, _ := http.NewRequest("POST", base+"/login", strings.NewReader(url.Values{"password": {pw}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept-Language", "en")
@@ -262,6 +266,15 @@ func collect(c *http.Client, base, pw string) (*report, error) {
 		return nil, fmt.Errorf("overview: status %d, %v", code, err)
 	}
 	rep := parseOverview(string(page))
+	if rename != "" {
+		if err := renameDevice(c, base, rep, rename); err != nil {
+			return nil, err
+		}
+		if page, code, err = get(c, base+"/"); err != nil || code != 200 {
+			return nil, fmt.Errorf("overview after the rename: status %d, %v", code, err)
+		}
+		rep = parseOverview(string(page))
+	}
 	if pb, code, err := get(c, base+"/push/subscriptions"); err == nil && code == 200 {
 		var p struct {
 			Available bool   `json:"available"`
@@ -279,10 +292,46 @@ func collect(c *http.Client, base, pw string) (*report, error) {
 	return rep, nil
 }
 
+// renameDevice posts the device page's rename form for the device named OLD in spec OLD=NEW.
+func renameDevice(c *http.Client, base string, rep *report, spec string) error {
+	old, name, ok := strings.Cut(spec, "=")
+	if !ok || old == "" || name == "" {
+		return errors.New("-rename wants OLD=NEW")
+	}
+	id := ""
+	for _, d := range rep.Devices {
+		if d.Name == old {
+			id = d.ID
+		}
+	}
+	if id == "" {
+		return fmt.Errorf("rename: no device named %q on the overview", old)
+	}
+	req, _ := http.NewRequest("POST", base+"/devices/"+id+"/rename", strings.NewReader(url.Values{"name": {name}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept-Language", "en")
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		msg := ""
+		if m := fieldErrRe.FindSubmatch(b); m != nil {
+			msg = ": " + html.UnescapeString(string(m[1]))
+		}
+		return fmt.Errorf("rename %s to %s refused: status %d%s", old, name, resp.StatusCode, msg)
+	}
+	fmt.Fprintf(os.Stderr, "renamed device %s (id %s) to %s\n", old, id, name)
+	return nil
+}
+
 var (
-	verRe  = regexp.MustCompile(`<span class="ver">([^<]*)</span>`)
-	rowRe  = regexp.MustCompile(`(?s)<tr><td class="top"><span class="dot( ok)?"></span><a class="dn" href="/devices/(\d+)">(.*?)</a></td><td class="top hide-sm">(.*?)</td>\s*<td class="top">(.*?)</td>.*?<td class="top hide-sm"><span class="num">(.*?)</span>(.*?)</td>`)
-	seenRe = regexp.MustCompile(`<span class="muted num">(.*?)</span>`)
+	fieldErrRe = regexp.MustCompile(`<span class="err-msg">([^<]+)</span>`)
+	verRe      = regexp.MustCompile(`<span class="ver">([^<]*)</span>`)
+	rowRe      = regexp.MustCompile(`(?s)<tr><td class="top"><span class="dot( ok)?"></span><a class="dn" href="/devices/(\d+)">(.*?)</a></td><td class="top hide-sm">(.*?)</td>\s*<td class="top">(.*?)</td>.*?<td class="top hide-sm"><span class="num">(.*?)</span>(.*?)</td>`)
+	seenRe     = regexp.MustCompile(`<span class="muted num">(.*?)</span>`)
 )
 
 // parseOverview reads the server version and the device table from the overview page.

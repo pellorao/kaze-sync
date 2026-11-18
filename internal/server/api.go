@@ -142,6 +142,9 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 // effectiveConfig is the device's mappings with global and folder rules joined.
 func (s *Server) effectiveConfig(deviceID int64) (proto.Config, error) {
 	cfg := proto.Config{Version: metaInt(s.db, "config_version"), Folders: []proto.FolderConfig{}}
+	if err := s.db.QueryRow(`SELECT name FROM devices WHERE id=?`, deviceID).Scan(&cfg.Name); err != nil {
+		return cfg, err
+	}
 	global := splitRules(MetaString(s.db, "global_rules"))
 	rows, err := s.db.Query(`SELECT f.id, f.name, m.path, m.adopt, f.rules FROM mappings m JOIN folders f ON f.id=m.folder_id WHERE m.device_id=? ORDER BY f.id`, deviceID)
 	if err != nil {

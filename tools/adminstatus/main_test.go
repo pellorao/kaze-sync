@@ -89,7 +89,23 @@ func TestLogin(t *testing.T) {
 			h(w, r)
 		}
 	}
-	mux.HandleFunc("GET /{$}", authed(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(overview)) }))
+	renamed := ""
+	mux.HandleFunc("GET /{$}", authed(func(w http.ResponseWriter, r *http.Request) {
+		if renamed != "" {
+			w.Write([]byte(strings.Replace(overview, ">win<", ">"+renamed+"<", 1)))
+			return
+		}
+		w.Write([]byte(overview))
+	}))
+	mux.HandleFunc("POST /devices/{id}/rename", authed(func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "2" || r.FormValue("name") == "taken" {
+			w.WriteHeader(409)
+			w.Write([]byte(`<span class="err-msg">A device with this name already exists.</span>`))
+			return
+		}
+		renamed = r.FormValue("name")
+		http.Redirect(w, r, "/devices/2?ok=saved", 303)
+	}))
 	mux.HandleFunc("GET /push/subscriptions", authed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"available":true,"mode":"ca","subs":[{"id":"a","browser":"Chrome","gone":true}]}`))
 	}))
@@ -104,7 +120,7 @@ func TestLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, err := collect(c, srv.URL, "pw")
+	rep, err := collect(c, srv.URL, "pw", "")
 	if err != nil || len(rep.Devices) != 2 || len(rep.Subs) != 1 {
 		t.Fatalf("%v %+v", err, rep)
 	}
@@ -112,8 +128,20 @@ func TestLogin(t *testing.T) {
 	if !strings.Contains(strings.Join(rep.Problems, "|"), "invalid (gone)") {
 		t.Errorf("gone sub not reported: %v", rep.Problems)
 	}
-	if _, err := collect(c, srv.URL, "bad"); err == nil || !strings.Contains(err.Error(), "wrong password") {
+	if _, err := collect(c, srv.URL, "bad", ""); err == nil || !strings.Contains(err.Error(), "wrong password") {
 		t.Errorf("bad password: %v", err)
+	}
+	if _, err := collect(c, srv.URL, "pw", "win=taken"); err == nil || !strings.Contains(err.Error(), "409: A device with this name already exists.") {
+		t.Errorf("refused rename: %v", err)
+	}
+	if _, err := collect(c, srv.URL, "pw", "nosuch=x"); err == nil || !strings.Contains(err.Error(), "no device named") {
+		t.Errorf("unknown device: %v", err)
+	}
+	if _, err := collect(c, srv.URL, "pw", "win"); err == nil {
+		t.Error("-rename without = accepted")
+	}
+	if rep, err := collect(c, srv.URL, "pw", "win=pc-2"); err != nil || rep.Devices[1].Name != "pc-2" {
+		t.Errorf("rename: %v %+v", err, rep)
 	}
 	pemFile := filepath.Join(t.TempDir(), "ca.pem")
 	os.WriteFile(pemFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600)
@@ -121,11 +149,11 @@ func TestLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := collect(viaCA, srv.URL, "pw"); err != nil {
+	if _, err := collect(viaCA, srv.URL, "pw", ""); err != nil {
 		t.Errorf("trusting the certificate as CA: %v", err)
 	}
 	bad, _ := newClient("sha256:"+strings.Repeat("00", 32), "")
-	if _, err := collect(bad, srv.URL, "pw"); err == nil {
+	if _, err := collect(bad, srv.URL, "pw", ""); err == nil {
 		t.Error("wrong pin accepted")
 	}
 }

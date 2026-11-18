@@ -50,6 +50,14 @@
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "common.save"}}</button></div>
 </form></dialog>
 
+<dialog id="dlg-rename" class="dlg"{{if eq .Open "dlg-rename"}} data-autoopen{{end}} aria-labelledby="rn-t"><form method="post" action="/devices/{{.Device.ID}}/rename">
+<div class="dlg-h"><h3 id="rn-t">{{t "rn.title"}}</h3></div>
+<div class="dlg-b"><div class="field"><label for="rn-name">{{t "ov.name"}}</label><input id="rn-name" type="text" name="name" maxlength="32" pattern="[A-Za-z0-9_\-]{1,32}" required value="{{if eq .Open "dlg-rename"}}{{index .Vals "name"}}{{else}}{{.Device.Name}}{{end}}" autocomplete="off">
+{{with index .Errs "name"}}{{if eq $.Open "dlg-rename"}}<span class="err-msg">{{.}}</span>{{end}}{{end}}
+<span class="help">{{t "rn.help"}}</span></div></div>
+<div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.cancel"}}</button><button class="btn primary">{{t "common.save"}}</button></div>
+</form></dialog>
+
 <form id="f-del-map" method="post" action="/devices/{{.Device.ID}}/mapping" hidden data-confirm-ok="{{t "common.delete"}}" data-danger>
 <input type="hidden" name="action" value="delete"><input type="hidden" name="folder" value=""></form>
 <form id="f-revoke" method="post" action="/devices/{{.Device.ID}}/revoke" hidden data-confirm="{{t "dev.revokeConfirm" "name" .Device.Name}}{{if .LockCount}} {{t "js.locks.release" "n" .LockCount}}{{end}}" data-confirm-ok="{{t "dev.revoke"}}" data-danger></form>

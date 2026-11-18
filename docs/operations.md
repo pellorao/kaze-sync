@@ -148,12 +148,13 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 ```
 go run ./tools/adminstatus -setup                      # 一次: 从标准输入读密码, 存入 ~/.config/kaze-sync/admin-password (0600)
-go run ./tools/adminstatus -url https://HOST:PORT [-ca CA.pem | -fp sha256:HEX] [-expect 0.4.0] [-json]
+go run ./tools/adminstatus -url https://HOST:PORT [-ca CA.pem | -fp sha256:HEX] [-expect 0.4.0] [-json] [-rename OLD=NEW]
 ```
 
 - 密码只从密码文件读 (`-pwfile` 改路径; 文件必须是普通文件且权限为 0600, 否则拒绝), 不进命令行, 环境变量, 输出或日志. `-setup` 在终端上关闭回显.
 - 证书: 本地 CA 模式用 `-ca` 给出 `kaze-syncd ca --export -` 导出的 CA 证书; 自签名用 `-fp` 钉住证书指纹; 都不给则按系统信任库. `-url`, `-fp`, `-ca` 也可由 `KAZE_STATUS_URL`, `KAZE_STATUS_FP`, `KAZE_STATUS_CA` 提供.
 - 检查项 (任何一项不过则退出码 1 并在结果里列出): 设备离线, 设备被标 "版本过旧", `-expect` 给出时服务端或任一设备版本不符, 通知接口读不出, 订阅失效 (`gone`) 或最近一次推送状态不是 2xx. 无法登录或读取为退出码 2 (密码错误会计入登录失败锁定, 脚本不重试).
+- `-rename OLD=NEW`: 登录后先把总览上名为 `OLD` 的设备改名为 `NEW` (与设备页 "设备改名…" 同一个表单, design 2.5), 再按上面检查并打印; 名字不合规或重名时退出码 2, 并给出页面上的错误. 给不开浏览器又不能把密码交给别人的场合用 (例如由自动化代管理员改名).
 - 自签名证书模式下 Web Push 本来就不可用, 只显示 `available=false`, 不算问题. `-setup` 的关回显只在有 `stty` 的系统上生效. 页面改版会使解析失败: 找不到服务端版本或设备时报告为问题, 不静默通过.
 
 ## 客户端调试日志
