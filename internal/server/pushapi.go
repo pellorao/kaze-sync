@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -327,7 +328,7 @@ func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
 		pushError(w, http.StatusNotFound, "unknown")
 		return
 	}
-	res := s.sendTo(r.Context(), *sub, pushPayload(trFor(sub.Lang).T("push.test"), "test"), "")
+	res := s.sendTo(r.Context(), *sub, pushPayload(trFor(sub.Lang).T("push.test"), "test-"+strconv.FormatInt(time.Now().UnixNano(), 36)), "")
 	s.recordPush(sub.ID, res)
 	writeJSON(w, map[string]any{"status": res.Status, "ms": res.Took.Milliseconds(), "err": res.Err})
 }

@@ -1,9 +1,11 @@
 // The service worker of the Web Push notifications (design 4.3).
+// A push with the tag of one still shown replaces it; renotify makes the replacement alert again (without it browsers
+// replace silently, and a repeated cause or test looks as if nothing arrived).
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data.json(); } catch (_) { /* a push must always show something */ }
   e.waitUntil(self.registration.showNotification(d.title || "kaze-sync", {
-    body: d.body || "", tag: d.tag || undefined, data: { url: d.url || "/" },
+    body: d.body || "", tag: d.tag || undefined, renotify: !!d.tag, data: { url: d.url || "/" },
   }));
 });
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));

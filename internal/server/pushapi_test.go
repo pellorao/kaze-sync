@@ -114,7 +114,7 @@ func TestPushAPISubscribeListTestUnsubscribe(t *testing.T) {
 	if st != 200 || out["status"] != float64(201) {
 		t.Fatalf("test: %d %v", st, out)
 	}
-	if got := fp.take(); len(got) != 1 || got[0].msg["tag"] != "test" {
+	if got := fp.take(); len(got) != 1 || !strings.HasPrefix(got[0].msg["tag"], "test-") {
 		t.Fatalf("test push: %+v", got)
 	}
 	if l := e.s.subscriptions()[0].Last; l == nil || l.Status != 201 {
@@ -178,7 +178,7 @@ func TestPushAPIRefusesBadAndTooManySubscriptions(t *testing.T) {
 func TestServiceWorkerNeedsNoSession(t *testing.T) {
 	e := newEnv(t)
 	st, body := e.get(e.webClient(), "/sw.js")
-	if st != 200 || !strings.Contains(body, `addEventListener("push"`) || !strings.Contains(body, "notificationclick") || !strings.Contains(body, "clients.claim()") {
+	if st != 200 || !strings.Contains(body, `addEventListener("push"`) || !strings.Contains(body, "notificationclick") || !strings.Contains(body, "clients.claim()") || !strings.Contains(body, "renotify: !!d.tag") {
 		t.Fatalf("sw.js: %d %.80s", st, body)
 	}
 	resp, _ := e.webClient().Get(e.ts.URL + "/sw.js")
