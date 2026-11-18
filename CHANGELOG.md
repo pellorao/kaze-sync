@@ -4,6 +4,15 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.4.1 - 2026-11-18
+
+Patch release: repeated push notifications now alert every time.
+
+### Fixed
+
+- Web Push: a notification with the same tag as one still shown replaced it silently, so only the first test push (or the first push of a repeated cause) alerted on desktop browsers. Tagged notifications now set `renotify`, and each test push uses a unique tag.
+- Settings page: when the browser cannot reach its push service while subscribing (`AbortError`, for example Android Chrome without Google Play services or without a route to the push service), the card now says so instead of a generic failure.
+
 ## v0.4.0 - 2026-11-18
 
 Error alerts now go out as Web Push sent only by the server, replacing ntfy.
