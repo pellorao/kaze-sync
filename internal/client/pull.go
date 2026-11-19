@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 
@@ -48,7 +49,7 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		live[p] = f.heldLive[p]
 	}
 	f.heldLive = live
-	gone := map[string]bool{}
+	gone := map[string]bool{} // the held deletions the server has deleted too: true where the exclusion rules did it
 	cursor := f.DB.metaInt("cursor")
 	since, held := cursor, int64(0)
 	for more := true; more && err == nil; {
@@ -99,11 +100,13 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 
 // settleHeld drops the held deletions whose path the server has deleted too (design 2.8.6): neither end has the file,
 // so nothing is left to decide. What the server holds comes from the pages of this Pull, else from a probe of the
-// paths it is not known for, in one request per proto.MaxCommitOps paths; a path the server still has is not asked
-// again in this run, since its deletion would come in a page. Asking does not wait for the tombstone: a cursor that
-// went past it (a client before this check skipped it in the frozen scope) never reads it again. Only the held row
-// and the base go; the file system is not touched, so a file put back meanwhile stays and is sent as a new one.
-func (f *Folder) settleHeld(ctx context.Context, dels map[string]string, gone map[string]bool) error {
+// paths it is not known for (probeBatch); a path the server still has is not asked again in this run, since its
+// deletion would come in a page. Asking does not wait for the tombstone: a cursor that went past it (a client before
+// this check skipped it in the frozen scope) never reads it again. Only the held row and the base go; the file system
+// is not touched, so a file put back meanwhile stays and is sent as a new one. The base stays where the exclusion
+// rules deleted the file, as for any such deletion (applyDeleted): a file put back is then not sent before the rules
+// arrive. A scope left with nothing held is thawed, and its skipped entries count as pending until the next Pull.
+func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, gone map[string]bool) error {
 	var ask []string
 	for p := range dels {
 		if _, seen := gone[p]; !seen && !f.heldLive[p] {
@@ -112,7 +115,7 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]string, gone ma
 	}
 	slices.Sort(ask)
 	for len(ask) > 0 {
-		n := min(len(ask), proto.MaxCommitOps)
+		n := probeBatch(ask, dels)
 		res, err := f.probe(ctx, ask[:n]...)
 		if err != nil {
 			return err
@@ -120,36 +123,55 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]string, gone ma
 		for i, r := range res {
 			switch {
 			case r.Status == proto.StatusOK: // deleting a tombstone, or nothing, succeeds and changes nothing
-				gone[ask[i]] = true
+				gone[ask[i]] = false
 			case r.Current != nil:
 				f.heldLive[ask[i]] = true
 			}
 		}
 		ask = ask[n:]
 	}
-	var paths []string
-	for p, g := range gone {
-		if g {
-			paths = append(paths, p)
-		}
-	}
-	if len(paths) == 0 {
+	if len(gone) == 0 {
 		return nil
 	}
-	if err := f.DB.settleHeld(paths); err != nil {
-		return err
-	}
-	scopes := map[string]bool{}
-	for _, p := range paths {
-		delete(f.heldLive, p)
-		scopes[dels[p]] = true
-	}
-	for sc := range scopes {
-		if err := f.thaw(sc, false); err != nil {
-			return err
+	keep := map[string]bool{}
+	for p, excl := range gone {
+		if excl || f.excluded(p) {
+			keep[p] = true
 		}
 	}
+	paths, err := f.DB.settleHeld(slices.Collect(maps.Keys(gone)), keep)
+	if err != nil {
+		return err
+	}
+	var scopes []string
+	for _, p := range paths {
+		delete(f.heldLive, p)
+		scopes = append(scopes, dels[p].scope)
+	}
+	n := len(f.frozen)
+	if err := f.thaw(false, scopes...); err != nil {
+		return err
+	}
+	if len(f.frozen) < n {
+		f.pendingDown++ // the thawed scopes are read again from their freeze: not in step until then
+	}
 	return nil
+}
+
+// probeBatch is how many leading paths of ask go into one probe: at most proto.MaxCommitOps, and unless it is the
+// first one alone, within a share of proto.MaxJSONBody for the request (a path escapes to at most six times its
+// length) and proto.MaxCommitBlocks for the block lists of the conflicts that answer it, as the bases tell them.
+func probeBatch(ask []string, dels map[string]heldDel) int {
+	n, size, blocks := 0, 0, int64(0)
+	for n < len(ask) && n < proto.MaxCommitOps {
+		size += 6*len(ask[n]) + 100
+		blocks += (dels[ask[n]].size + proto.BlockSize - 1) / proto.BlockSize
+		if n > 0 && (size > proto.MaxJSONBody/2 || blocks > int64(maxCommitBlocks)) {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
@@ -161,8 +183,12 @@ func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int
 	for _, e := range entries {
 		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
 			if _, ok := f.heldLive[e.Path]; ok { // but what it holds at a held deletion is noted (design 2.8.6)
-				gone[e.Path] = e.Hash == nil
 				f.heldLive[e.Path] = e.Hash != nil
+				if e.Hash == nil {
+					gone[e.Path] = e.Excluded
+				} else {
+					delete(gone, e.Path)
+				}
 			}
 			continue
 		}

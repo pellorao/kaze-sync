@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -74,26 +76,40 @@ func (f *Folder) freeze(scope string) error {
 	return nil
 }
 
-// thaw unfreezes a scope with no held changes left: the next Pull reads it again from the cursor of the freeze. With
-// keepDirty the since of its next changes stays what it was (a requeue after a configuration change, design 2.8.6).
-func (f *Folder) thaw(scope string, keepDirty bool) error {
-	v, ok := f.frozen[scope]
-	if !ok {
+// thaw unfreezes those of scopes that have no held changes left: the next Pull reads them again from the cursor of
+// the freeze. With keepDirty the since of their next changes stays what it was (a requeue after a configuration
+// change, design 2.8.6). One query finds the scopes still holding something, and one transaction drops the freezes
+// and moves the cursor back, so that a crash cannot leave a scope unfrozen with its skipped entries behind the cursor.
+func (f *Folder) thaw(keepDirty bool, scopes ...string) error {
+	var free []string
+	var busy map[string]bool
+	low := int64(math.MaxInt64)
+	for _, sc := range scopes {
+		v, ok := f.frozen[sc]
+		if !ok || slices.Contains(free, sc) {
+			continue
+		}
+		if busy == nil {
+			var err error
+			if busy, err = f.DB.heldScopes(); err != nil {
+				return err
+			}
+		}
+		if !busy[sc] {
+			free = append(free, sc)
+			low = min(low, v)
+		}
+	}
+	if len(free) == 0 {
 		return nil
 	}
-	if rest, err := f.DB.held(scope); err != nil || len(rest) > 0 {
+	if err := f.DB.thaw(free, keepDirty, low); err != nil {
 		return err
 	}
-	delete(f.frozen, scope)
-	if err := f.DB.delMeta("frozen:" + scope); err != nil {
-		return err
+	for _, sc := range free {
+		delete(f.frozen, sc)
 	}
-	if !keepDirty {
-		f.DB.delMeta("dirty:" + scope)
-	}
-	if err := f.lowerCursor(v); err != nil {
-		return err
-	}
+	f.lowered(low)
 	f.seen = -1
 	f.rejected = nil
 	return nil
@@ -102,21 +118,20 @@ func (f *Folder) thaw(scope string, keepDirty bool) error {
 // lowerCursor moves the Pull cursor back to v when it is further on. The pulls to come skip the entries of the scopes
 // still frozen from there on, so those read from v too when they are unfrozen.
 func (f *Folder) lowerCursor(v int64) error {
-	if v >= f.DB.metaInt("cursor") {
-		return nil
-	}
-	if err := f.DB.setMeta("cursor", v); err != nil {
+	if err := f.DB.lowerCursor(v); err != nil {
 		return err
 	}
+	f.lowered(v)
+	return nil
+}
+
+// lowered brings the freeze cursors kept in memory down to v, as localDB.lowerCursor did in the database.
+func (f *Folder) lowered(v int64) {
 	for scope, fv := range f.frozen {
 		if fv > v {
 			f.frozen[scope] = v
-			if err := f.DB.setMeta("frozen:"+scope, v); err != nil {
-				return err
-			}
 		}
 	}
-	return nil
 }
 
 // Requeue is for a configuration change: the changes held for a refused write are sent again under the new settings
@@ -135,12 +150,7 @@ func (f *Folder) Requeue() error {
 			}
 		}
 	}
-	for sc := range scopes {
-		if err := f.thaw(sc, true); err != nil {
-			return err
-		}
-	}
-	return nil
+	return f.thaw(true, slices.Collect(maps.Keys(scopes))...)
 }
 
 // hold stores the items as held and freezes their scopes. An item keeps the reason it was given, else why.
@@ -382,9 +392,7 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 			scopes[h.Scope] = true
 		}
 	}
-	for sc := range scopes {
-		f.thaw(sc, false)
-	}
+	f.thaw(false, slices.Collect(maps.Keys(scopes))...)
 }
 
 // HeldItems is the list of held changes for the server (POST /held), and whether it differs from the last one sent.
@@ -509,7 +517,7 @@ func (f *Folder) Resolve(ctx context.Context, act proto.Action) error {
 	if err := f.DB.dropHeld(p); err != nil {
 		return err
 	}
-	return f.thaw(h.Scope, false)
+	return f.thaw(false, h.Scope)
 }
 
 // failNote records why a decision was not carried out, for the held list the Web UI shows.

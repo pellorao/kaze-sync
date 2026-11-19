@@ -52,12 +52,17 @@ const localSchemaVersion = 3
 // errNewerDB: the local database was written by a newer kaze-syncc.
 var errNewerDB = errors.New("the state database was made by a newer kaze-syncc; upgrade this client, or restore the database backup together with the older binary")
 
-func openLocal(path string) (*localDB, error) {
+// localDSN is the data source name of the state database at path.
+func localDSN(path string) string {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", "busy_timeout(5000)")
-	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	return "file:" + path + "?" + q.Encode()
+}
+
+func openLocal(path string) (*localDB, error) {
+	db, err := sql.Open("sqlite", localDSN(path))
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +217,9 @@ func (l *localDB) forgetSeqs() error {
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES('cursor', 0)`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(lowerCursorSQL, 0); err != nil { // a frozen scope reads the new history from the start too
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -300,38 +308,107 @@ func (l *localDB) heldCount() (n int) {
 	return n
 }
 
-// heldDeletes returns the scope of each held deletion by path.
-func (l *localDB) heldDeletes() (map[string]string, error) {
-	rows, err := l.db.Query(`SELECT path, scope FROM held WHERE kind='delete'`)
+// heldDel is a held deletion: the scope it froze and the size of its base (0 without one).
+type heldDel struct {
+	scope string
+	size  int64
+}
+
+// heldDeletes returns the held deletions by path.
+func (l *localDB) heldDeletes() (map[string]heldDel, error) {
+	rows, err := l.db.Query(`SELECT h.path, h.scope, coalesce(l.size, 0) FROM held h LEFT JOIN local l ON l.path=h.path WHERE h.kind='delete'`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]string{}
+	out := map[string]heldDel{}
 	for rows.Next() {
-		var p, sc string
-		if err := rows.Scan(&p, &sc); err != nil {
+		var p string
+		var d heldDel
+		if err := rows.Scan(&p, &d.scope, &d.size); err != nil {
 			return nil, err
 		}
-		out[p] = sc
+		out[p] = d
 	}
 	return out, rows.Err()
 }
 
-// settleHeld drops the held changes of paths and their base rows, in one transaction.
-func (l *localDB) settleHeld(paths []string) error {
+// settleHeld drops the held deletions of paths and, unless keepBase has the path, their base rows, in one
+// transaction. A path whose held change is no longer a deletion is left alone. It returns the paths settled.
+func (l *localDB) settleHeld(paths []string, keepBase map[string]bool) ([]string, error) {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var done []string
+	for _, p := range paths {
+		r, err := tx.Exec(`DELETE FROM held WHERE path=? AND kind='delete'`, p)
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := r.RowsAffected(); n == 0 {
+			continue
+		}
+		done = append(done, p)
+		if keepBase[p] {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM local WHERE path=?`, p); err != nil {
+			return nil, err
+		}
+	}
+	return done, tx.Commit()
+}
+
+// heldScopes returns the scopes that have held changes.
+func (l *localDB) heldScopes() (map[string]bool, error) {
+	rows, err := l.db.Query(`SELECT DISTINCT scope FROM held`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var sc string
+		if err := rows.Scan(&sc); err != nil {
+			return nil, err
+		}
+		out[sc] = true
+	}
+	return out, rows.Err()
+}
+
+// lowerCursorSQL moves the cursor and the freeze cursors that are further on than ?1 back to it.
+const lowerCursorSQL = `UPDATE meta SET value=?1 WHERE (key='cursor' OR key LIKE 'frozen:%') AND value>?1`
+
+// lowerCursor moves the cursor, and the freeze cursors with it, back to v where they are further on.
+func (l *localDB) lowerCursor(v int64) error {
+	_, err := l.db.Exec(lowerCursorSQL, v)
+	return err
+}
+
+// thaw drops the freezes of scopes, and unless keepDirty their dirty marks, and lowers the cursors to v, in one
+// transaction.
+func (l *localDB) thaw(scopes []string, keepDirty bool, v int64) error {
 	tx, err := l.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	for _, p := range paths {
-		if _, err := tx.Exec(`DELETE FROM held WHERE path=?`, p); err != nil {
+	for _, sc := range scopes {
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key=?`, "frozen:"+sc); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM local WHERE path=?`, p); err != nil {
+		if keepDirty {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key=?`, "dirty:"+sc); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.Exec(lowerCursorSQL, v); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

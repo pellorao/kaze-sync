@@ -9,6 +9,7 @@ Notable changes to kaze-sync are grouped by release below; versions follow `vMAJ
 ### Fixed
 
 - Held changes: a held deletion now clears by itself once the server has deleted the path too, also when the server's deletion came before this check existed (the client asks the server instead of waiting for the deletion to come again). Only the record goes; a file put back in the meantime stays and syncs as a new file.
+- After a server restore (new epoch), a scope that was waiting for a decision now reads the server's new history from the start once it is unfrozen; before, the files skipped while it was frozen kept no server version.
 
 ## v0.5.2 - 2026-11-19
 

@@ -177,7 +177,12 @@ func (f *Folder) Reset() error {
 		f.DB.delMeta("dirty:" + id)
 	}
 	f.DB.setMeta("scanc", 0)
-	return f.DB.forgetSeqs()
+	f.heldLive = nil // what was known of the server's files is of the old history
+	if err := f.DB.forgetSeqs(); err != nil {
+		return err
+	}
+	f.lowered(0)
+	return nil
 }
 
 // checkEpoch resets the folder when the server's epoch is not the one the local state belongs to: the server was
@@ -727,9 +732,9 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	if herr := f.hold(refused, "owner"); herr != nil && err == nil {
 		err = herr
 	}
-	for sc := range f.frozen { // frozen by a rejection whose change has gone since: nothing to wait for
-		f.thaw(sc, false)
-	}
+	// Frozen by a rejection whose change has gone since, or left frozen by a crash after its last held change went:
+	// nothing to wait for.
+	f.thaw(false, slices.Collect(maps.Keys(f.frozen))...)
 	f.endScan(items, whole, err)
 	return err
 }
