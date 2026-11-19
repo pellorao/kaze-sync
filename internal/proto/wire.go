@@ -207,6 +207,10 @@ type Op struct {
 	// Stage names a staged block list (POST /stage) that stands for Blocks when the file has more than
 	// MaxCommitBlocks blocks (design 2.4).
 	Stage string `json:"stage,omitempty"`
+	// Probe asks for the path's current entry without changing it (design 2.8.6): a deletion with BaseSeq -1, whose
+	// result, ok or conflict, carries the current entry without its block list, so that the answer to many paths stays
+	// small. An optional field of version 6: a server before it ignores it and answers as for any deletion.
+	Probe bool `json:"probe,omitempty"`
 }
 
 // StageReq is one segment of a block list: Blocks[i] is block Offset+i of a file of Size bytes.

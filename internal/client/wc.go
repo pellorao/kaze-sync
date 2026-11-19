@@ -81,38 +81,51 @@ func (f *Folder) freeze(scope string) error {
 // change, design 2.8.6). One query finds the scopes still holding something, and one transaction drops the freezes
 // and moves the cursor back, so that a crash cannot leave a scope unfrozen with its skipped entries behind the cursor.
 func (f *Folder) thaw(keepDirty bool, scopes ...string) error {
-	var free []string
-	var busy map[string]bool
-	low := int64(math.MaxInt64)
+	cand := map[string]int64{}
 	for _, sc := range scopes {
-		v, ok := f.frozen[sc]
-		if !ok || slices.Contains(free, sc) {
-			continue
-		}
-		if busy == nil {
-			var err error
-			if busy, err = f.DB.heldScopes(); err != nil {
-				return err
-			}
-		}
-		if !busy[sc] {
-			free = append(free, sc)
-			low = min(low, v)
+		if v, ok := f.frozen[sc]; ok {
+			cand[sc] = v
 		}
 	}
+	if len(cand) == 0 {
+		return nil
+	}
+	busy, err := f.DB.heldScopes()
+	if err != nil {
+		return err
+	}
+	free, low := freeScopes(cand, busy)
 	if len(free) == 0 {
 		return nil
 	}
 	if err := f.DB.thaw(free, keepDirty, low); err != nil {
 		return err
 	}
+	f.thawed(free, low)
+	return nil
+}
+
+// freeScopes returns those of the frozen scopes cand (with their freeze cursors) that busy does not have, and the
+// lowest of their freeze cursors.
+func freeScopes(cand map[string]int64, busy map[string]bool) (free []string, low int64) {
+	low = math.MaxInt64
+	for sc, v := range cand {
+		if !busy[sc] {
+			free = append(free, sc)
+			low = min(low, v)
+		}
+	}
+	return free, low
+}
+
+// thawed is the change in memory that goes with a thaw in the database.
+func (f *Folder) thawed(free []string, low int64) {
 	for _, sc := range free {
 		delete(f.frozen, sc)
 	}
 	f.lowered(low)
 	f.seen = -1
 	f.rejected = nil
-	return nil
 }
 
 // lowerCursor moves the Pull cursor back to v when it is further on. The pulls to come skip the entries of the scopes
@@ -137,7 +150,7 @@ func (f *Folder) lowered(v int64) {
 // Requeue is for a configuration change: the changes held for a refused write are sent again under the new settings
 // (design 2.8.6), the others wait as before.
 func (f *Folder) Requeue() error {
-	rows, err := f.DB.held("")
+	rows, err := f.DB.held()
 	if err != nil {
 		return err
 	}
@@ -377,7 +390,7 @@ func (f *Folder) coversDir(d string) bool {
 // cleanHeld drops the held changes whose files went back to the base (reverted) or are gone with no base to go
 // back to, within what the scan covered, and unfreezes the scopes left without any.
 func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, reverted map[string]bool, failed map[string]bool) {
-	rows, err := f.DB.held("")
+	rows, err := f.DB.held()
 	if err != nil {
 		return
 	}
@@ -398,7 +411,7 @@ func (f *Folder) cleanHeld(files map[string]found, local map[string]localRow, re
 // HeldItems is the list of held changes for the server (POST /held), and whether it differs from the last one sent.
 // At most proto.MaxHeldItems are returned, the rest is counted in cut: a longer list would not fit the request.
 func (f *Folder) HeldItems() (items []proto.HeldItem, cut int, changed bool) {
-	rows, _ := f.DB.held("")
+	rows, _ := f.DB.held()
 	items = []proto.HeldItem{}
 	live := make(map[string]bool, len(f.heldNote))
 	for _, h := range rows {
@@ -470,11 +483,12 @@ var (
 
 // probe asks the server for its current state of each path with a deletion that cannot match any base: it changes
 // nothing and answers ok where the server has no live file (a tombstone, or nothing), else a conflict with the
-// current entry. At most proto.MaxCommitOps paths.
-func (f *Folder) probe(ctx context.Context, paths ...string) ([]proto.Result, error) {
+// current entry. With bare the entries come without their block lists (proto.Op.Probe), from a server that knows
+// that; an ok then carries the tombstone too. At most proto.MaxCommitOps paths.
+func (f *Folder) probe(ctx context.Context, bare bool, paths ...string) ([]proto.Result, error) {
 	ops := make([]proto.Op, len(paths))
 	for i, p := range paths {
-		ops[i] = proto.Op{Path: p, BaseSeq: -1, Resolve: true}
+		ops[i] = proto.Op{Path: p, BaseSeq: -1, Resolve: true, Probe: bare}
 	}
 	res, err := f.API.Commit(ctx, f.ID, ops)
 	if err != nil {
@@ -488,7 +502,7 @@ func (f *Folder) probe(ctx context.Context, paths ...string) ([]proto.Result, er
 // MtimeNs); a failed check or a changed server leaves everything as it was and leaves a note for the Web UI.
 func (f *Folder) Resolve(ctx context.Context, act proto.Action) error {
 	p := act.Path
-	rows, err := f.DB.held("")
+	rows, err := f.DB.held()
 	if err != nil {
 		return err
 	}
@@ -575,7 +589,7 @@ func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, act pr
 
 // discard sets the local version of the held path aside (or removes it) and takes the server's.
 func (f *Folder) discard(ctx context.Context, h heldRow, exists, save bool) error {
-	res, err := f.probe(ctx, h.Path)
+	res, err := f.probe(ctx, false, h.Path)
 	if err != nil {
 		return err
 	}

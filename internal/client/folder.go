@@ -732,9 +732,11 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 	if herr := f.hold(refused, "owner"); herr != nil && err == nil {
 		err = herr
 	}
-	// Frozen by a rejection whose change has gone since, or left frozen by a crash after its last held change went:
-	// nothing to wait for.
-	f.thaw(false, slices.Collect(maps.Keys(f.frozen))...)
+	// Frozen by a rejection whose change has gone since, or left frozen by a crash after its last held change went
+	// (Resolve): nothing to wait for. A failure here is the scan's, so that the agent tries again soon.
+	if terr := f.thaw(false, slices.Collect(maps.Keys(f.frozen))...); terr != nil && err == nil {
+		err = terr
+	}
 	f.endScan(items, whole, err)
 	return err
 }

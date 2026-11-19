@@ -228,20 +228,26 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	} else if err != nil {
 		return proto.Result{}, err
 	}
-	conflict := func() proto.Result {
-		r := proto.Result{Status: proto.StatusConflict}
+	current := func(r proto.Result) proto.Result {
 		if have {
 			r.Current = cur.entry()
 			r.Current.Device = cur.device
+			if op.Probe {
+				r.Current.Blocks = nil
+			}
 		}
 		return r
 	}
+	conflict := func() proto.Result { return current(proto.Result{Status: proto.StatusConflict}) }
 	live := have && cur.hash != nil
 
 	// Base check.
 	if op.Hash == nil {
-		if !live {
-			return proto.Result{Status: proto.StatusOK, Seq: cur.seq}, nil // deleting a tombstone is a successful no-op
+		if !live { // deleting a tombstone is a successful no-op
+			if op.Probe {
+				return current(proto.Result{Status: proto.StatusOK, Seq: cur.seq}), nil
+			}
+			return proto.Result{Status: proto.StatusOK, Seq: cur.seq}, nil
 		}
 		if op.BaseSeq != cur.seq {
 			return conflict(), nil

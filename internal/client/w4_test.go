@@ -28,7 +28,7 @@ func TestResolveSnapshotGuards(t *testing.T) {
 	g2.put("doc.txt", []byte("from two"))
 	g1.sync()
 	g2.sync()
-	rows, _ := g2.f.DB.held("")
+	rows, _ := g2.f.DB.held()
 	if len(rows) != 1 {
 		t.Fatalf("held: %+v", rows)
 	}
@@ -82,7 +82,7 @@ func TestOverwriteTypeClearsBlockingEntries(t *testing.T) {
 	g2.put("flat/inner", []byte("a directory now"))
 	g2.scan()
 	var held []heldRow
-	held, _ = g2.f.DB.held("")
+	held, _ = g2.f.DB.held()
 	types := map[string]bool{}
 	for _, h := range held {
 		if h.Reason == "type" {
@@ -265,10 +265,10 @@ func TestHeldNoteDropsWithTheHeldChange(t *testing.T) {
 // the user saw are the current ones.
 func overwriteAct(t *testing.T, f *Folder, p string) proto.Action {
 	t.Helper()
-	rows, _ := f.DB.held("")
+	rows, _ := f.DB.held()
 	for _, h := range rows {
 		if h.Path == p {
-			res, err := f.probe(context.Background(), p)
+			res, err := f.probe(context.Background(), false, p)
 			if err != nil {
 				t.Fatal(err)
 			}

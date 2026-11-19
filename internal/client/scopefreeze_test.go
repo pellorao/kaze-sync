@@ -65,7 +65,7 @@ func TestAdoptSameContentIsNotHeld(t *testing.T) {
 	a.put("z.txt", []byte("later")) // the server has writes the new device has not seen
 	a.sync()
 	b.sync()
-	rows, _ := b.f.DB.held("")
+	rows, _ := b.f.DB.held()
 	if len(rows) != 0 || len(b.f.frozen) != 0 {
 		t.Fatalf("held %+v frozen %v", rows, b.f.frozen)
 	}

@@ -333,37 +333,57 @@ func (l *localDB) heldDeletes() (map[string]heldDel, error) {
 	return out, rows.Err()
 }
 
-// settleHeld drops the held deletions of paths and, unless keepBase has the path, their base rows, in one
-// transaction. A path whose held change is no longer a deletion is left alone. It returns the paths settled.
-func (l *localDB) settleHeld(paths []string, keepBase map[string]bool) ([]string, error) {
+// settleHeld drops, in one transaction, the held deletions of paths (a path whose held change is no longer a
+// deletion stays) with, unless keepBase has the path, their base rows, and thaws as thaw does the scopes of frozen
+// (with their freeze cursors) that the settled deletions were in (dels) and that have nothing held left. It returns the
+// paths settled, and the scopes thawed and the cursor they were read back to.
+func (l *localDB) settleHeld(paths []string, keepBase map[string]bool, dels map[string]heldDel, frozen map[string]int64) (done, free []string, low int64, err error) {
 	tx, err := l.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	defer tx.Rollback()
-	var done []string
+	cand := map[string]int64{}
 	for _, p := range paths {
 		r, err := tx.Exec(`DELETE FROM held WHERE path=? AND kind='delete'`, p)
 		if err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 		if n, _ := r.RowsAffected(); n == 0 {
 			continue
 		}
 		done = append(done, p)
+		if v, ok := frozen[dels[p].scope]; ok {
+			cand[dels[p].scope] = v
+		}
 		if keepBase[p] {
 			continue
 		}
 		if _, err := tx.Exec(`DELETE FROM local WHERE path=?`, p); err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 	}
-	return done, tx.Commit()
+	if len(cand) > 0 {
+		busy, err := heldScopes(tx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if free, low = freeScopes(cand, busy); len(free) > 0 {
+			if err := thawTx(tx, free, false, low); err != nil {
+				return nil, nil, 0, err
+			}
+		}
+	}
+	return done, free, low, tx.Commit()
 }
 
 // heldScopes returns the scopes that have held changes.
-func (l *localDB) heldScopes() (map[string]bool, error) {
-	rows, err := l.db.Query(`SELECT DISTINCT scope FROM held`)
+func (l *localDB) heldScopes() (map[string]bool, error) { return heldScopes(l.db) }
+
+func heldScopes(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}) (map[string]bool, error) {
+	rows, err := q.Query(`SELECT DISTINCT scope FROM held`)
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +416,13 @@ func (l *localDB) thaw(scopes []string, keepDirty bool, v int64) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := thawTx(tx, scopes, keepDirty, v); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func thawTx(tx *sql.Tx, scopes []string, keepDirty bool, v int64) error {
 	for _, sc := range scopes {
 		if _, err := tx.Exec(`DELETE FROM meta WHERE key=?`, "frozen:"+sc); err != nil {
 			return err
@@ -407,10 +434,8 @@ func (l *localDB) thaw(scopes []string, keepDirty bool, v int64) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(lowerCursorSQL, v); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := tx.Exec(lowerCursorSQL, v)
+	return err
 }
 
 func (l *localDB) dropHeld(paths ...string) error {
@@ -422,13 +447,9 @@ func (l *localDB) dropHeld(paths ...string) error {
 	return nil
 }
 
-// held lists the held changes of a scope ("" for all) by path.
-func (l *localDB) held(scope string) ([]heldRow, error) {
-	q, args := `SELECT path, scope, reason, base_seq, kind, hash, size, mtime_ns, at FROM held`, []any(nil)
-	if scope != "" {
-		q, args = q+` WHERE scope=?`, []any{scope}
-	}
-	rows, err := l.db.Query(q+` ORDER BY path`, args...)
+// held lists the held changes by path.
+func (l *localDB) held() ([]heldRow, error) {
+	rows, err := l.db.Query(`SELECT path, scope, reason, base_seq, kind, hash, size, mtime_ns, at FROM held ORDER BY path`)
 	if err != nil {
 		return nil, err
 	}

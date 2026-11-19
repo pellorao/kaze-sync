@@ -39,7 +39,7 @@ func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
 	if got, ok := e.serverFile(f, "d"); !ok || string(got) != "v2 by dev1" {
 		t.Fatalf("server d = %q %v", got, ok)
 	}
-	rows, _ := g2.f.DB.held("")
+	rows, _ := g2.f.DB.held()
 	if len(rows) != 2 { // the deletion of the file (conflict) and the new file below it (type)
 		t.Fatalf("held: %+v", rows)
 	}
