@@ -12,6 +12,7 @@ import (
 // listing's own scan (deleted files left out), errors and reminders from the notices by path; the device names are
 // in a tip, and a held tag is a link per device.
 func TestFolderHeadCountsCurrentDirectory(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	e := l.env
 	e.commit(l.f, e.sized("d/a", 0, "123", 100), e.sized("d/sub/b", 0, "12345", 300), e.sized("d/sub/c", 0, "1234567", 200),
@@ -77,6 +78,7 @@ func TestFolderHeadCountsCurrentDirectory(t *testing.T) {
 // The sync status word (syncing, error, offline ...) describes the whole folder, so only the top level shows it; a
 // subdirectory head, which counts its own directory, has none and no stray separator (design 4.5, #437).
 func TestFolderHeadStateOnlyAtTop(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	e := l.env
 	e.commit(l.f, e.sized("d/a", 0, "123", 100), e.sized("top", 0, "t", 10))
@@ -105,6 +107,7 @@ func TestFolderHeadStateOnlyAtTop(t *testing.T) {
 }
 
 func TestNoticeIn(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		n    notice
 		dir  string

@@ -46,6 +46,7 @@ func (e *env) changes(tok string, folder, since int64) proto.ChangesResp {
 }
 
 func TestChangesPagesBySeqAndChecksMapping(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f, other := e.folder("A"), e.folder("B")
 	dev, tok := e.enrollDevice("d1", "linux")
@@ -82,6 +83,7 @@ func TestChangesPagesBySeqAndChecksMapping(t *testing.T) {
 }
 
 func TestBlocksGetStreamsRequestedBlocks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("d1", "linux")
 	h1, h2 := e.block([]byte("first block")), e.block([]byte("second"))
@@ -116,6 +118,7 @@ func TestBlocksGetStreamsRequestedBlocks(t *testing.T) {
 // A request is bounded by the bytes of its response, not by the number of blocks: many small blocks fit, too
 // much data does not.
 func TestBlocksGetBoundsTheResponse(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("d1", "linux")
 	var small, big []proto.Hash
@@ -141,6 +144,7 @@ func TestBlocksGetBoundsTheResponse(t *testing.T) {
 }
 
 func TestPollWakesOnCommitAndOnlyForNews(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.s.PollTimeout = 2 * time.Second
 	f := e.folder("A")
@@ -160,7 +164,7 @@ func TestPollWakesOnCommitAndOnlyForNews(t *testing.T) {
 	select {
 	case <-ch:
 		t.Fatal("poll returned although nothing happened")
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(40 * time.Millisecond):
 	}
 	e.commit(f, e.op("a", 0, "hello"))
 	select {
@@ -171,12 +175,17 @@ func TestPollWakesOnCommitAndOnlyForNews(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("poll did not wake on a commit")
 	}
+	upToDate := poll(1)
 	select { // a client that already has the latest seq keeps waiting
-	case <-poll(1):
+	case <-upToDate:
 		t.Fatal("poll returned for a client that is up to date")
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(40 * time.Millisecond):
 	}
-	if pr := <-poll(0); pr.Cursors[f] != 1 { // a client that is behind gets the answer at once
+	e.commit(f, e.op("b", 0, "world")) // the next commit ends that wait (and keeps the server from waiting out the timeout on close)
+	if pr := <-upToDate; pr.Cursors[f] != 2 {
+		t.Fatalf("up to date, then a commit: %+v", pr)
+	}
+	if pr := <-poll(0); pr.Cursors[f] != 2 { // a client that is behind gets the answer at once
 		t.Fatalf("behind: %+v", pr)
 	}
 }
@@ -201,8 +210,9 @@ func (e *env) seq(folder int64) int64 {
 }
 
 func TestNotificationsFromEverySource(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
-	e.s.PollTimeout = 50 * time.Millisecond
+	e.s.PollTimeout = 5 * time.Millisecond
 	e.setAdminPassword("pw")
 	c := e.webClient()
 	e.login(c, "pw")
@@ -252,6 +262,7 @@ func TestNotificationsFromEverySource(t *testing.T) {
 }
 
 func TestOfflineDeviceNoticeSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -305,6 +316,7 @@ func hasCounts(page string, f int64, errs, warns int) bool {
 // A block file that does not have the size the server saw (here: longer than a block) is never sent in part:
 // the connection breaks after the good blocks, and the server logs it.
 func TestBlocksGetNeverSendsPartOfABlockFile(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("d1", "linux")
 	good := e.block([]byte("good"))
@@ -337,6 +349,7 @@ func TestBlocksGetNeverSendsPartOfABlockFile(t *testing.T) {
 
 // More blocks than the read-ahead window, of different sizes, still come back in request order, byte for byte.
 func TestBlocksGetKeepsOrderBeyondTheReadWindow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("d1", "linux")
 	var hs []proto.Hash

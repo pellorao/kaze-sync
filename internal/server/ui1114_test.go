@@ -12,6 +12,7 @@ import (
 // openDialog puts the focus on the chosen radio of the write-control dialog (ui1114 D2); the behaviour is tested with
 // node's built-in runner, like the tip box.
 func TestDialogScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")
@@ -27,6 +28,7 @@ func TestDialogScript(t *testing.T) {
 // name is not set one letter to a line on a narrow screen (ui1114 D1; `overflow-wrap: anywhere` alone lets the column
 // shrink to one letter).
 func TestOverviewFolderNameKeepsAMinimumWidth(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -52,6 +54,7 @@ func TestOverviewFolderNameKeepsAMinimumWidth(t *testing.T) {
 // When no folder is left to map, the add-mapping button says why in a tip a keyboard or a touch user reaches (ui1114
 // D3): it stays focusable (aria-disabled, not disabled), opens nothing, and has no native title (ui.md).
 func TestAddMappingButtonExplainsItself(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -83,6 +86,7 @@ func TestAddMappingButtonExplainsItself(t *testing.T) {
 
 // No template gives an element a native title (a hint is a tip, ui.md).
 func TestTemplatesHaveNoNativeTitle(t *testing.T) {
+	t.Parallel()
 	files, _ := fs.Glob(webFS, "web/*.html")
 	for _, p := range files {
 		b, _ := fs.ReadFile(webFS, p)
@@ -95,6 +99,7 @@ func TestTemplatesHaveNoNativeTitle(t *testing.T) {
 // The add-mapping button that explains itself can take the keyboard focus, so its focus ring must not be dimmed with
 // the rest of the button: it is greyed by colour, not by opacity (ui.md: focus ring at least 3:1).
 func TestAriaDisabledButtonIsNotDimmedByOpacity(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	for _, r := range regexp.MustCompile(`(?m)^([^{}\n]*aria-disabled[^{}\n]*)\{([^}]*)\}`).FindAllStringSubmatch(string(css), -1) {
 		if strings.Contains(r[2], "opacity") {

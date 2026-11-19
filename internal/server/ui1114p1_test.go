@@ -33,6 +33,7 @@ func i18nOf(t *testing.T, lang string) map[string]string {
 }
 
 func TestDeleteMappingConfirmNamesFolderAndPath(t *testing.T) {
+	t.Parallel()
 	for _, l := range uiLangs {
 		m := i18nOf(t, l)
 		s := m["js.delMapConfirm"]
@@ -58,6 +59,7 @@ func TestDeleteMappingConfirmNamesFolderAndPath(t *testing.T) {
 }
 
 func TestDeleteMappingScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")
@@ -72,6 +74,7 @@ func TestDeleteMappingScript(t *testing.T) {
 // At 640px and below the path moves under the folder name, so the table has no wide column and the row menu stays on
 // the screen; above it the path keeps its own column.
 func TestMappingTablePutsThePathUnderTheNameOnNarrowScreens(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -103,6 +106,7 @@ func TestMappingTablePutsThePathUnderTheNameOnNarrowScreens(t *testing.T) {
 // it is shipped as "Kaze Sans" (family name in the font's name table and in the CSS), with the copyright and license
 // records kept.
 func TestSansFaceDoesNotUseTheReservedName(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"web/fonts.css", "web/style.css"} {
 		b, _ := fs.ReadFile(webFS, p)
 		if strings.Contains(string(b), "Source Sans") {
@@ -164,6 +168,7 @@ func cssRule(css, sel string) string {
 // Every pointer target of a link in a table cell, a crumb, a tag or a notice is at least 24px tall and wide (WCAG 2.5.8;
 // ui.md); an inline link in running text is exempt, so only these classes are listed.
 func TestLinkTargetsReach24px(t *testing.T) {
+	t.Parallel()
 	b, _ := fs.ReadFile(webFS, "web/style.css")
 	css := string(b)
 	for _, sel := range []string{".crumbs a", "td > a.dn", ".nitem a", ".grp-h a", ".fname a"} {
@@ -189,6 +194,7 @@ func TestLinkTargetsReach24px(t *testing.T) {
 
 // A wrapped summary line must not start with a lone "·": the separators hang in a margin that the line start clips.
 func TestSubLineSeparatorsAreClippedAtLineStart(t *testing.T) {
+	t.Parallel()
 	b, _ := fs.ReadFile(webFS, "web/style.css")
 	css := string(b)
 	r := cssRule(css, ".sub")

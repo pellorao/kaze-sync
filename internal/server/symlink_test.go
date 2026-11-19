@@ -19,6 +19,7 @@ func (e *env) linkOp(path string, base int64, target string) proto.Op {
 // Design 6.7: a link is an entry whose content is its target; it replaces and is replaced by files with versions,
 // has a type of its own, takes no children, and keeps its flag through restore.
 func TestLinkEntries(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	if r := e.commit(f, e.linkOp("l", 0, "../target"))[0]; r.Status != proto.StatusOK {
@@ -69,6 +70,7 @@ func TestLinkEntries(t *testing.T) {
 
 // Export writes links as links, never follows one on the way, and replaces a link left at the file's place.
 func TestExportLinks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	e.commit(f, e.linkOp("lnk", 0, "/etc/passwd"), e.op("dir/file", 0, "content"), e.linkOp("dir/rel", 0, "file"))
@@ -105,6 +107,7 @@ func TestExportLinks(t *testing.T) {
 
 // A device's links it cannot create fold to one line however few there are (design 6.7).
 func TestLinkNoticeFoldsToOneLine(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -129,6 +132,7 @@ func TestLinkNoticeFoldsToOneLine(t *testing.T) {
 
 // A file whose content does not match its hash is not exported, and the file an earlier export left stays as it was.
 func TestExportBadHashKeepsEarlierFile(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	h := e.block([]byte("new"))
 	root := t.TempDir()

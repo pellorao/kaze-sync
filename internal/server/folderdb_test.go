@@ -14,6 +14,7 @@ import (
 )
 
 func TestFolderDatabasesAreIndependent(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a, b := e.folder("a"), e.folder("b")
 	for _, f := range []int64{a, b} {
@@ -57,6 +58,7 @@ func TestFolderDatabasesAreIndependent(t *testing.T) {
 }
 
 func TestCreateFolderIsAtomic(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	// A leftover database file at the id the folder would get is replaced (the id is new: design 2.3).
 	path := FolderDBPath(e.s.varDir, 1)
@@ -86,6 +88,7 @@ func TestCreateFolderIsAtomic(t *testing.T) {
 }
 
 func TestMigrateFoldersRunsPerDatabase(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 	if err := migrateFolders(e.s.db, e.s.varDir, time.Now()); err != nil {
@@ -103,6 +106,7 @@ func TestMigrateFoldersRunsPerDatabase(t *testing.T) {
 
 // The factory rules are checked against git on sample paths of the new entries.
 func TestDefaultRulesAgainstGit(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}

@@ -8,6 +8,7 @@ import (
 // The filter box above the hits of a rule preview must survive a refresh (web/app.js): typing while an answer is on
 // its way used to lose characters.
 func TestHitsFilterScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")

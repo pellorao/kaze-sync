@@ -33,6 +33,7 @@ func rule(t *testing.T, css, sel string) string {
 }
 
 func TestTypeScaleVariablesMatchTheStatusPage(t *testing.T) {
+	t.Parallel()
 	css := styleCSS(t)
 	root := rule(t, css, ":root")
 	for k, v := range map[string]string{"--fs-xs": "0.75rem", "--fs-sm": "0.875rem", "--fs-md": "1rem", "--fs-lg": "1.25rem"} {
@@ -55,6 +56,7 @@ func TestTypeScaleVariablesMatchTheStatusPage(t *testing.T) {
 }
 
 func TestEveryFontSizeIsFromTheScale(t *testing.T) {
+	t.Parallel()
 	css := styleCSS(t)
 	// the size of `font-size: X` and of the shorthand `font: [weight] X[/line-height] family`
 	tok := regexp.MustCompile(`(var\(--fs-(?:xs|sm|md|lg)\)|inherit|\d+(?:\.\d+)?(?:px|rem|em))`)
@@ -84,6 +86,7 @@ func TestEveryFontSizeIsFromTheScale(t *testing.T) {
 }
 
 func TestRowsAndControlsGrowWithTheText(t *testing.T) {
+	t.Parallel()
 	css := styleCSS(t)
 	px := func(sel, prop string) int {
 		m := regexp.MustCompile(`(?:^|[;\s])` + prop + `: *(\d+)px`).FindStringSubmatch(rule(t, css, sel))

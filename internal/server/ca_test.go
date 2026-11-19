@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -44,6 +45,7 @@ func leafOf(t *testing.T, data string) (*x509.Certificate, *tls.Certificate) {
 }
 
 func TestCAFilesAndPermissions(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	dir := filepath.Join(data, CADir)
 	for name, mode := range map[string]os.FileMode{caKeyFile: 0o600, caCertFile: 0o644, ".": 0o700} {
@@ -68,6 +70,7 @@ func TestCAFilesAndPermissions(t *testing.T) {
 }
 
 func TestServerCertCoversNamesAndChainsToCA(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	sans := ServerSANs("192.168.1.1:4000", "nas.example.org, 10.0.0.5")
 	for _, want := range []string{"localhost", "127.0.0.1", "::1", "192.168.1.1", "nas.example.org", "10.0.0.5"} {
@@ -105,6 +108,7 @@ func TestServerCertCoversNamesAndChainsToCA(t *testing.T) {
 }
 
 func TestServerCertRenewal(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	now := time.Now()
 	sans := []string{"localhost"}
@@ -143,6 +147,7 @@ func TestServerCertRenewal(t *testing.T) {
 }
 
 func TestCheckServerCertOnlyWarns(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	now := time.Now()
 	if _, err := EnsureServerCert(data, ServerSANs("", ""), now); err != nil {
@@ -178,6 +183,7 @@ func installDB(t *testing.T, data string) *sql.DB {
 }
 
 func TestCertSourceReloadsAReplacedFile(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	if _, err := EnsureServerCert(data, []string{"localhost"}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -212,6 +218,7 @@ func TestCertSourceReloadsAReplacedFile(t *testing.T) {
 }
 
 func TestInstallCAMode(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	cert, key := writeCertPair(t, t.TempDir())
 	if err := f.install(InstallOptions{CA: true, Cert: cert, Key: key}); err == nil {
@@ -293,6 +300,7 @@ func TestInstallCAMode(t *testing.T) {
 }
 
 func TestCACommand(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -335,6 +343,7 @@ func TestCACommand(t *testing.T) {
 }
 
 func TestRunServesCAMode(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := ln.Addr().String()
@@ -352,12 +361,12 @@ func TestRunServesCAMode(t *testing.T) {
 	roots.AddCert(ca)
 	var conn *tls.Conn
 	var err error
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 1000; i++ {
 		conn, err = tls.Dial("tcp", addr, &tls.Config{RootCAs: roots, ServerName: "localhost"})
 		if err == nil {
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -365,8 +374,10 @@ func TestRunServesCAMode(t *testing.T) {
 	conn.Close()
 }
 
-// The first certificate check runs right after start: its failure must reach the Web Push loop, so the state has to be
-// set before the loop looks.
+// The first certificate check's failure reaches the Web Push loop: with the state set before the loop looks, the alert
+// is sent at once. The test runs certLoop and pushLoop itself, in that order, instead of through Run: Run starts the
+// two goroutines without ordering them, so about one run in five the push loop looks first and then waits
+// pushMinGap (10 s) for the next look, which a test cannot wait for.
 func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	f := newFakeSystem(t)
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -391,11 +402,32 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	if _, err := EnsureServerCert(f.data, ServerSANs(addr, ""), time.Now().Add(-leafLife+24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	s, err := New(f.data, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, f.data) }()
-	defer func() { cancel(); <-done }()
-	deadline := time.Now().Add(pushMinGap + 10*time.Second) // the loop may look before the cert check has set its flag, then waits pushMinGap
+	var wg sync.WaitGroup
+	defer func() { cancel(); wg.Wait() }()
+	wg.Add(1)
+	go func() { defer wg.Done(); s.certLoop(ctx, f.data) }()
+	for { // the first check has set the state
+		s.mu.Lock()
+		failed := s.certFailed
+		s.mu.Unlock()
+		if failed {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the certificate check did not run")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	wg.Add(1)
+	go func() { defer wg.Done(); s.pushLoop(ctx) }()
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		fp.mu.Lock()
 		n := len(fp.got)
@@ -403,7 +435,7 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 		if n > 0 {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("the alert of the first certificate check was lost")
 }
@@ -411,6 +443,7 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 // A key whose certificate was never written (crash or full disk between the two writes) is not a CA: the next run
 // creates both again instead of failing on every start.
 func TestEnsureCARecoversFromKeyWithoutCert(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	dir := filepath.Join(data, CADir)
 	if err := os.Remove(filepath.Join(dir, caCertFile)); err != nil {

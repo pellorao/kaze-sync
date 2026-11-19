@@ -14,6 +14,7 @@ var confirmToken = regexp.MustCompile(`name="confirm" value="([0-9a-f]+)"`)
 // Saving rules that cover files on the server first lists them; only a save that carries the token of that list
 // deletes them, as ordinary versioned deletions that the clients are told came from the rules (design 8.3).
 func TestSavingRulesListsThenDeletesTheCoveredFiles(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -77,6 +78,7 @@ func TestSavingRulesListsThenDeletesTheCoveredFiles(t *testing.T) {
 
 // New global rules reach into every folder; the list names the folders.
 func TestSavingGlobalRulesDeletesInEveryFolder(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -116,6 +118,7 @@ func hitsList(body string) string {
 // says it is not in effect, and its token is bound to the text and the files. The save refuses a token for other
 // rules or other files and answers with the refreshed preview.
 func TestRulesPreviewThenSave(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -186,6 +189,7 @@ func TestRulesPreviewThenSave(t *testing.T) {
 
 // The global rules card previews the same way, across all folders.
 func TestGlobalRulesPreview(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()

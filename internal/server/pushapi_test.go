@@ -50,6 +50,7 @@ func adminClient(e *env) *http.Client {
 }
 
 func TestPushAPIRequiresASession(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := e.webClient()
 	for _, r := range [][2]string{{"GET", "/push/subscriptions"}, {"POST", "/push/subscribe"}, {"POST", "/push/unsubscribe"}, {"POST", "/push/test"}} {
@@ -143,6 +144,7 @@ func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 func mustJSONString(v any) string { return string(mustJSON(v)) }
 
 func TestPushAPIRefusesBadAndTooManySubscriptions(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := adminClient(e)
 	good := browserSub("https://push.example/a")
@@ -176,6 +178,7 @@ func TestPushAPIRefusesBadAndTooManySubscriptions(t *testing.T) {
 }
 
 func TestServiceWorkerNeedsNoSession(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	st, body := e.get(e.webClient(), "/sw.js")
 	if st != 200 || !strings.Contains(body, `addEventListener("push"`) || !strings.Contains(body, "notificationclick") || !strings.Contains(body, "clients.claim()") || !strings.Contains(body, "renotify: !!d.tag") {
@@ -239,6 +242,7 @@ func TestPushLateGoneDoesNotInvalidateANewSubscription(t *testing.T) {
 // The push card's helpers (which problem it names, this browser's subscription id, the server key) are tested with node's
 // built-in runner; the id must be the server's subID of the same endpoint.
 func TestPushCardScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")
@@ -255,6 +259,7 @@ func TestPushCardScript(t *testing.T) {
 // The settings page carries the push card (filled by app.js) with a no-JavaScript line, and the bell's warning about an
 // invalid subscription links to the card.
 func TestSettingsHasThePushCard(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()

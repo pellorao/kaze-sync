@@ -28,6 +28,7 @@ var fontFiles = []string{
 const maxFaceBytes = 2 << 20 // low traffic is the first goal: one CJK face stays within 2 MB
 
 func TestFontFilesAreEmbeddedAndSmall(t *testing.T) {
+	t.Parallel()
 	for _, n := range fontFiles {
 		b, err := fs.ReadFile(webFS, "web/fonts/"+n)
 		if err != nil {
@@ -49,6 +50,7 @@ func TestFontFilesAreEmbeddedAndSmall(t *testing.T) {
 }
 
 func TestFontsCSSAndStacks(t *testing.T) {
+	t.Parallel()
 	fc, err := fs.ReadFile(webFS, "web/fonts.css")
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +100,7 @@ func readCoverage(t *testing.T, name string) map[rune]bool {
 // font for its own words. The language names of i18n.go are each set in their own language (option lang), so each is
 // checked against the face of its language.
 func TestSubsetsCoverEveryInterfaceCharacter(t *testing.T) {
+	t.Parallel()
 	latin := readCoverage(t, "latin")
 	nosource := readCoverage(t, "nosource")
 	region := map[string]string{"zh-CN": "cn", "zh-TW": "tw", "ja": "jp", "ko": "kr", "en": ""}
@@ -164,6 +167,7 @@ func TestSubsetsCoverEveryInterfaceCharacter(t *testing.T) {
 
 // A font file is cached for a week (it changes only with a release); other static files are revalidated.
 func TestFontsAreCachedForAWeek(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := e.webClient()
 	resp, err := c.Get(e.ts.URL + "/static/fonts/SourceSans3-Latin.woff2")
@@ -187,6 +191,7 @@ func TestFontsAreCachedForAWeek(t *testing.T) {
 // A grid card body lets a wide child (the time zone list set in the monospace font) shrink to the card: at 400 px the
 // select overflowed the card by 19 px without minmax(0, 1fr).
 func TestStackColumnMayShrink(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	if !regexp.MustCompile(`(?m)^\.stack \{[^}]*grid-template-columns: minmax\(0, 1fr\)`).Match(css) {
 		t.Error(".stack has no minmax(0, 1fr) column")
@@ -196,6 +201,7 @@ func TestStackColumnMayShrink(t *testing.T) {
 // Each language's stacks name the Han face of its own region (the stack of ja once named the Traditional Chinese face
 // and still passed a substring check), and each language option is set in the name face of its region.
 func TestStacksMatchTheirLanguage(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	region := map[string]string{"zh-TW": "TW", "ja": "JP", "ko": "KR"}
 	all := regexp.MustCompile(`Kaze Han Sans (CN|TW|JP|KR)`)
@@ -241,6 +247,7 @@ func TestStacksMatchTheirLanguage(t *testing.T) {
 // The unicode-range of every face holds every character its subset has (a character in the font but outside the range
 // would never be used).
 func TestFontsCSSRangesHoldTheCoverage(t *testing.T) {
+	t.Parallel()
 	fc, _ := fs.ReadFile(webFS, "web/fonts.css")
 	for _, c := range []struct{ file, cov string }{
 		{"SourceSans3-Latin.woff2", "latin"}, {"SourceHanSansCN-Regular-Subset.woff2", "cn"}, {"SourceHanSansTW-Regular-Subset.woff2", "tw"},
@@ -282,6 +289,7 @@ func TestFontsCSSRangesHoldTheCoverage(t *testing.T) {
 // The headings (h1, h2, h3 and the title line of a folder, device or settings page) are set in the serif stack, like the status
 // page; the body and everything else stay sans (user 2026-11-15).
 func TestHeadingsAreSerifBodyIsSans(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	rule := regexp.MustCompile(`(?m)^h1, h2, h3, \.crumbs \{([^}]*)\}`).FindStringSubmatch(string(css))
 	if rule == nil || !strings.Contains(rule[1], "font-family: var(--serif)") || !strings.Contains(rule[1], "font-weight: 600") {
@@ -310,6 +318,7 @@ func TestHeadingsAreSerifBodyIsSans(t *testing.T) {
 // and Source Han Serif carry it too, as their license files say): no name record of any shipped face except the copyright,
 // license and license URL says "Source", and the families are the Kaze names (needs python3 with fontTools and brotli).
 func TestEveryFaceIsRenamed(t *testing.T) {
+	t.Parallel()
 	for _, n := range []string{"LICENSE-source-sans.md", "LICENSE-source-serif.md", "LICENSE-source-han-sans.txt", "LICENSE-source-han-serif.txt"} {
 		b, _ := fs.ReadFile(webFS, "web/fonts/"+n)
 		if !strings.Contains(string(b), "Reserved Font") {
