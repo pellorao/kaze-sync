@@ -1,14 +1,14 @@
-# kaze-sync v0.5.1 release notes
+# kaze-sync v0.5.2 release notes
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## What this release is
 
-`v0.5.1` (released on 2026-11-18) fixes the bulk buttons of the held-changes dialog, which did nothing and said nothing when a group had only directory rows. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages (`kaze-sync-0.5.1-linux-amd64.tar.gz`, `kaze-sync-0.5.1-windows-amd64.zip`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.5.1`.
+`v0.5.2` (released on 2026-11-19) fixes four defects found in an architecture review: Web Push counted some sends twice against the hourly quota, the held-changes page could hang on 2001 changes of one path, quick successive device renames could leave an intermediate name, and Web Push still sent after a mapping was removed. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages (`kaze-sync-0.5.2-linux-amd64.tar.gz`, `kaze-sync-0.5.2-windows-amd64.zip`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.5.2`.
 
 ## Highlights
 
-- **Clear bulk buttons.** **Upload** in the held-changes dialog is disabled, with the reason written beside it, when no row can take it, and the dialog says "N rows keep their action" when only some checked rows can. Device renaming and bulk selection arrived in v0.5.0 (see the [changelog](CHANGELOG.md)).
+- **Four fixes.** Push quota is reserved once per send; large same-path held groups render; renames are serialized; unmapped folders no longer push. Details in the [changelog](CHANGELOG.md).
 
 ## Upgrading
 

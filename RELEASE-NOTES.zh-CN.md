@@ -1,14 +1,14 @@
-# kaze-sync v0.5.1 发布说明
+# kaze-sync v0.5.2 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.5.1` (发布于 2026-11-18) 修复待处理改动框批量按钮的问题: 组里只有目录行时点 "上传" 没有反应也没有提示. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包 (`kaze-sync-0.5.1-linux-amd64.tar.gz`, `kaze-sync-0.5.1-windows-amd64.zip`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.5.1` 识别构建.
+`v0.5.2` (发布于 2026-11-19) 修复架构审查发现的四个问题: Web Push 重复占用每小时额度, 同一路径 2001 条待处理改动使页面卡死, 连续改名可能留下中间名字, 解除映射后 Web Push 仍发送. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包 (`kaze-sync-0.5.2-linux-amd64.tar.gz`, `kaze-sync-0.5.2-windows-amd64.zip`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.5.2` 识别构建.
 
 ## 主要更新
 
-- **批量按钮说明原因.** 没有任何一行能用时 "上传" 禁用并在旁边写明原因, 只有部分勾选的行能用时提示 "N 行保留原动作". 设备改名与批量勾选是 v0.5.0 加入的 (见[更新日志](CHANGELOG.zh-CN.md)).
+- **四项修复.** 推送额度每次发送只预约一次; 同路径的大量待处理改动能正常显示; 改名串行执行; 解除映射的文件夹不再推送. 详见[更新日志](CHANGELOG.zh-CN.md).
 
 ## 升级
 

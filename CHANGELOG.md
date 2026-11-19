@@ -4,6 +4,17 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.5.2 - 2026-11-19
+
+Patch release: four fixes from an architecture review.
+
+### Fixed
+
+- Web Push: a notification queued behind a slow push service no longer takes the hourly quota twice; one reservation covers it from queueing to sending.
+- Held changes: a group of 2001 or more changes on the same path no longer hangs the page; the fold count now matches what is rendered.
+- Device rename: two renames in quick succession (`A` to `B`, then `B` to `C`) can no longer leave the middle name on the folder's records.
+- Notifications: after a mapping is removed, Web Push no longer sends for it, matching the bell.
+
 ## v0.5.1 - 2026-11-18
 
 Patch release: the held-changes bulk buttons no longer do nothing silently.
