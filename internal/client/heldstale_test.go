@@ -548,6 +548,7 @@ func TestHeldDeleteThawPendsUntilReplay(t *testing.T) {
 // A settled deletion holds the cursor back only until it is settled: in a scope another held change keeps frozen, the
 // cursor still reaches what the Pull read, so that the since of the next local change is not older than what is on disk.
 func TestHeldDeleteSettledReleasesCursor(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	holdDelete(t, a, b)
 	b.put("y.txt", []byte("mine")) // the scope is frozen: held too
@@ -569,6 +570,7 @@ func TestHeldDeleteSettledReleasesCursor(t *testing.T) {
 
 // A probe only reads, whatever else the op says: one with the current seq as its base deletes nothing.
 func TestHeldDeleteProbeNeverWrites(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	ctx := context.Background()
 	res, err := b.f.probe(ctx, true, "x.txt")
