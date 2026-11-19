@@ -27,7 +27,11 @@ func TestMain(m *testing.M) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	failed := false
+	var names []string // a fixed list: the workers write to the map while it would still be iterated
 	for name := range binaries {
+		names = append(names, name)
+	}
+	for _, name := range names {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

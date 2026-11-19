@@ -416,7 +416,10 @@ func TestRunFirstCertAlertIsPushed(t *testing.T) {
 	defer func() { cancel(); wg.Wait() }()
 	wg.Add(1)
 	go func() { defer wg.Done(); s.certLoop(ctx, f.data) }()
-	for { // the first check has set the state
+	for end := time.Now().Add(5 * time.Second); ; { // the first check has set the state
+		if time.Now().After(end) {
+			t.Fatal("the certificate check did not run")
+		}
 		s.mu.Lock()
 		failed := s.certFailed
 		s.mu.Unlock()
