@@ -39,6 +39,7 @@ const (
 )
 
 func TestEncryptMatchesRFC8291Vector(t *testing.T) {
+	t.Parallel()
 	asPriv, err := ecdh.P256().NewPrivateKey(mustB64(t, rfcASPriv))
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +58,7 @@ func TestEncryptMatchesRFC8291Vector(t *testing.T) {
 }
 
 func TestEncryptRoundTripAndRejects(t *testing.T) {
+	t.Parallel()
 	ua, _ := ecdh.P256().GenerateKey(rand.Reader)
 	as, _ := ecdh.P256().GenerateKey(rand.Reader)
 	auth, salt := make([]byte, 16), make([]byte, 16)
@@ -83,6 +85,7 @@ func TestEncryptRoundTripAndRejects(t *testing.T) {
 }
 
 func TestVapidKeyIsMadeOnceAndJWTVerifies(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	k1, err := vapidKey(e.s.db)
 	if err != nil {

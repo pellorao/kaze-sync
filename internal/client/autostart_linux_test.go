@@ -8,6 +8,7 @@ import (
 )
 
 func TestSystemdUserUnit(t *testing.T) {
+	t.Parallel()
 	cfg := t.TempDir()
 	var cmds []string
 	err := configureAutostart("/opt/kaze sync/kaze-syncc", cfg, func(args ...string) error {

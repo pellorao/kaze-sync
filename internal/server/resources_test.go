@@ -13,6 +13,7 @@ import (
 )
 
 func TestResourceEndpointSessionAndLatestReport(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.MkdirAll(dir+"/"+VarDir, 0700); err != nil {
 		t.Fatal(err)
@@ -82,6 +83,7 @@ func TestResourceEndpointSessionAndLatestReport(t *testing.T) {
 }
 
 func TestClientResourceRetentionBounds(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	c := resources.New()
 	c.Observe(now, resources.Reading{RSS: 30_000_000, CPU: 1})

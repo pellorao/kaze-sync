@@ -14,6 +14,7 @@ import (
 // Design 3.2 example: a folder rule re-includes one file below an excluded directory; releasing the
 // exclusion later brings the rest down, which needs the cursor to start again from 0 (design 8.3).
 func TestFolderRulesOverrideGlobalAndRulesChangeReconciles(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	for _, p := range []string{"build/a.txt", "build/keep.txt", "build/sub/x.txt", "top.txt"} {
 		g1.put(p, []byte("content of "+p))
@@ -57,6 +58,7 @@ func TestFolderRulesOverrideGlobalAndRulesChangeReconciles(t *testing.T) {
 }
 
 func TestBuiltinExclusionsCannotBeOverridden(t *testing.T) {
+	t.Parallel()
 	e, f, api, g := setup(t)
 	g.restart(api, proto.FolderConfig{ID: f, Adopt: true, Rules: []string{"!.syncroot", "!.syncpart-*", "!*"}}, g.fs)
 	g.put(".syncpart-123", []byte("partial"))
@@ -73,6 +75,7 @@ func TestBuiltinExclusionsCannotBeOverridden(t *testing.T) {
 
 // The matcher mode follows the device: Windows ignores case, Linux does not.
 func TestRulesCaseModeFollowsSystem(t *testing.T) {
+	t.Parallel()
 	db, err := openLocal(filepath.Join(t.TempDir(), "f.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +109,7 @@ func saveRulesConfirmed(t *testing.T, e *cenv, f int64, rules string) {
 // Saving rules in the Web UI deletes the files they cover on the server (design 8.3), and no device deletes its local
 // copy: not one that already has the rules, and not one that has not applied them yet (the deletion is marked).
 func TestServerDeletionsFromRulesLeaveTheLocalFiles(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	for _, p := range []string{"build/a.o", "build/sub/b.o", "keep.txt", "other.txt"} {
 		g1.put(p, []byte("content of "+p))

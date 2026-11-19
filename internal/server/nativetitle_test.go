@@ -11,6 +11,7 @@ import (
 // The script names its hints in the page's own tip, never in a native title (ui.md; nativetitle): a timestamp's zone, the
 // error of a rule line and the time zone sample.
 func TestScriptSetsNoNativeTitle(t *testing.T) {
+	t.Parallel()
 	js, err := fs.ReadFile(webFS, "web/app.js")
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +25,7 @@ func TestScriptSetsNoNativeTitle(t *testing.T) {
 }
 
 func TestTimeScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")
@@ -38,6 +40,7 @@ func TestTimeScript(t *testing.T) {
 // The zone is written once, in the header of each time column, as plain text with a UTC fallback for a page without the
 // script (nativetitle2); a <time> is not a Tab stop, since a page holds dozens to hundreds of them.
 func TestTimeColumnsNameTheZoneInTheHeader(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ file, key string }{{"web/folder.html", "fo.modified"}, {"web/folder.html", "rs.time"}, {"web/overview.html", "ov.lastConn"}} {
 		b, err := fs.ReadFile(webFS, c.file)
 		if err != nil {
@@ -62,6 +65,7 @@ func TestTimeColumnsNameTheZoneInTheHeader(t *testing.T) {
 
 // A long zone name wraps inside the header: a nowrap header would widen the version dialog past a 400 px screen.
 func TestZoneNameInHeaderWraps(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	if !regexp.MustCompile(`(?m)^\.tzn \{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere`).Match(css) {
 		t.Error("style.css: .tzn must allow wrapping (white-space: normal, overflow-wrap: anywhere)")

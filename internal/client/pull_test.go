@@ -91,6 +91,7 @@ func (g *engine) read(p string) (string, bool) {
 }
 
 func TestPullAppliesAdditionsModificationsAndDeletions(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, _ := pair(t)
 	g1.put("a.txt", []byte("one"))
 	g1.put("dir/sub/b.txt", []byte("bee"))
@@ -131,6 +132,7 @@ func errorsIsNotExist(err error) bool {
 }
 
 func TestPullLeavesLocalChangesAlone(t *testing.T) {
+	t.Parallel()
 	_, f, g1, g2, _ := pair(t)
 	_ = f
 	g1.put("a.txt", []byte("one"))
@@ -146,6 +148,7 @@ func TestPullLeavesLocalChangesAlone(t *testing.T) {
 }
 
 func TestPullHoldsFilesInUse(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, _ := pair(t)
 	g1.put("a.txt", []byte("one"))
 	g1.scan()
@@ -167,6 +170,7 @@ func TestPullHoldsFilesInUse(t *testing.T) {
 }
 
 func TestMovesDownloadNoBlocks(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, gets := pair(t)
 	for i := 0; i < 40; i++ {
 		g1.put("proj/f"+string(rune('a'+i%26))+string(rune('a'+i/26))+".bin", pseudoRandom(1000+i, byte(i)))
@@ -190,6 +194,7 @@ func TestMovesDownloadNoBlocks(t *testing.T) {
 }
 
 func TestPullDownloadsOnlyChangedBlocks(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, gets := pair(t)
 	data := pseudoRandom(6*miB, 3)
 	g1.put("big.db", data)
@@ -215,6 +220,7 @@ func TestPullDownloadsOnlyChangedBlocks(t *testing.T) {
 // Two devices change a file from the same base: the first commit wins, the other change is held and no conflict copy
 // is made (design 6.1, D3). The user's decision then ends it: discarding takes the server's version.
 func TestConflictIsHeldNotCopied(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	g1.put("doc.txt", []byte("base"))
 	g1.scan()
@@ -254,6 +260,7 @@ func TestConflictIsHeldNotCopied(t *testing.T) {
 // A modification against a deletion is a conflict like any other: the later writer is held, and overwriting keeps
 // the modification.
 func TestDeleteAgainstModify(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	ctx := context.Background()
 	g1.put("a.txt", []byte("base"))
@@ -292,6 +299,7 @@ func TestDeleteAgainstModify(t *testing.T) {
 }
 
 func TestSecondDeviceAdoptsIdenticalFilesWithoutDownloads(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("Docs")
 	files := map[string][]byte{"a.bin": pseudoRandom(3*miB+7, 1), "d/b.txt": []byte("bee"), "d/e/c.txt": []byte("sea")}
@@ -329,6 +337,7 @@ func TestSecondDeviceAdoptsIdenticalFilesWithoutDownloads(t *testing.T) {
 
 // A chmod alone (same size, same mtime) is a change: it commits and the other device gets the bit (design 6.4).
 func TestChmodOnlyIsSynced(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	g1.put("run.sh", []byte("#!/bin/sh\n"))
 	st, err := g1.fs.Stat("run.sh")

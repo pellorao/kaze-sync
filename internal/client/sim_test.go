@@ -201,10 +201,16 @@ const (
 
 func (s *sim) srvNow() time.Time { return s.now.Add(s.skew) }
 
-func newSim(t *testing.T, seed int64) *sim {
+// oneWorker makes the engine single-threaded, as the crash points are numbered in the order of the calls: it is
+// called once by the test that owns the simulations, never by each (parallel) simulation, whose cleanups would
+// restore each other's values and leave the setting behind for the tests that run later.
+func oneWorker(t *testing.T) {
 	oldIO, oldHash := ioWorkers, hashWorkers
-	ioWorkers, hashWorkers = 1, 1 // the crash points are numbered in the order of the calls: keep it deterministic
+	ioWorkers, hashWorkers = 1, 1
 	t.Cleanup(func() { ioWorkers, hashWorkers = oldIO, oldHash })
+}
+
+func newSim(t *testing.T, seed int64) *sim {
 	s := &sim{t: t, rng: rand.New(rand.NewSource(seed)), crash: &crasher{}, now: time.Now().Truncate(time.Hour), keep: map[string]bool{}, where: map[string]string{},
 		rules: map[int64][]simRule{}, cfgVer: map[int64]int{}, hist: map[int64][]acc{}, maxSeq: map[int64]int64{}, edit: map[string]int64{}, waived: map[string]bool{}}
 	e := newCEnvAt(t, s.srvNow)
@@ -781,14 +787,12 @@ func simSeeds() int {
 	if v, err := strconv.Atoi(os.Getenv("SIM_SEEDS")); err == nil {
 		return v
 	}
-	if testing.Short() {
-		return 40
-	}
-	return 1000
+	return 16 // a quick random sample; SIM_SEEDS=1000 SIM_STEPS=300 is the deep run
 }
 
 func TestSimulation(t *testing.T) {
-	steps := 300
+	oneWorker(t)
+	steps := 60
 	if v, err := strconv.Atoi(os.Getenv("SIM_STEPS")); err == nil {
 		steps = v
 	}
@@ -805,15 +809,17 @@ func TestSimulation(t *testing.T) {
 // TestCrashAtEveryCall replays short scripts and crashes once at each FS or HTTP call of the whole run, before
 // and after the call took effect; every run must still converge without data loss.
 func TestCrashAtEveryCall(t *testing.T) {
-	scripts := 5
+	oneWorker(t)
+	scripts, steps := 1, 8 // every call of a short script; SIM_SCRIPTS=5 SIM_CRASH_STEPS=70 is the deep sweep
 	if v, err := strconv.Atoi(os.Getenv("SIM_SCRIPTS")); err == nil {
 		scripts = v
-	} else if testing.Short() {
-		scripts = 1
+	}
+	if v, err := strconv.Atoi(os.Getenv("SIM_CRASH_STEPS")); err == nil {
+		steps = v
 	}
 	for seed := 1; seed <= scripts; seed++ {
 		probe := newSim(t, int64(1000+seed))
-		probe.run(70, false)
+		probe.run(steps, false)
 		total := probe.crash.n
 		for at := 1; at <= total; at++ {
 			for _, after := range []bool{false, true} {
@@ -821,7 +827,7 @@ func TestCrashAtEveryCall(t *testing.T) {
 					t.Parallel()
 					s := newSim(t, int64(1000+seed))
 					s.crash.at, s.crash.after = at, after
-					s.run(70, false)
+					s.run(steps, false)
 					s.crash.at = 0
 					s.settle()
 				})

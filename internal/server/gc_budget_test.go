@@ -23,6 +23,7 @@ func memoryFile(t *testing.T, name, content string) string {
 }
 
 func TestReadMemTotal(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, text string
 		want       int64
@@ -49,6 +50,7 @@ func TestReadMemTotal(t *testing.T) {
 }
 
 func TestReadMemoryLimit(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, text string
 		want       int64
@@ -75,6 +77,7 @@ func TestReadMemoryLimit(t *testing.T) {
 }
 
 func TestGCMemoryLimitPaths(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	defaults := []string{filepath.Join(root, "memory.max"), filepath.Join(root, "memory", "memory.limit_in_bytes")}
 	for _, tc := range []struct {
@@ -123,6 +126,7 @@ func TestGCMemoryLimitPaths(t *testing.T) {
 }
 
 func TestGCMemoryBudget(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, meminfo, v2, v1 string
 		want                  int64
@@ -162,6 +166,7 @@ func TestGCMemoryBudget(t *testing.T) {
 }
 
 func TestGCMemoryBudgetLog(t *testing.T) {
+	// Not parallel: it swaps the default logger.
 	dir := t.TempDir()
 	db, err := OpenDB(filepath.Join(dir, "meta.db"), true)
 	if err != nil {
@@ -190,6 +195,7 @@ func TestGCMemoryBudgetLog(t *testing.T) {
 // A cgroup path is always POSIX; walking its ancestors must end on any host OS
 // (filepath.Dir on Windows never reaches "/").
 func TestGCMemoryLimitPathsTerminates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	m := filepath.Join(dir, "cgroup")
 	if err := os.WriteFile(m, []byte("0::/a/b/c\n"), 0o644); err != nil {

@@ -51,6 +51,7 @@ func conflictCopies(g *engine) int {
 
 // The server's current entry is this device's own commit: commit on top of it, no conflict copy.
 func TestOwnCommitIsNotAConflict(t *testing.T) {
+	t.Parallel()
 	e, f, g := lostRow(t, "@own")
 	g.scan()
 	if n := conflictCopies(g); n != 0 {
@@ -63,6 +64,7 @@ func TestOwnCommitIsNotAConflict(t *testing.T) {
 
 // Another device name, or none: a real conflict, which is held.
 func TestForeignCommitStaysAConflict(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"somebody-else", ""} {
 		_, _, g := lostRow(t, name)
 		g.scan()
@@ -74,6 +76,7 @@ func TestForeignCommitStaysAConflict(t *testing.T) {
 
 // A database written by a newer build is refused, and the refusal is not a failure to open a damaged file.
 func TestNewerLocalDatabaseIsRefused(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "folder-1.db")
 	l, err := openLocal(p)
 	if err != nil {
@@ -91,6 +94,7 @@ func TestNewerLocalDatabaseIsRefused(t *testing.T) {
 
 // A database of the first version (no link column) is migrated and marked.
 func TestOldLocalDatabaseIsMigrated(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "folder-1.db")
 	db, _ := sql.Open("sqlite", p)
 	db.Exec(`CREATE TABLE local(path TEXT PRIMARY KEY, key TEXT NOT NULL, seq INTEGER NOT NULL, hash BLOB NOT NULL,
@@ -112,6 +116,7 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value) WITHOUT ROWID; INSERT INTO meta V
 
 // A failure to store the scan's state rows must not stop the commit.
 func TestScanGoesOnWhenStateRowsCannotBeStored(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("Docs")
 	dev, api := e.newDevice()

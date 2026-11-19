@@ -26,6 +26,7 @@ func setup(t *testing.T) (*cenv, int64, *API, *engine) {
 }
 
 func TestScanUploadsAndVersions(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	g.put("a.txt", []byte("one"))
 	g.put("dir/b.txt", []byte("bee"))
@@ -70,6 +71,7 @@ func TestScanUploadsAndVersions(t *testing.T) {
 }
 
 func TestUnstableFilesWait(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.f.Stable = 1 << 62 // everything counts as just written (Mem mtimes are tiny but positive)
 	g.f.Now = func() time.Time { return time.Unix(0, 1_000_000_001_000) }
@@ -84,6 +86,7 @@ func TestUnstableFilesWait(t *testing.T) {
 }
 
 func TestChunkedUploadSendsOnlyChangedBlocks(t *testing.T) {
+	t.Parallel()
 	e, f, api, g := setup(t)
 	ct := &countTransport{base: api.HC.Transport}
 	api.HC.Transport = ct
@@ -120,6 +123,7 @@ func TestChunkedUploadSendsOnlyChangedBlocks(t *testing.T) {
 }
 
 func TestKilledUploadResumesWithRemainingBlocks(t *testing.T) {
+	t.Parallel()
 	e, f, api, g := setup(t)
 	ft := cfs.NewFaultTransport(api.HC.Transport)
 	api.HC.Transport = ft
@@ -150,6 +154,7 @@ func TestKilledUploadResumesWithRemainingBlocks(t *testing.T) {
 }
 
 func TestSQLiteInUse(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	db := append([]byte("SQLite format 3\x00"), pseudoRandom(4000, 3)...)
 	g.put("app.db", db)
@@ -183,6 +188,7 @@ func TestSQLiteInUse(t *testing.T) {
 }
 
 func TestMappingSafety(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("Docs")
 	dev, api := e.newDevice()
@@ -229,6 +235,7 @@ func TestMappingSafety(t *testing.T) {
 }
 
 func TestEmptyAndMissingDirectoriesGetMarker(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.f.Adopt = false
 	if rep := g.scan(); rep.State != "idle" {
@@ -253,6 +260,7 @@ func (f failDirFS) ReadDir(d string) ([]cfs.Entry, error) {
 }
 
 func TestDeletionSafety(t *testing.T) {
+	t.Parallel()
 	e, f, api, g := setup(t)
 	g.put("keep/a.txt", []byte("a"))
 	g.put("secret/s.txt", []byte("s"))
@@ -284,6 +292,7 @@ func TestDeletionSafety(t *testing.T) {
 }
 
 func TestServerRefusals(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	g.put("A.txt", []byte("1"))
 	g.put("a.txt", []byte("2"))
@@ -312,6 +321,7 @@ func second(t *testing.T, e *cenv, f int64) *engine {
 }
 
 func TestConflictsThatNeedNoPull(t *testing.T) {
+	t.Parallel()
 	e, f, _, g1 := setup(t)
 	g2 := second(t, e, f)
 
@@ -380,6 +390,7 @@ func TestConflictsThatNeedNoPull(t *testing.T) {
 // Temporary download parts are kept for resuming, but one untouched for more than a day is leftover: the scan
 // removes it.
 func TestScanRemovesStaleDownloadParts(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.put(".syncpart-0123456789abcdef", []byte("partial"))
 	g.put("dir/.syncpart-fedcba9876543210", []byte("partial"))
@@ -405,6 +416,7 @@ func TestScanRemovesStaleDownloadParts(t *testing.T) {
 // The whole-file hash is the SHA-256 of the content for every size around a block boundary; a file of one block
 // is hashed once (its block hash is the whole's).
 func TestHashFileWholeHash(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	buf := make([]byte, proto.BlockSize)
 	for _, n := range []int{0, 1, proto.BlockSize - 1, proto.BlockSize, proto.BlockSize + 1, 2*proto.BlockSize + 5} {
@@ -425,6 +437,7 @@ func TestHashFileWholeHash(t *testing.T) {
 
 // The scans' row reads leave out the block hashes; get and byHash (the readers of them) keep them.
 func TestLocalRowsReadWithoutBlocks(t *testing.T) {
+	t.Parallel()
 	db, err := openLocal(t.TempDir() + "/l.db")
 	if err != nil {
 		t.Fatal(err)

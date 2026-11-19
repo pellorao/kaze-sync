@@ -71,9 +71,9 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.PollTimeout = 300 * time.Millisecond
+	s.PollTimeout = 5 * time.Millisecond
 	ts := httptest.NewTLSServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); s.Close() })
+	t.Cleanup(func() { ts.Close(); s.gcWG.Wait(); s.Close() }) // a GC started by a request still writes below dir
 	return &env{t: t, s: s, clk: clk, ts: ts}
 }
 

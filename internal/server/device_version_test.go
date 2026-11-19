@@ -13,6 +13,7 @@ import (
 )
 
 func TestDevicePagesShowReleaseVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.MkdirAll(dir+"/"+VarDir, 0o755); err != nil {
 		t.Fatal(err)

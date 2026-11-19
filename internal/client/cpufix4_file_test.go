@@ -11,6 +11,7 @@ import (
 // unsent change of that file is recorded as the file itself (unsentFiles), as well as its directory, because dirScope
 // maps the directory to the directory's scope, not the file's.
 func TestCpufix4FileScopeDirtyCleared(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeSingle}})
 	id, mode := a.f.scopeOf("d/f.txt")
 	if mode != proto.ModeSingle || id == "d:" {
@@ -34,6 +35,7 @@ func TestCpufix4FileScopeDirtyCleared(t *testing.T) {
 // The same through a real scan: d/f.txt (single-writer scope of its own) is too fresh, so unsent; a partial scan of
 // another directory leaves it, a clean scan covering d clears it.
 func TestCpufix4FileScopeRecordedAndCleared(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeSingle}})
 	id, _ := a.f.scopeOf("d/f.txt")
 	a.put("d/f.txt", []byte("zero"))
@@ -61,6 +63,7 @@ func TestCpufix4FileScopeRecordedAndCleared(t *testing.T) {
 
 // A free file inside a single-writer directory has no since to hold back: it is not recorded in unsentFiles.
 func TestCpufix4FreeFileNotRecorded(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeFree}})
 	if _, mode := a.f.scopeOf("d/f.txt"); mode != proto.ModeFree {
 		t.Fatalf("setup: mode %s", mode)

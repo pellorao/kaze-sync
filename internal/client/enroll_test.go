@@ -14,6 +14,7 @@ import (
 func proto0() proto.PollReq { return proto.PollReq{} }
 
 func TestEnrollPinsTheCertificate(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	ctx := context.Background()
 

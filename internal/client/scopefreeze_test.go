@@ -31,6 +31,7 @@ func singlePair(t *testing.T) (a, b *engine) {
 // A standing warning (a name the server refuses, design 2.8.6) is not an unsent change: it must not keep the
 // scope's since at an old value, or every later write of another device freezes this one.
 func TestStandingWarningDoesNotFreezeScope(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []bool{true, false} {
 		a, b := singlePair(t)
 		if bad {
@@ -56,6 +57,7 @@ func TestStandingWarningDoesNotFreezeScope(t *testing.T) {
 // A new device adopting a directory whose files equal the server's is not frozen for them: nothing differs, so
 // nothing needs the user's decision (design 2.8.3).
 func TestAdoptSameContentIsNotHeld(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	for _, p := range []string{"x.txt", "d/y.txt"} {
 		a.put(p, []byte("same "+p))
@@ -74,6 +76,7 @@ func TestAdoptSameContentIsNotHeld(t *testing.T) {
 // A list of held changes longer than the report may be is cut to what fits, the cut is counted, and the report of a
 // full-size list stays within the request limit of the server.
 func TestHeldReportIsCutToFit(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	long := strings.Repeat("d", 200)
 	rows := make([]heldRow, 0, proto.MaxHeldItems+50)
@@ -105,6 +108,7 @@ func TestHeldReportIsCutToFit(t *testing.T) {
 
 // A report that failed shows in the folder's status, not only in the log, until one succeeds.
 func TestHeldReportFailureIsShown(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	var rep Report
 	a.f.HeldReportFailed(errors.New("held: 400 too large"))

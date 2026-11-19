@@ -20,6 +20,7 @@ func pollEpoch(t *testing.T, e *env, token string) string {
 
 // A database has an epoch from its creation, polls carry it, only `install --new-epoch` changes it (design 2.4, 9.4).
 func TestEpochInPollAndNewEpoch(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("dev", "linux")
 	first := pollEpoch(t, e, tok)
@@ -54,6 +55,7 @@ func TestEpochInPollAndNewEpoch(t *testing.T) {
 // Version 1 of meta.db (folders without AUTOINCREMENT, no epoch) migrates in place: the folders stay, the epoch
 // appears, and the ids of folders deleted afterwards are never handed out again.
 func TestMigrateMetaToAutoincrementAndEpoch(t *testing.T) {
+	t.Parallel()
 	db, err := OpenDB(filepath.Join(t.TempDir(), "meta.db"), true)
 	if err != nil {
 		t.Fatal(err)

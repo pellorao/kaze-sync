@@ -27,6 +27,7 @@ func attr(t *testing.T, page, name string, into any) {
 // The write-control dialog carries, per device and scope, how many changes are held and the directory that contains
 // them all, so that saving a setting over them asks first (design 2.8.11).
 func TestWriteControlDialogCarriesHeldSpans(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	at := func(p string) proto.HeldItem { x := it; x.Path = p; return x }
 	l.heldReport(l.tb, l.f, at("d/a/x.txt"), at("d/a/y.txt"), at("d/b/z.txt"), at("d/top.txt"))
@@ -52,6 +53,7 @@ func TestWriteControlDialogCarriesHeldSpans(t *testing.T) {
 
 // The restore dialog learns of a single writer that wrote a moment ago, and stops hearing of it after the window.
 func TestRestoreNoteNamesLiveSingleWriter(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t)
 	type lk struct {
 		P, K, D string
@@ -79,6 +81,7 @@ func TestRestoreNoteNamesLiveSingleWriter(t *testing.T) {
 
 // Every group of the decision dialog has the warning for mixed choices (hidden until the script shows it).
 func TestHeldDialogHasMixedChoiceWarning(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	l.heldReport(l.tb, l.f, it)
 	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?held="+itoa(l.b))
@@ -90,6 +93,7 @@ func TestHeldDialogHasMixedChoiceWarning(t *testing.T) {
 // A restore sent back with an error reopens the dialog by itself; the page still carries the locks the dialog names
 // in its note (design 4.5), the same as the page the menu opens it on.
 func TestRestoreErrorPageCarriesLocks(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t)
 	st, page := l.post(l.web, "/folders/"+itoa(l.f)+"/restore-dir", url.Values{"path": {""}, "dir": {""}, "time": {"garbage"}})
 	if st != 400 || !regexp.MustCompile(`id="dlg-restore"[^>]* data-autoopen`).MatchString(page) {
@@ -105,6 +109,7 @@ func TestRestoreErrorPageCarriesLocks(t *testing.T) {
 // A file cannot be unrestricted (design 2.8.2): inside a free directory it is a single-writer scope of its own,
 // so its dialog inherits "single", not "free"; the directory itself keeps inheriting "free".
 func TestFileInFreeDirInheritsSingle(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.mode("free", proto.ModeFree, 0)
 	l.apiCommit(l.ta, l.f, l.op("free/x.txt", 0, "x"), l.op("free/sub/y.txt", 0, "y"))
@@ -126,6 +131,7 @@ func TestFileInFreeDirInheritsSingle(t *testing.T) {
 // The dialog that reopens after a failed save (and the one a notification link opens) knows that the path is a file:
 // inside a free directory it inherits "single" there too.
 func TestWCReopenedDialogOfFileInheritsSingle(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.mode("free", proto.ModeFree, 0)
 	l.apiCommit(l.ta, l.f, l.op("free/x.txt", 0, "x"))
@@ -147,6 +153,7 @@ func TestWCReopenedDialogOfFileInheritsSingle(t *testing.T) {
 // A file cannot be unrestricted (design 2.8.2): the server refuses "free" for a file and saves nothing (the
 // dialog only hides the option); a directory, and the other modes of a file, still save.
 func TestWriteControlRefusesFreeForFile(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.op("d/x.txt", 0, "x"))
 	wc := "/folders/" + itoa(l.f) + "/writectl"

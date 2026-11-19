@@ -80,6 +80,7 @@ func listBackups(varDir string) []string {
 }
 
 func TestStartMigratesOldDatabasesAfterBackup(t *testing.T) {
+	t.Parallel()
 	data, varDir := oldState(t)
 	s, err := New(data, func() time.Time { return migrateNow })
 	if err != nil {
@@ -118,6 +119,7 @@ func TestStartMigratesOldDatabasesAfterBackup(t *testing.T) {
 }
 
 func TestCurrentSchemaIsNotBackedUp(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.folder("docs")
 	e.s.Close()
@@ -132,6 +134,7 @@ func TestCurrentSchemaIsNotBackedUp(t *testing.T) {
 }
 
 func TestFailedMigrationLeavesDatabaseUnchanged(t *testing.T) {
+	// Not parallel: it swaps the package variable folderMigrations.
 	data, varDir := oldState(t)
 	orig := folderMigrations
 	t.Cleanup(func() { folderMigrations = orig })
@@ -150,6 +153,7 @@ func TestFailedMigrationLeavesDatabaseUnchanged(t *testing.T) {
 }
 
 func TestMigrationStopsWhenBackupFails(t *testing.T) {
+	t.Parallel()
 	data, varDir := oldState(t)
 	os.WriteFile(filepath.Join(varDir, BackupDir), []byte("in the way"), 0o600) // a file where the directory belongs
 	if _, err := New(data, nil); err == nil || !strings.Contains(err.Error(), "backup") {
@@ -161,6 +165,7 @@ func TestMigrationStopsWhenBackupFails(t *testing.T) {
 }
 
 func TestNewerSchemaRefusesToStart(t *testing.T) {
+	t.Parallel()
 	for _, target := range []string{"folder", "meta"} {
 		data, varDir := oldState(t)
 		path := FolderDBPath(varDir, 1)
@@ -183,6 +188,7 @@ func TestNewerSchemaRefusesToStart(t *testing.T) {
 }
 
 func TestBackupsKeepTheNewestAndStayPerDatabase(t *testing.T) {
+	t.Parallel()
 	_, varDir := oldState(t)
 	fdb := openAt(t, FolderDBPath(varDir, 1))
 	for i := 0; i < keepBackups+2; i++ {

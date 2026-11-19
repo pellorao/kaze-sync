@@ -10,6 +10,7 @@ import (
 // A partial scan that finds nothing unsent in what it covers clears the since, also when an earlier scan of the
 // same place found a too-fresh file (design 2.8.6): otherwise the first edit after another device's write is frozen.
 func TestPartialRetryClearsDirty(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	a.put("d/x.txt", []byte("zero"))
 	a.sync()
@@ -37,6 +38,7 @@ func TestPartialRetryClearsDirty(t *testing.T) {
 
 // Unsent changes in another directory keep the since: a partial scan clears only what it covers.
 func TestPartialScanKeepsDirtyOfOtherDirectories(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	a.put("d/x.txt", []byte("zero"))
 	a.sync()
@@ -65,6 +67,7 @@ func TestPartialScanKeepsDirtyOfOtherDirectories(t *testing.T) {
 // A retry waits for its time through tasks that do not take it (a pull for a poll notice, the scan of another
 // directory's too-fresh file).
 func TestScheduleRetrySurvivesPullOnlyTask(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -79,6 +82,7 @@ func TestScheduleRetrySurvivesPullOnlyTask(t *testing.T) {
 }
 
 func TestScheduleRetrySurvivesUnstableScan(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -96,6 +100,7 @@ func TestScheduleRetrySurvivesUnstableScan(t *testing.T) {
 
 // A slow retry (file in use) is not pushed back by the tasks between.
 func TestScheduleSlowRetryNotPostponedByOtherTasks(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -123,6 +128,7 @@ func TestScheduleSlowRetryNotPostponedByOtherTasks(t *testing.T) {
 
 // Only download waits back off; a file that changed while read is looked at again after the normal delay.
 func TestScheduleBackoffOnlyForDownloadWaits(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)

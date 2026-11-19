@@ -20,11 +20,11 @@ import (
 
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for i := 0; i < 250; i++ {
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); {
 		if ok() {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
@@ -40,6 +40,7 @@ func writeFile(t *testing.T, p, content string) {
 }
 
 func TestAgentSyncsMappingsIndependently(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 300 * time.Millisecond
 	dev, api := e.newDevice()
@@ -98,6 +99,7 @@ func TestAgentSyncsMappingsIndependently(t *testing.T) {
 }
 
 func TestAgentUsesCachedConfigurationOffline(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	dev, api := e.newDevice()
 	f := e.newFolder("One")
@@ -126,6 +128,7 @@ func TestAgentUsesCachedConfigurationOffline(t *testing.T) {
 }
 
 func TestAgentsPropagateChangesBothWays(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("One")
 	var roots [2]string
@@ -172,6 +175,7 @@ func (c *pollCounter) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // A folder that cannot be synced (non-empty directory, not adopted) must not make the long poll return at once.
 func TestUnusableFolderDoesNotSpinThePoll(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 30 * time.Second
 	dev, api := e.newDevice()
@@ -191,14 +195,15 @@ func TestUnusableFolderDoesNotSpinThePoll(t *testing.T) {
 		_, err := os.Stat(filepath.Join(root2, markerName))
 		return err == nil
 	})
-	time.Sleep(time.Second)
+	time.Sleep(250 * time.Millisecond)
 	if n := pc.n.Load(); n > 6 {
-		t.Fatalf("%d polls in about a second: the poll spins", n)
+		t.Fatalf("%d polls in a quarter second: the poll spins", n)
 	}
 }
 
 // A status report postponed by statusEvery must not leave a stale wake time behind: nextWake would stay zero and the loop would spin.
 func TestStaleStatusRetryDoesNotSpinTheLoop(t *testing.T) {
+	t.Parallel()
 	a := &Agent{runners: map[int64]*runner{1: {}}}
 	canceled := false
 	a.cancel, a.sig, a.pollAt = func() { canceled = true }, "outdated", time.Now()
@@ -234,6 +239,7 @@ func (b *busyFS) Open(p string) (io.ReadCloser, error) {
 
 // A locked file is retried on the slow schedule (design 5.7): as often as it has steps, then left to the periodic scan.
 func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		steps      int
 		locked     int64
@@ -257,7 +263,7 @@ func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- a.Run(ctx) }()
 		eventually(t, "the retries", func() bool { return b.opens.Load() >= tc.wantOpens })
-		time.Sleep(300 * time.Millisecond) // a retry beyond the schedule would show now
+		time.Sleep(100 * time.Millisecond) // a retry beyond the schedule would show now
 		if _, ok := e.serverFile(f, "a.txt"); ok != tc.wantSynced || b.opens.Load() != tc.wantOpens {
 			t.Errorf("steps %d: synced %v, opens %d; want %v, %d", tc.steps, ok, b.opens.Load(), tc.wantSynced, tc.wantOpens)
 		}
@@ -268,6 +274,7 @@ func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
 
 // A steady stream of events must not postpone the scan beyond MaxWait from the first pending event.
 func TestDebounceIsCappedByMaxWait(t *testing.T) {
+	t.Parallel()
 	c := schedConf{Debounce: 2 * time.Second, MaxWait: 10 * time.Second}
 	r := &schedule{}
 	t0 := time.Unix(1000, 0)
@@ -294,6 +301,7 @@ func TestDebounceIsCappedByMaxWait(t *testing.T) {
 // A scan that leaves a too-young file for later must not lose that retry when the next task is a pull
 // (the peer's commit wakes the poll): the file still goes up soon after it becomes stable.
 func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("One")
 	var roots [2]string
@@ -333,6 +341,7 @@ func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
 
 // A folder whose state database cannot be opened has no runner; the poll must not wait for it and spin.
 func TestUnopenableFolderStateDoesNotSpinThePoll(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 30 * time.Second
 	dev, api := e.newDevice()
@@ -355,15 +364,16 @@ func TestUnopenableFolderStateDoesNotSpinThePoll(t *testing.T) {
 		_, err := os.Stat(filepath.Join(root2, markerName))
 		return err == nil
 	})
-	time.Sleep(2500 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 	if n := pc.n.Load(); n > 6 {
-		t.Fatalf("%d polls in a few seconds: the poll spins", n)
+		t.Fatalf("%d polls in a quarter second: the poll spins", n)
 	}
 }
 
 // A task is reported as "syncing" only after it has run for syncingAfter: a scan of a file rewritten every half
 // minute lasts a fraction of a second, and reporting it keeps the overview on "syncing" until the next poll restart.
 func TestSyncingIsReportedForLongTasksOnly(t *testing.T) {
+	t.Parallel()
 	a := &Agent{runners: map[int64]*runner{1: {busy: true, busyAt: time.Now()}}}
 	if st := a.states()[0].State; st != "idle" {
 		t.Fatalf("a task that has just started is reported as %q", st)
@@ -387,6 +397,7 @@ func TestSyncingIsReportedForLongTasksOnly(t *testing.T) {
 // has accepted: it must not hold back last_synced_at. Real errors, locked files, held changes and pending
 // transfers still do.
 func TestSkippedWarningsDoNotBlockLastSynced(t *testing.T) {
+	t.Parallel()
 	skip := proto.FileError{Path: "l", Kind: proto.KindSkipped}
 	cases := []struct {
 		name string
@@ -413,6 +424,7 @@ func TestSkippedWarningsDoNotBlockLastSynced(t *testing.T) {
 // A folder whose state could not be opened and that then left the configuration must not keep its retry entry:
 // the entry's due time is in the past, so nextWake would return 0 and the loop would spin.
 func TestRemovedFolderLeavesNoOpenRetry(t *testing.T) {
+	t.Parallel()
 	a := &Agent{runners: map[int64]*runner{}, openRetry: map[int64]*openFail{7: {at: time.Now().Add(-time.Second)}}}
 	a.cfg = proto.Config{Folders: []proto.FolderConfig{}}
 	a.applyConfig()

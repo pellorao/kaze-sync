@@ -6,10 +6,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,6 +83,7 @@ func (f *fakeSystem) hasCmd(sub string) bool {
 }
 
 func TestInstallFirstTime(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	f.failCmd = "uci -q delete" // no rule to delete on a fresh router
 	if err := f.install(InstallOptions{}); err != nil {
@@ -153,6 +157,7 @@ func TestInstallFirstTime(t *testing.T) {
 }
 
 func TestInstallRefusesRootFilesystem(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	f.overlay = true
 	if err := f.install(InstallOptions{}); err == nil || !strings.Contains(err.Error(), "root file system") {
@@ -167,6 +172,7 @@ func TestInstallRefusesRootFilesystem(t *testing.T) {
 }
 
 func TestInstallOnOtherLinux(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		svc      *service
 		file     string
@@ -225,6 +231,7 @@ func TestInstallOnOtherLinux(t *testing.T) {
 // The unit lets the service write only below <data>/var; a data directory or certificate under /home would
 // vanish under ProtectHome=yes.
 func TestSystemdUnitProtectsHome(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		data  string
 		certs []string
@@ -252,6 +259,7 @@ func TestSystemdUnitProtectsHome(t *testing.T) {
 }
 
 func TestInstallRefusesWANAndUnknownManager(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	f.useManager(&systemd)
 	if err := f.install(InstallOptions{WAN: true}); err == nil || !strings.Contains(err.Error(), "--wan") {
@@ -269,6 +277,7 @@ func TestInstallRefusesWANAndUnknownManager(t *testing.T) {
 }
 
 func TestInstallIsRepeatable(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -310,6 +319,7 @@ func TestInstallIsRepeatable(t *testing.T) {
 }
 
 func TestInstallKeepsExistingSysupgradeConf(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	os.MkdirAll(filepath.Join(f.root, "etc"), 0o755)
 	os.WriteFile(filepath.Join(f.root, "etc/sysupgrade.conf"), []byte("# mine\n/etc/foo"), 0o644)
@@ -323,6 +333,7 @@ func TestInstallKeepsExistingSysupgradeConf(t *testing.T) {
 }
 
 func TestInstallFirewallRule(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{WAN: true, Listen: ":41873"}); err != nil {
 		t.Fatal(err)
@@ -365,6 +376,7 @@ func writeCertPair(t *testing.T, dir string) (certFile, keyFile string) {
 }
 
 func TestInstallCertificateFiles(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	cert, key := writeCertPair(t, t.TempDir())
 	if err := f.install(InstallOptions{Cert: cert}); err == nil {
@@ -397,6 +409,7 @@ func TestInstallCertificateFiles(t *testing.T) {
 }
 
 func TestInstallRejectsUnsafeDataPath(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	for _, p := range []string{"relative/dir", "/mnt/with space", "/mnt/$(x)"} {
 		if err := f.in.Install(InstallOptions{Data: p}); err == nil {
@@ -406,6 +419,7 @@ func TestInstallRejectsUnsafeDataPath(t *testing.T) {
 }
 
 func TestAdminPassword(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -438,6 +452,7 @@ func TestAdminPassword(t *testing.T) {
 }
 
 func TestRunFailsWithoutDatabase(t *testing.T) {
+	t.Parallel()
 	if _, err := New(t.TempDir(), nil); err == nil {
 		t.Fatal("New succeeded on an empty directory")
 	}
@@ -446,30 +461,65 @@ func TestRunFailsWithoutDatabase(t *testing.T) {
 	}
 }
 
-func TestRunServesTLSAndStops(t *testing.T) {
-	f := newFakeSystem(t)
-	if err := f.install(InstallOptions{Listen: "127.0.0.1:0"}); err != nil {
-		t.Fatal(err)
-	}
-	// Port 0 is only for this test; a real install stores a concrete port.
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, f.data) }()
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
+// startRun installs with a free port and starts Run on it, and returns the address and a function that stops Run and
+// returns its error. Another test may take the port between picking and listening: then Run fails at once and the
+// whole step is tried again with another port.
+func startRun(t *testing.T, f *fakeSystem, opts InstallOptions) (addr string, stop func() error) {
+	t.Helper()
+	for try := 0; try < 10; try++ {
+		ln, _ := net.Listen("tcp", "127.0.0.1:0")
+		addr = ln.Addr().String()
+		ln.Close()
+		opts.Listen = addr
+		if err := f.install(opts); err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop")
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- Run(ctx, f.data) }()
+		for { // serving once a TLS handshake succeeds; an early return of Run is a failed start
+			select {
+			case err := <-done:
+				cancel()
+				if err == nil || !strings.Contains(err.Error(), "address already in use") {
+					t.Fatalf("Run returned at once: %v", err)
+				}
+			case <-time.After(5 * time.Millisecond):
+				if conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true}); err == nil {
+					conn.Close()
+					return addr, func() error {
+						cancel()
+						select {
+						case err := <-done:
+							return err
+						case <-time.After(5 * time.Second):
+							return errors.New("Run did not stop")
+						}
+					}
+				}
+				continue
+			}
+			break
+		}
 	}
+	t.Fatal("no free port for Run")
+	return
+}
+
+func TestRunServesTLSAndStops(t *testing.T) {
+	t.Parallel()
+	f := newFakeSystem(t)
+	_, stop := startRun(t, f, InstallOptions{})
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond) // Run's loops may still be closing their files when it returns; TempDir removal must not race them
 }
 
 // Installing again over data from an older version migrates every database and hands what root
 // restored from a backup (design 9.4) to the service user: databases and block directories, not block files.
 func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -521,6 +571,7 @@ func TestInstallUpgradesDatabasesAndFixesOwnership(t *testing.T) {
 // root hands var/ to the service user, which can plant symbolic links there: the real Chown must not follow
 // them (a dangling link would fail with os.Chown), and a link in place of blobs/ stops the install.
 func TestInstallDoesNotFollowSymbolicLinks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	link := filepath.Join(dir, "link")
 	os.Symlink(filepath.Join(dir, "nowhere"), link)
@@ -571,6 +622,7 @@ func otherUID(t *testing.T, path string) int {
 }
 
 func TestCertProblems(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	openDirs(t, dir)
 	_, key := writeCertPair(t, dir)
@@ -634,6 +686,7 @@ func TestCertProblems(t *testing.T) {
 }
 
 func TestInstallWarnsWhenServiceUserCannotReadCertificate(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	dir := t.TempDir()
 	openDirs(t, dir)
@@ -685,6 +738,7 @@ func TestInstallWarnsWhenServiceUserCannotReadCertificate(t *testing.T) {
 }
 
 func TestInstallWarnsAboutClosedDirectory(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	dir := t.TempDir()
 	openDirs(t, dir)
@@ -705,6 +759,7 @@ func TestInstallWarnsAboutClosedDirectory(t *testing.T) {
 }
 
 func TestInstallWithoutCertificateFilesDoesNotWarn(t *testing.T) {
+	t.Parallel()
 	f := newFakeSystem(t)
 	if err := f.install(InstallOptions{}); err != nil {
 		t.Fatal(err)

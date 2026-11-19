@@ -12,6 +12,7 @@ import (
 // A folder whose cycles fail failuresBeforeReport times in a row gets a folder error in the status the client sends,
 // which the server turns into a Web Push (design 4.3); a success removes it, and an outage of the polls does not count.
 func TestSyncFailuresAreReportedAfterRetries(t *testing.T) {
+	t.Parallel()
 	a := &Agent{}
 	r := &runner{}
 	a.runners = map[int64]*runner{7: r}

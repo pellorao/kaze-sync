@@ -15,6 +15,7 @@ import (
 )
 
 func TestOldClientRefusalBecomesUpgradeError(t *testing.T) {
+	t.Parallel()
 	var seen []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Header.Get(proto.VersionHeader))
@@ -46,12 +47,12 @@ func TestOldClientRefusalBecomesUpgradeError(t *testing.T) {
 // The idle timer runs only while a Read waits: a slow consumer must not get the download cancelled.
 func TestIdleBodyDoesNotCountTheConsumersTime(t *testing.T) {
 	old := idleTimeout
-	idleTimeout = 100 * time.Millisecond
+	idleTimeout = 40 * time.Millisecond
 	defer func() { idleTimeout = old }()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("0123456789"))
 		w.(http.Flusher).Flush()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		w.Write([]byte("abcdefghij"))
 	}))
 	defer ts.Close()
@@ -65,7 +66,7 @@ func TestIdleBodyDoesNotCountTheConsumersTime(t *testing.T) {
 	if _, err := io.ReadFull(body, buf); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond) // the consumer is busy writing to a slow disk
+	time.Sleep(120 * time.Millisecond) // the consumer is busy writing to a slow disk
 	if _, err := io.ReadFull(body, buf); err != nil || string(buf) != "abcdefghij" {
 		t.Fatalf("read after the pause: %q %v", buf, err)
 	}

@@ -14,6 +14,7 @@ func bigItem(blocks int) *item {
 
 // A commit chunk is limited by block hashes as well as by ops: 1000 files of 20 GiB must not make one 27 MB request.
 func TestChunkLenLimitsBlocks(t *testing.T) {
+	t.Parallel()
 	var items []*item
 	for range 1000 {
 		items = append(items, bigItem(80000)) // 20 GiB each

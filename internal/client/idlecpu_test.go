@@ -9,6 +9,7 @@ import (
 // A file that is too fresh is retried by scanning its own directory only, and the record of it survives scans of
 // other directories (idle CPU fix: the retry used to scan the whole folder after every edit).
 func TestUnstableRetryScansOnlyTheDirectoryOfTheFreshFile(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.f.Stable = 5 * time.Second
 	now := time.Unix(0, 1_000_000_000_000)

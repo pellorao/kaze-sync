@@ -6,6 +6,7 @@ import (
 )
 
 func TestSingleInstance(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	release, err := LockInstance(dir)
 	if err != nil {
@@ -23,6 +24,7 @@ func TestSingleInstance(t *testing.T) {
 }
 
 func TestStopAgentWithoutAgent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := StopAgent(dir); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 // CPU fixes, fourth round: a partial scan of only the subdirectory "x" of d (or of the root) must not count as covering
 // the files directly in d (or the root): coversDir with a real scan scope, both the dirs branch and the root branch.
 func TestCpufix4PartialScanOfSubdirX(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, dir, file, sub string }{
 		{"dir-y", "d", "d/u.txt", "d/y"},
 		{"dir-x", "d", "d/u.txt", "d/x"},

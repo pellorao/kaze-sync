@@ -12,6 +12,7 @@ import (
 // K1: the restore question of a version row sits in a panel under the table. Inside the row it widened the last column
 // (554px) and pushed the other columns out of view, at every width.
 func TestVersionRestoreQuestionIsOutsideTheTable(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.op("d/a.txt", 0, "one"))
 	l.clk.Add(time.Hour)
@@ -42,6 +43,7 @@ func TestVersionRestoreQuestionIsOutsideTheTable(t *testing.T) {
 // K2: the dialog body is one grid column that may shrink below its content, so a wide table scrolls in its own box
 // instead of widening the whole dialog (at 400px the "choose one by one" table made the dialog scroll sideways).
 func TestDialogBodyColumnMayShrink(t *testing.T) {
+	t.Parallel()
 	if r := rule(t, styleCSS(t), ".dlg-b"); !strings.Contains(r, "grid-template-columns: minmax(0, 1fr)") {
 		t.Errorf(".dlg-b lets its content widen the dialog: %s", r)
 	}

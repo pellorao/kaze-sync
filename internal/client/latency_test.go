@@ -15,6 +15,7 @@ import (
 // (Stable 5 s, debounce 2 s, retry 10 s). It takes about a minute, so it runs only with KAZE_LATENCY=1;
 // set TMPDIR to a tmpfs (/dev/shm) to keep it off the disk.
 func TestLatency(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("KAZE_LATENCY") == "" {
 		t.Skip("set KAZE_LATENCY=1")
 	}

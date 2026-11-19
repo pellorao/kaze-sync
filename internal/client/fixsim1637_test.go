@@ -11,6 +11,7 @@ import (
 // files of the directory are held (design 6.6) instead of failing with an endless "target changed" error, and
 // discarding them gives the place to the server's file; seed 1637 of TestSimulation.
 func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
+	t.Parallel()
 	e, f, _, g1 := setup(t)
 	g2 := second(t, e, f)
 	g1.put("d", []byte("v1"))
@@ -57,6 +58,7 @@ func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
 }
 
 func TestSimulationSeed1637(t *testing.T) {
+	oneWorker(t)
 	s := newSim(t, 1637)
 	s.run(300, true)
 	s.settle()

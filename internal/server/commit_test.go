@@ -48,6 +48,7 @@ func (e *env) nextSeq(folder int64) int64 {
 }
 
 func TestCommitBaseVersionsAndTombstones(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 
@@ -105,6 +106,7 @@ func TestCommitBaseVersionsAndTombstones(t *testing.T) {
 }
 
 func TestCommitNeedsMissingBlocksOnly(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 	have := e.block([]byte("have"))
@@ -125,6 +127,7 @@ func TestCommitNeedsMissingBlocksOnly(t *testing.T) {
 }
 
 func TestCommitNameRules(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 	for _, tc := range []struct{ path, want string }{
@@ -157,6 +160,7 @@ func TestCommitNameRules(t *testing.T) {
 }
 
 func TestCommitMalformed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 	h := e.block([]byte("c"))
@@ -173,6 +177,7 @@ func TestCommitMalformed(t *testing.T) {
 }
 
 func TestUploadBlocksKeepsCompleteOnes(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, tok := e.enrollDevice("d1", "linux")
 	var buf bytes.Buffer
@@ -213,6 +218,7 @@ func TestUploadBlocksKeepsCompleteOnes(t *testing.T) {
 
 // The name checks of a commit must use the key index: a scan per op makes a large commit quadratic.
 func TestCommitNameCheckUsesIndex(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("F")
 	db, err := e.s.folderDB(f)

@@ -35,6 +35,7 @@ func placeholders(s string) string {
 // Every language has exactly the keys of the base language (English may add ".1" variants for a count of one), no
 // text is empty, and a text carries the placeholders of its base text.
 func TestDictionariesMatchTheBase(t *testing.T) {
+	t.Parallel()
 	base := baseKeys(t)
 	for _, l := range languages {
 		d := dictOf(l.Code)
@@ -64,6 +65,7 @@ func TestDictionariesMatchTheBase(t *testing.T) {
 
 // A ".1" variant is a variant of a text that counts, so its base text has a count placeholder.
 func TestCountVariantsHaveACount(t *testing.T) {
+	t.Parallel()
 	for k, v := range dictOf("en") {
 		if !strings.HasSuffix(k, ".1") {
 			continue
@@ -78,6 +80,7 @@ func TestCountVariantsHaveACount(t *testing.T) {
 // The keys named in the templates, the Go code and app.js all exist, and every key of the base dictionary is used by
 // one of them (or belongs to a family that is built from a state or kind at run time).
 func TestDictionaryKeysAreUsed(t *testing.T) {
+	t.Parallel()
 	base := baseKeys(t)
 	groups := map[string]bool{}
 	for k := range base {
@@ -135,6 +138,7 @@ func TestDictionaryKeysAreUsed(t *testing.T) {
 }
 
 func TestMatchLang(t *testing.T) {
+	t.Parallel()
 	for header, want := range map[string]string{
 		"":                              "en",
 		"fr-FR,fr;q=0.9":                "en",
@@ -165,6 +169,7 @@ func TestMatchLang(t *testing.T) {
 }
 
 func TestRequestLangCookieBeatsTheHeader(t *testing.T) {
+	t.Parallel()
 	r, _ := http.NewRequest("GET", "/", nil)
 	r.Header.Set("Accept-Language", "ja")
 	if got := requestLang(r); got != "ja" {
@@ -183,6 +188,7 @@ func TestRequestLangCookieBeatsTheHeader(t *testing.T) {
 }
 
 func TestTranslatorTexts(t *testing.T) {
+	t.Parallel()
 	en, zh := trFor("en"), trFor("zh-CN")
 	if got := en.T("fo.nFiles", "n", 1); got != "1 file" {
 		t.Errorf("one: %q", got)
@@ -212,6 +218,7 @@ func TestTranslatorTexts(t *testing.T) {
 }
 
 func TestI18nScript(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := e.ts.Client()
 	get := func(path, etag string) (*http.Response, string) {
@@ -248,6 +255,7 @@ func TestI18nScript(t *testing.T) {
 
 // Every page renders in every language: no key shows through, no placeholder is left, and the page says its language.
 func TestPagesRenderInEveryLanguage(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	f := e.folder("Docs")
@@ -284,6 +292,7 @@ func TestPagesRenderInEveryLanguage(t *testing.T) {
 }
 
 func TestSetLanguage(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -336,6 +345,7 @@ func TestSetLanguage(t *testing.T) {
 
 // The messages of the rule parser come out in the language of the request; an unknown message stays as it is.
 func TestRuleMessagesAreTranslated(t *testing.T) {
+	t.Parallel()
 	for _, l := range languages {
 		tr := trFor(l.Code)
 		for _, m := range []string{ignore.ErrTrailingBackslash, ignore.ErrBracket} {
