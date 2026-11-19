@@ -87,6 +87,7 @@ type Server struct {
 	fails                         map[string]*failure
 	reports                       map[int64]*report
 	noticeMappings                map[noticeMapping]bool // push eligibility, rebuilt after a configuration change
+	noticeGen                     int64                  // counts the drops of noticeMappings
 	notify                        chan struct{}          // closed (and replaced) when the config changes
 	uiGen                         int64                  // the version of everything the Web UI shows (design 4.1)
 	uiCh                          chan struct{}          // closed (and replaced) when uiGen goes up

@@ -66,21 +66,37 @@ type noticeMapping struct{ device, folder int64 }
 
 const noticeMappingFrom = ` FROM mappings m JOIN devices d ON d.id=m.device_id JOIN folders f ON f.id=m.folder_id`
 
-// noticeMappingsLocked gives the push checks the current mappings without querying on each report.
-func (s *Server) noticeMappingsLocked() map[noticeMapping]bool {
-	if s.noticeMappings == nil {
-		mappings, err := queryAll(s.db, func(rows *sql.Rows, m *noticeMapping) error { return rows.Scan(&m.device, &m.folder) },
-			`SELECT d.id, f.id`+noticeMappingFrom)
-		if err != nil {
-			slog.Warn("push: cannot read notification mappings", "err", err)
-			return nil
-		}
-		s.noticeMappings = make(map[noticeMapping]bool, len(mappings))
-		for _, m := range mappings {
-			s.noticeMappings[m] = true
-		}
+// noticeMappingSnapshot gives the push checks the current mappings without querying on each report. The query runs
+// outside s.mu (design 4.3): a configuration change drops the cache and the next check rebuilds it.
+func (s *Server) noticeMappingSnapshot() map[noticeMapping]bool {
+	s.mu.Lock()
+	m, gen := s.noticeMappings, s.noticeGen
+	s.mu.Unlock()
+	if m != nil {
+		return m
 	}
-	return s.noticeMappings
+	mappings, err := queryAll(s.db, func(rows *sql.Rows, m *noticeMapping) error { return rows.Scan(&m.device, &m.folder) },
+		`SELECT d.id, f.id`+noticeMappingFrom)
+	if err != nil {
+		slog.Warn("push: cannot read notification mappings", "err", err)
+		return nil
+	}
+	m = make(map[noticeMapping]bool, len(mappings))
+	for _, e := range mappings {
+		m[e] = true
+	}
+	s.mu.Lock()
+	if s.noticeGen == gen { // no configuration change since the query started
+		s.noticeMappings = m
+	}
+	s.mu.Unlock()
+	return m
+}
+
+// dropNoticeMappingsLocked invalidates the cache after a change of mappings or devices.
+func (s *Server) dropNoticeMappingsLocked() {
+	s.noticeMappings = nil
+	s.noticeGen++
 }
 
 // folderNotices lists the notices of a folder: what the mapped devices report, the changes they hold for the user,

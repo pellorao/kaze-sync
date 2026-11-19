@@ -59,8 +59,8 @@ type pushRetry struct {
 // pushEvents lists the current causes in memory. The mapping snapshot is refreshed after configuration changes.
 func (s *Server) pushEvents() []pushEvent {
 	var out []pushEvent
+	mappings := s.noticeMappingSnapshot()
 	s.mu.Lock()
-	mappings := s.noticeMappingsLocked()
 	for dev, rep := range s.reports {
 		d := strconv.FormatInt(dev, 10)
 		if rep.tooOld > 0 {

@@ -579,3 +579,33 @@ func (e *env) editSubsGone(gone bool) {
 		return l, nil
 	})
 }
+
+// The mapping snapshot of the push checks is read outside s.mu (design 4.3): the global lock stays free while the
+// query waits for the database.
+func TestNoticeMappingsQueryOutsideLock(t *testing.T) {
+	e := newEnv(t)
+	f := e.folder("docs")
+	dev, _ := e.enrollDevice("laptop", "linux")
+	if st, _ := e.post(adminClient(e), "/devices/"+itoa(dev)+"/mapping", url.Values{"folder": {itoa(f)}, "action": {"add"}, "path": {"/docs"}}); st != 303 {
+		t.Fatalf("map: %d", st)
+	}
+	e.s.db.SetMaxOpenConns(1)
+	conn, err := e.s.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.s.mu.Lock()
+	e.s.dropNoticeMappingsLocked()
+	e.s.mu.Unlock()
+	done := make(chan map[noticeMapping]bool)
+	go func() { done <- e.s.noticeMappingSnapshot() }()
+	time.Sleep(100 * time.Millisecond) // the query is waiting for the only connection
+	if !e.s.mu.TryLock() {
+		t.Fatal("s.mu is held while the mapping query runs")
+	}
+	e.s.mu.Unlock()
+	conn.Close()
+	if m := <-done; !m[noticeMapping{dev, f}] {
+		t.Fatalf("snapshot %v lacks the mapping", m)
+	}
+}

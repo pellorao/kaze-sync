@@ -970,7 +970,7 @@ func (s *Server) configChange(change func(tx *sql.Tx) (bool, error)) error {
 	}
 	if changed {
 		s.mu.Lock()
-		s.noticeMappings = nil
+		s.dropNoticeMappingsLocked()
 		s.broadcastLocked()
 		s.mu.Unlock()
 	}
@@ -1251,7 +1251,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.mu.Lock()
 	delete(s.reports, d.ID)
-	s.noticeMappings = nil
+	s.dropNoticeMappingsLocked()
 	s.bumpLocked()
 	s.mu.Unlock()
 	slog.Info("device revoked", "device", d.Name)
