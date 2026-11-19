@@ -422,6 +422,9 @@ func (f *Folder) retryUnlinked(ctx context.Context) error {
 		return err
 	}
 	for _, r := range rows {
+		if f.frozenPath(r.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5); a settled held deletion drops the row
+			continue
+		}
 		e := proto.Entry{Path: r.Path, Seq: r.Seq, Size: r.Size, MtimeNs: r.MtimeNs, Link: true, Hash: (*proto.Hash)(r.Hash)}
 		e.Blocks = []proto.Hash{*e.Hash}
 		if _, err := f.applyLive(ctx, e); err != nil {
