@@ -544,3 +544,43 @@ func TestHeldDeleteThawPendsUntilReplay(t *testing.T) {
 		t.Fatalf("the replay: %+v", rep)
 	}
 }
+
+// A settled deletion holds the cursor back only until it is settled: in a scope another held change keeps frozen, the
+// cursor still reaches what the Pull read, so that the since of the next local change is not older than what is on disk.
+func TestHeldDeleteSettledReleasesCursor(t *testing.T) {
+	a, b := singlePair(t)
+	holdDelete(t, a, b)
+	b.put("y.txt", []byte("mine")) // the scope is frozen: held too
+	b.sync()
+	if rows, _ := b.f.DB.held(); len(rows) != 2 {
+		t.Fatalf("setup: held %+v", rows)
+	}
+	a.fs.Remove("x.txt")
+	a.sync()
+	b.pull()
+	rows, _ := b.f.DB.held()
+	if len(rows) != 1 || rows[0].Path != "y.txt" || len(b.f.frozen) != 1 {
+		t.Fatalf("held %+v frozen %v", rows, b.f.frozen)
+	}
+	if c := b.f.DB.metaInt("cursor"); c != b.f.Seen() {
+		t.Fatalf("cursor %d after a pull that read up to %d", c, b.f.Seen())
+	}
+}
+
+// A probe only reads, whatever else the op says: one with the current seq as its base deletes nothing.
+func TestHeldDeleteProbeNeverWrites(t *testing.T) {
+	_, a, b := heldDelete(t)
+	ctx := context.Background()
+	res, err := b.f.probe(ctx, true, "x.txt")
+	if err != nil || res[0].Current == nil {
+		t.Fatalf("probe: %+v %v", res, err)
+	}
+	res, err = b.f.API.Commit(ctx, b.f.ID, []proto.Op{{Path: "x.txt", BaseSeq: res[0].Current.Seq, Resolve: true, Probe: true}})
+	if err != nil || res[0].Status != proto.StatusConflict {
+		t.Fatalf("probe with the current base: %+v %v", res, err)
+	}
+	a.sync()
+	if s, ok := a.read("x.txt"); !ok || s != "two" {
+		t.Fatalf("a probe deleted the file: %q %v", s, ok)
+	}
+}

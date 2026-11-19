@@ -129,7 +129,12 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 			res[i] = proto.Result{Status: proto.StatusRejected, Reason: proto.ReasonOwner, Owner: owner[i]}
 			continue
 		}
-		if res[i], err = s.commitOp(tx, device, &ops[i], now); err != nil {
+		if ops[i].Probe {
+			res[i], err = probeOp(tx, ops[i].Path)
+		} else {
+			res[i], err = s.commitOp(tx, device, &ops[i], now)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -141,8 +146,8 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 			s.dropStage(devID, folder, ops[i].Stage)
 		}
 	}
-	for _, r := range res {
-		if r.Status == proto.StatusOK {
+	for i, r := range res {
+		if r.Status == proto.StatusOK && !ops[i].Probe {
 			s.broadcast() // wake the hanging polls of the devices that map this folder
 			break
 		}
@@ -219,6 +224,24 @@ func sameAsServer(tx *sql.Tx, op *proto.Op) (bool, error) {
 	return err == nil && hash != nil && seq != op.BaseSeq && bytes.Equal(hash, op.Hash[:]) && link == op.Link, err
 }
 
+// probeOp answers an op with Probe (design 2.8.6) and changes nothing, whatever the rest of the op says: ok where the
+// path has no live file, else a conflict, each with the current entry (a tombstone for ok, none when the path never
+// existed) without its block list, which is not even read. Only the conflict names the device, as for any conflict.
+func probeOp(tx *sql.Tx, path string) (proto.Result, error) {
+	var cur fileRow
+	err := cur.scan(tx.QueryRow(`SELECT `+probeCols+` FROM files WHERE path=?`, path))
+	if errors.Is(err, sql.ErrNoRows) {
+		return proto.Result{Status: proto.StatusOK}, nil
+	} else if err != nil {
+		return proto.Result{}, err
+	}
+	r := proto.Result{Status: proto.StatusOK, Seq: cur.seq, Current: cur.entry()}
+	if cur.hash != nil {
+		r.Status, r.Seq, r.Current.Device = proto.StatusConflict, 0, cur.device
+	}
+	return r, nil
+}
+
 func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (proto.Result, error) {
 	var cur fileRow
 	have := true
@@ -228,26 +251,20 @@ func (s *Server) commitOp(tx *sql.Tx, device string, op *proto.Op, now int64) (p
 	} else if err != nil {
 		return proto.Result{}, err
 	}
-	current := func(r proto.Result) proto.Result {
+	conflict := func() proto.Result {
+		r := proto.Result{Status: proto.StatusConflict}
 		if have {
 			r.Current = cur.entry()
 			r.Current.Device = cur.device
-			if op.Probe {
-				r.Current.Blocks = nil
-			}
 		}
 		return r
 	}
-	conflict := func() proto.Result { return current(proto.Result{Status: proto.StatusConflict}) }
 	live := have && cur.hash != nil
 
 	// Base check.
 	if op.Hash == nil {
-		if !live { // deleting a tombstone is a successful no-op
-			if op.Probe {
-				return current(proto.Result{Status: proto.StatusOK, Seq: cur.seq}), nil
-			}
-			return proto.Result{Status: proto.StatusOK, Seq: cur.seq}, nil
+		if !live {
+			return proto.Result{Status: proto.StatusOK, Seq: cur.seq}, nil // deleting a tombstone is a successful no-op
 		}
 		if op.BaseSeq != cur.seq {
 			return conflict(), nil
