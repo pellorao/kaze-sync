@@ -207,9 +207,10 @@ type Op struct {
 	// Stage names a staged block list (POST /stage) that stands for Blocks when the file has more than
 	// MaxCommitBlocks blocks (design 2.4).
 	Stage string `json:"stage,omitempty"`
-	// Probe asks for the path's current entry without changing it (design 2.8.6): a deletion with BaseSeq -1, whose
-	// result, ok or conflict, carries the current entry without its block list, so that the answer to many paths stays
-	// small. An optional field of version 6: a server before it ignores it and answers as for any deletion.
+	// Probe asks for the path's current entry and changes nothing, whatever the other fields say (design 2.8.6): ok
+	// where there is no live file, else conflict, with the current entry without its block list, so that the answer to
+	// many paths stays small. An optional field of version 6: a server before it ignores it, so a client sends it on a
+	// deletion with BaseSeq -1, which such a server answers the same way with the block lists (and ok without entry).
 	Probe bool `json:"probe,omitempty"`
 }
 

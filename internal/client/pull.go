@@ -51,20 +51,17 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	f.heldLive = live
 	deleted := map[string]bool{} // the held deletions the server has deleted too, with whether the exclusion rules did
 	cursor := f.DB.metaInt("cursor")
-	since, held := cursor, int64(0)
+	since, held, bar := cursor, int64(0), int64(0)
 	for more := true; more && err == nil; {
 		var page proto.ChangesResp
 		if page, err = f.API.Changes(ctx, f.ID, since); err != nil {
 			break
 		}
-		if err = f.applyPage(ctx, page.Entries, &held, deleted); err != nil {
+		if err = f.applyPage(ctx, page.Entries, &held, &bar, deleted); err != nil {
 			break
 		}
 		since, more = page.Cursor, page.More
-		keep := since
-		if held > 0 {
-			keep = min(keep, held-1)
-		}
+		keep := keepCursor(since, held, bar)
 		if keep > cursor {
 			if err = f.DB.setMeta("cursor", keep); err != nil {
 				break
@@ -77,7 +74,12 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		err = f.retryUnlinked(ctx)
 	}
 	if err == nil {
-		err = f.settleHeld(ctx, dels, deleted)
+		var thawed bool
+		thawed, err = f.settleHeld(ctx, dels, deleted)
+		// The deletions bar stood for are settled: the cursor goes on, unless a thaw sent it back.
+		if keep := keepCursor(since, held, 0); err == nil && bar > 0 && !thawed && keep > f.DB.metaInt("cursor") {
+			err = f.DB.setMeta("cursor", keep)
+		}
 	}
 	if err == nil && held == 0 && !f.sinceHeldBack() {
 		// Nothing unsent is known in a scope with no since yet, and the cursor is whole: what is on disk was either sent or came with this Pull, so a
@@ -98,6 +100,24 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	return rep, err
 }
 
+// keepCursor is the cursor a Pull that has read up to since saves: before the earliest entry it holds (held), and
+// before the earliest held deletion it found the server deleted too until that is settled (bar); 0 is none.
+func keepCursor(since, held, bar int64) int64 {
+	for _, b := range []int64{held, bar} {
+		if b > 0 {
+			since = min(since, b-1)
+		}
+	}
+	return since
+}
+
+// earliest lowers *seq, 0 for none, to s.
+func earliest(seq *int64, s int64) {
+	if *seq == 0 || s < *seq {
+		*seq = s
+	}
+}
+
 // settleHeld drops the held deletions whose path the server has deleted too (design 2.8.6): neither end has the file,
 // so nothing is left to decide. What the server holds comes from the pages of this Pull (deleted), else from a probe
 // of the paths it is not known for (probeBatch); a path the server still has is not asked again in this run, since
@@ -105,8 +125,9 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 // before this check skipped it in the frozen scope) never reads it again. Only the held row and the base go; the file
 // system is not touched, so a file put back meanwhile stays and is sent as a new one. The base stays where the
 // exclusion rules deleted the file, as for any such deletion (applyDeleted). The scopes left with nothing held are
-// thawed in the same transaction, and their skipped entries count as pending until the next Pull reads them.
-func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, deleted map[string]bool) error {
+// thawed in the same transaction, and their skipped entries count as pending until the next Pull reads them. It
+// reports whether it thawed any.
+func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, deleted map[string]bool) (bool, error) {
 	var ask []string
 	for p := range dels {
 		if _, seen := deleted[p]; !seen && !f.heldLive[p] {
@@ -118,7 +139,7 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 		n := probeBatch(ask, dels)
 		res, err := f.probe(ctx, true, ask[:n]...)
 		if err != nil {
-			return err
+			return false, err
 		}
 		for i, r := range res {
 			switch {
@@ -131,14 +152,15 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 		ask = ask[n:]
 	}
 	if len(deleted) == 0 {
-		return nil
+		return false, nil
 	}
-	for p := range deleted {
-		deleted[p] = deleted[p] || f.excluded(p) // true: the base stays
+	keepBase := make(map[string]bool, len(deleted))
+	for p, excl := range deleted {
+		keepBase[p] = excl || f.excluded(p)
 	}
-	done, free, low, err := f.DB.settleHeld(slices.Collect(maps.Keys(deleted)), deleted, dels, f.frozen)
+	done, free, low, err := f.DB.settleHeld(slices.Collect(maps.Keys(deleted)), keepBase, dels, f.frozen)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, p := range done {
 		delete(f.heldLive, p)
@@ -147,7 +169,7 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 		f.thawed(free, low)
 		f.pendingDown++ // the thawed scopes are read again from their freeze: not in step until then
 	}
-	return nil
+	return len(free) > 0, nil
 }
 
 // probeBatch is how many leading paths of ask go into one probe: at most proto.MaxCommitOps, and unless it is the
@@ -168,10 +190,11 @@ func probeBatch(ask []string, dels map[string]heldDel) int {
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
 
-// applyPage applies one page of the server's changes. deleted collects the held deletions the page shows the server
-// deleted too, with whether the exclusion rules did it (settleHeld); the cursor is not kept past such a deletion
-// before it is settled, as that flag is not to be had again.
-func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64, deleted map[string]bool) error {
+// applyPage applies one page of the server's changes. held is the earliest entry it holds. deleted collects the held
+// deletions the page shows the server deleted too, with whether the exclusion rules did it (settleHeld), and bar the
+// earliest of them: the cursor is not saved past such a deletion before it is settled, as that flag is not to be had
+// again.
+func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held, bar *int64, deleted map[string]bool) error {
 	var adds, dels []proto.Entry
 	for _, e := range entries {
 		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
@@ -179,9 +202,7 @@ func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int
 				f.heldLive[e.Path] = e.Hash != nil
 				if e.Hash == nil {
 					deleted[e.Path] = e.Excluded
-					if *held == 0 || e.Seq < *held {
-						*held = e.Seq
-					}
+					earliest(bar, e.Seq)
 				} else {
 					delete(deleted, e.Path)
 				}
@@ -199,8 +220,8 @@ func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int
 	}
 	var again []proto.Entry
 	check := func(e proto.Entry, r applied) {
-		if r == hold && (*held == 0 || e.Seq < *held) {
-			*held = e.Seq
+		if r == hold {
+			earliest(held, e.Seq)
 		}
 		if r != done {
 			f.pendingDown++

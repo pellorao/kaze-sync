@@ -14,6 +14,9 @@ import (
 
 const fileCols = "path, key, seq, hash, blocks, size, mtime_ns, exec, device, created_at, link"
 
+// probeCols are fileCols with no block list (probeOp).
+const probeCols = "path, key, seq, hash, NULL, size, mtime_ns, exec, device, created_at, link"
+
 // defaultRules is the factory global rule set: the original eight plus the system and
 // temporary files of Nextcloud's sync-exclude.lst (design 8.2).
 const defaultRules = `~$*
