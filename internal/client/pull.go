@@ -84,12 +84,26 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	return rep, err
 }
 
+// heldDeleteSettled reports whether e is the server's deletion of a path whose own deletion here waits for the user:
+// both ends lack the file, so nothing is left to decide and the deletion is applied like any other (design 2.8.6).
+// The held row then goes with the next scan (cleanHeld).
+func (f *Folder) heldDeleteSettled(e proto.Entry) bool {
+	if e.Hash != nil {
+		return false
+	}
+	if f.DB.heldKind(e.Path) != "delete" {
+		return false
+	}
+	_, err := f.FS.Stat(e.Path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
 
 func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64) error {
 	var adds, dels []proto.Entry
 	for _, e := range entries {
-		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
+		if f.frozenPath(e.Path) && !f.heldDeleteSettled(e) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
 			continue
 		}
 		if e.Hash == nil {

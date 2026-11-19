@@ -300,6 +300,12 @@ func (l *localDB) heldCount() (n int) {
 	return n
 }
 
+// heldKind is the kind of the held change of a path, "" when it has none.
+func (l *localDB) heldKind(path string) (kind string) {
+	l.db.QueryRow(`SELECT kind FROM held WHERE path=?`, path).Scan(&kind)
+	return kind
+}
+
 func (l *localDB) dropHeld(paths ...string) error {
 	for _, p := range paths {
 		if _, err := l.db.Exec(`DELETE FROM held WHERE path=?`, p); err != nil {
