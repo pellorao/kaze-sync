@@ -7,8 +7,6 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -24,15 +22,14 @@ import (
 func heldDelete(t *testing.T) (e *cenv, a, b *engine) {
 	t.Helper()
 	e, _, a, b, _ = pair(t)
-	holdDelete(t, a, b)
-	if rows, _ := b.f.DB.held(""); rows[0].Reason != "conflict" {
-		t.Fatalf("setup: held %+v", rows)
+	if h := holdDelete(t, a, b); h.Reason != "conflict" {
+		t.Fatalf("setup: held %+v", h)
 	}
 	return e, a, b
 }
 
 // holdDelete makes b hold its deletion of x.txt, which a changed first.
-func holdDelete(t *testing.T, a, b *engine) {
+func holdDelete(t *testing.T, a, b *engine) heldRow {
 	t.Helper()
 	a.put("x.txt", []byte("one"))
 	a.sync()
@@ -41,15 +38,17 @@ func holdDelete(t *testing.T, a, b *engine) {
 	a.sync()
 	b.fs.Remove("x.txt")
 	b.sync()
-	if rows, _ := b.f.DB.held(""); len(rows) != 1 || rows[0].Kind != "delete" {
+	rows, _ := b.f.DB.held()
+	if len(rows) != 1 || rows[0].Kind != "delete" {
 		t.Fatalf("setup: held %+v", rows)
 	}
+	return rows[0]
 }
 
 // settled checks that b has no held change, no frozen scope and no base row for x.txt left.
 func settled(t *testing.T, b *engine) {
 	t.Helper()
-	rows, _ := b.f.DB.held("")
+	rows, _ := b.f.DB.held()
 	if len(rows) != 0 || len(b.f.frozen) != 0 {
 		t.Fatalf("stale held %+v frozen %v", rows, b.f.frozen)
 	}
@@ -115,7 +114,7 @@ func TestHeldDeleteClearsWhenDeletedAfterServerDeletion(t *testing.T) {
 	a.sync()
 	b.put("x.txt", []byte("mine"))
 	b.sync()
-	if rows, _ := b.f.DB.held(""); len(rows) != 1 || rows[0].Kind != "modify" {
+	if rows, _ := b.f.DB.held(); len(rows) != 1 || rows[0].Kind != "modify" {
 		t.Fatalf("setup: held %+v", rows)
 	}
 	a.fs.Remove("x.txt")
@@ -140,7 +139,7 @@ func TestHeldDeleteClearsWhenFileBecameDirectory(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		b.sync()
 	}
-	rows, _ := b.f.DB.held("")
+	rows, _ := b.f.DB.held()
 	for _, h := range rows {
 		if h.Path == "x.txt" {
 			t.Fatalf("held deletion of the file stays: %+v", rows)
@@ -200,7 +199,7 @@ func TestHeldDeleteSettleKeepsRestoredFile(t *testing.T) {
 	if s, ok := b.read("x.txt"); !ok || s != "one" {
 		t.Fatalf("the restored file was deleted: %q %v", s, ok)
 	}
-	rows, _ := b.f.DB.held("")
+	rows, _ := b.f.DB.held()
 	for _, h := range rows {
 		if h.Path == "x.txt" && h.Kind == "delete" {
 			t.Fatalf("held deletion stays: %+v", rows)
@@ -317,7 +316,7 @@ func TestHeldDeleteProbeOncePerRun(t *testing.T) {
 		b.fs.Remove(p)
 	}
 	b.sync()
-	if rows, _ := b.f.DB.held(""); len(rows) != 3 {
+	if rows, _ := b.f.DB.held(); len(rows) != 3 {
 		t.Fatalf("setup: held %+v", rows)
 	}
 	restartOn(b, b.fs)
@@ -333,7 +332,7 @@ func TestHeldDeleteProbeOncePerRun(t *testing.T) {
 	if got := cc.n.Load(); got != 1 {
 		t.Fatalf("%d commit requests after two more syncs, want still 1", got)
 	}
-	if rows, _ := b.f.DB.held(""); len(rows) != 3 {
+	if rows, _ := b.f.DB.held(); len(rows) != 3 {
 		t.Fatalf("held deletions of files the server has went away: %+v", rows)
 	}
 	for _, p := range names {
@@ -343,9 +342,9 @@ func TestHeldDeleteProbeOncePerRun(t *testing.T) {
 	}
 }
 
-// A crash in the middle of thawing cannot leave the scope unfrozen with the cursor still past the entries it skipped:
-// the freeze goes in the same transaction that moves the cursor back. Here the write of the cursor fails after the
-// held deletion was settled; the scope stays frozen, and a later scan thaws it.
+// A crash in the middle of settling cannot leave the scope unfrozen with the cursor still past the entries it skipped,
+// nor frozen with nothing held: the held row, the freeze and the cursor change in one transaction. Here the write of
+// the cursor fails after the held deletion was dropped; all of it stays as it was, and a later pull settles it.
 func TestHeldDeleteThawIsAtomic(t *testing.T) {
 	t.Parallel()
 	_, a, b := heldDelete(t)
@@ -373,8 +372,13 @@ func TestHeldDeleteThawIsAtomic(t *testing.T) {
 	if err == nil || !failed.Load() {
 		t.Fatalf("setup: the pull did not reach the failing write: %v", err)
 	}
-	if _, frozen := b.f.DB.metaPrefix("frozen:")[sc]; !frozen && b.f.DB.metaInt("cursor") > v {
+	rows, _ := b.f.DB.held()
+	_, frozen := b.f.DB.metaPrefix("frozen:")[sc]
+	if !frozen && b.f.DB.metaInt("cursor") > v {
 		t.Fatalf("thawed with the cursor at %d, past the freeze at %d", b.f.DB.metaInt("cursor"), v)
+	}
+	if frozen != (len(rows) > 0) { // settled and still frozen: a scope with nothing held that waits for a scan
+		t.Fatalf("frozen %v with held %+v", frozen, rows)
 	}
 	for i := 0; i < 3; i++ {
 		b.sync()
@@ -427,36 +431,70 @@ func TestHeldDeleteResetRereadsFrozenScope(t *testing.T) {
 // here with the base's size and mtime is not sent while this device has not got the new rules.
 func TestHeldDeleteExcludedKeepsBase(t *testing.T) {
 	t.Parallel()
-	e, _, b := heldDelete(t)
-	row, _, _ := b.f.DB.get("x.txt")
-	fid := strconv.FormatInt(b.f.ID, 10)
-	form := url.Values{"rules": {"x.txt"}}
-	_, body := e.post("/folders/"+fid+"/rules", form)
-	m := regexp.MustCompile(`name="confirm" value="([0-9a-f]+)"`).FindStringSubmatch(body)
-	if m == nil {
-		t.Fatal("setup: no confirmation asked")
+	for _, crash := range []bool{false, true} {
+		e, _, b := heldDelete(t)
+		row, _, _ := b.f.DB.get("x.txt")
+		saveRulesConfirmed(t, e, b.f.ID, "x.txt")
+		b.scan()
+		if crash { // the first pull dies before it settles: the next one must still know the rules did the deletion
+			c := countStatements(t, b)
+			c.fail = func(q string) error {
+				if strings.Contains(q, "DELETE FROM held") {
+					return errors.New("crash")
+				}
+				return nil
+			}
+			if _, err := b.f.Pull(context.Background()); err == nil {
+				t.Fatal("setup: the pull did not fail")
+			}
+			c.fail = nil
+			restartOn(b, b.fs)
+			b.scan()
+		}
+		putFile(t, b.fs, "x.txt", []byte("one")) // after the scan, before the pull
+		if err := b.fs.SetMeta("x.txt", row.MtimeNs, false); err != nil {
+			t.Fatal(err)
+		}
+		b.pull()
+		for i := 0; i < 3; i++ {
+			b.sync()
+		}
+		if rows, _ := b.f.DB.held(); len(rows) != 0 {
+			t.Fatalf("crash %v: held %+v", crash, rows)
+		}
+		if _, ok := e.serverFile(b.f.ID, "x.txt"); ok {
+			t.Fatalf("crash %v: the file the rules excluded was sent again", crash)
+		}
+		if s, ok := b.read("x.txt"); !ok || s != "one" {
+			t.Fatalf("crash %v: the local file: %q %v", crash, s, ok)
+		}
 	}
-	form.Set("confirm", m[1])
-	if st, _ := e.post("/folders/"+fid+"/rules", form); st != 303 {
-		t.Fatalf("setup: confirmed save: %d", st)
+}
+
+// A bare probe (proto.Op.Probe) answers with the current entry without its block list, the tombstone included; the
+// probe of a discard keeps the blocks it fetches with.
+func TestHeldDeleteBareProbe(t *testing.T) {
+	t.Parallel()
+	e, a, b := heldDelete(t)
+	ctx := context.Background()
+	full, err := b.f.probe(ctx, false, "x.txt")
+	if err != nil || full[0].Current == nil || len(full[0].Current.Blocks) == 0 {
+		t.Fatalf("full probe: %+v %v", full, err)
 	}
-	b.scan()
-	putFile(t, b.fs, "x.txt", []byte("one")) // after the scan, before the pull
-	if err := b.fs.SetMeta("x.txt", row.MtimeNs, false); err != nil {
-		t.Fatal(err)
+	bare, err := b.f.probe(ctx, true, "x.txt", "none.txt")
+	if err != nil || bare[0].Status != proto.StatusConflict || bare[0].Current == nil || bare[0].Current.Hash == nil || len(bare[0].Current.Blocks) != 0 {
+		t.Fatalf("bare probe of a live file: %+v %v", bare, err)
 	}
-	b.pull()
-	for i := 0; i < 3; i++ {
-		b.sync()
+	if bare[1].Status != proto.StatusOK || bare[1].Current != nil {
+		t.Fatalf("bare probe of nothing: %+v", bare[1])
 	}
-	if rows, _ := b.f.DB.held(""); len(rows) != 0 {
-		t.Fatalf("held %+v", rows)
+	saveRulesConfirmed(t, e, b.f.ID, "x.txt")
+	bare, err = b.f.probe(ctx, true, "x.txt")
+	if err != nil || bare[0].Status != proto.StatusOK || bare[0].Current == nil || bare[0].Current.Hash != nil || !bare[0].Current.Excluded {
+		t.Fatalf("bare probe of an excluded deletion: %+v %v", bare, err)
 	}
-	if _, ok := e.serverFile(b.f.ID, "x.txt"); ok {
-		t.Fatal("the file the rules excluded was sent again")
-	}
-	if s, ok := b.read("x.txt"); !ok || s != "one" {
-		t.Fatalf("the local file: %q %v", s, ok)
+	if s, ok := a.read("x.txt"); !ok || s != "two" {
+		t.Fatalf("a probe changed a's file: %q %v", s, ok)
 	}
 }
 

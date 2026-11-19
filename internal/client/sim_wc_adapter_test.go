@@ -41,7 +41,7 @@ type simHeld struct{ Path, Reason, Kind string }
 
 func (sf *simFolder) heldList() []simHeld {
 	var out []simHeld
-	rows, _ := sf.f.DB.held("")
+	rows, _ := sf.f.DB.held()
 	for _, h := range rows {
 		out = append(out, simHeld{h.Path, h.Reason, h.Kind})
 	}

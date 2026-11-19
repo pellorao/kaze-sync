@@ -239,7 +239,7 @@ func TestConflictIsHeldNotCopied(t *testing.T) {
 	if got, _ := e.serverFile(f, "doc.txt"); string(got) != "from one" {
 		t.Fatalf("server doc.txt = %q", got)
 	}
-	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Reason != "conflict" {
+	if rows, _ := g2.f.DB.held(); len(rows) != 1 || rows[0].Reason != "conflict" {
 		t.Fatalf("held on dev2: %+v", rows)
 	}
 	if err := g2.f.Resolve(context.Background(), proto.Action{Path: "doc.txt", Action: ActDiscard, Save: true}); err != nil {
@@ -252,7 +252,7 @@ func TestConflictIsHeldNotCopied(t *testing.T) {
 	if got, ok := g2.read(".syncsaved/doc.txt"); ok && got != "from two" {
 		t.Fatalf("saved copy = %q", got)
 	}
-	if rows, _ := g2.f.DB.held(""); len(rows) != 0 {
+	if rows, _ := g2.f.DB.held(); len(rows) != 0 {
 		t.Fatalf("still held: %+v", rows)
 	}
 }
@@ -272,7 +272,7 @@ func TestDeleteAgainstModify(t *testing.T) {
 	g1.scan()
 	g2.fs.Remove("a.txt")
 	g2.sync()
-	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Kind != "delete" {
+	if rows, _ := g2.f.DB.held(); len(rows) != 1 || rows[0].Kind != "delete" {
 		t.Fatalf("held on dev2: %+v", rows)
 	}
 	if got, _ := e.serverFile(f, "a.txt"); string(got) != "edited" {

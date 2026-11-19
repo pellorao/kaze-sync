@@ -90,6 +90,22 @@ func TestRulesCaseModeFollowsSystem(t *testing.T) {
 	}
 }
 
+// saveRulesConfirmed saves exclusion rules in the Web UI, which asks first since they delete files on the server, and
+// confirms.
+func saveRulesConfirmed(t *testing.T, e *cenv, f int64, rules string) {
+	t.Helper()
+	form := url.Values{"rules": {rules}}
+	st, body := e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form)
+	m := regexp.MustCompile(`name="confirm" value="([0-9a-f]+)"`).FindStringSubmatch(body)
+	if st != 409 || m == nil {
+		t.Fatalf("the save should ask first: %d", st)
+	}
+	form.Set("confirm", m[1])
+	if st, _ = e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form); st != 303 {
+		t.Fatalf("confirmed save: %d", st)
+	}
+}
+
 // Saving rules in the Web UI deletes the files they cover on the server (design 8.3), and no device deletes its local
 // copy: not one that already has the rules, and not one that has not applied them yet (the deletion is marked).
 func TestServerDeletionsFromRulesLeaveTheLocalFiles(t *testing.T) {
@@ -101,16 +117,7 @@ func TestServerDeletionsFromRulesLeaveTheLocalFiles(t *testing.T) {
 	g1.sync()
 	g2.sync()
 
-	form := url.Values{"rules": {"build/"}}
-	st, body := e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form)
-	m := regexp.MustCompile(`name="confirm" value="([0-9a-f]+)"`).FindStringSubmatch(body)
-	if st != 409 || m == nil {
-		t.Fatalf("the save should ask first: %d", st)
-	}
-	form.Set("confirm", m[1])
-	if st, _ = e.post("/folders/"+strconv.FormatInt(f, 10)+"/rules", form); st != 303 {
-		t.Fatalf("confirmed save: %d", st)
-	}
+	saveRulesConfirmed(t, e, f, "build/")
 	if n := e.count(f, `SELECT count(*) FROM files WHERE hash IS NOT NULL`); n != 2 {
 		t.Fatalf("server holds %d files, want 2", n)
 	}

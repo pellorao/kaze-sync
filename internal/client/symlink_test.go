@@ -198,7 +198,7 @@ func TestSymbolicLinkOutsideTheFolderIsNeverFollowed(t *testing.T) {
 		t.Fatalf("outside file changed: %q", b)
 	}
 	// The link where the server has a directory is held (design 6.6); discarding it makes room for the directory.
-	if rows, _ := g2.f.DB.held(""); len(rows) != 1 || rows[0].Path != "out" || rows[0].Reason != "type" {
+	if rows, _ := g2.f.DB.held(); len(rows) != 1 || rows[0].Path != "out" || rows[0].Reason != "type" {
 		t.Fatalf("held: %+v", rows)
 	}
 	if err := g2.f.Resolve(context.Background(), proto.Action{Path: "out", Action: ActDiscard, Save: false}); err != nil {

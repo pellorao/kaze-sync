@@ -49,7 +49,7 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		live[p] = f.heldLive[p]
 	}
 	f.heldLive = live
-	gone := map[string]bool{} // the held deletions the server has deleted too: true where the exclusion rules did it
+	deleted := map[string]bool{} // the held deletions the server has deleted too, with whether the exclusion rules did
 	cursor := f.DB.metaInt("cursor")
 	since, held := cursor, int64(0)
 	for more := true; more && err == nil; {
@@ -57,7 +57,7 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		if page, err = f.API.Changes(ctx, f.ID, since); err != nil {
 			break
 		}
-		if err = f.applyPage(ctx, page.Entries, &held, gone); err != nil {
+		if err = f.applyPage(ctx, page.Entries, &held, deleted); err != nil {
 			break
 		}
 		since, more = page.Cursor, page.More
@@ -77,7 +77,7 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 		err = f.retryUnlinked(ctx)
 	}
 	if err == nil {
-		err = f.settleHeld(ctx, dels, gone)
+		err = f.settleHeld(ctx, dels, deleted)
 	}
 	if err == nil && held == 0 && !f.sinceHeldBack() {
 		// Nothing unsent is known in a scope with no since yet, and the cursor is whole: what is on disk was either sent or came with this Pull, so a
@@ -99,60 +99,52 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 }
 
 // settleHeld drops the held deletions whose path the server has deleted too (design 2.8.6): neither end has the file,
-// so nothing is left to decide. What the server holds comes from the pages of this Pull, else from a probe of the
-// paths it is not known for (probeBatch); a path the server still has is not asked again in this run, since its
-// deletion would come in a page. Asking does not wait for the tombstone: a cursor that went past it (a client before
-// this check skipped it in the frozen scope) never reads it again. Only the held row and the base go; the file system
-// is not touched, so a file put back meanwhile stays and is sent as a new one. The base stays where the exclusion
-// rules deleted the file, as for any such deletion (applyDeleted): a file put back is then not sent before the rules
-// arrive. A scope left with nothing held is thawed, and its skipped entries count as pending until the next Pull.
-func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, gone map[string]bool) error {
+// so nothing is left to decide. What the server holds comes from the pages of this Pull (deleted), else from a probe
+// of the paths it is not known for (probeBatch); a path the server still has is not asked again in this run, since
+// its deletion would come in a page. Asking does not wait for the tombstone: a cursor that went past it (a client
+// before this check skipped it in the frozen scope) never reads it again. Only the held row and the base go; the file
+// system is not touched, so a file put back meanwhile stays and is sent as a new one. The base stays where the
+// exclusion rules deleted the file, as for any such deletion (applyDeleted). The scopes left with nothing held are
+// thawed in the same transaction, and their skipped entries count as pending until the next Pull reads them.
+func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, deleted map[string]bool) error {
 	var ask []string
 	for p := range dels {
-		if _, seen := gone[p]; !seen && !f.heldLive[p] {
+		if _, seen := deleted[p]; !seen && !f.heldLive[p] {
 			ask = append(ask, p)
 		}
 	}
 	slices.Sort(ask)
 	for len(ask) > 0 {
 		n := probeBatch(ask, dels)
-		res, err := f.probe(ctx, ask[:n]...)
+		res, err := f.probe(ctx, true, ask[:n]...)
 		if err != nil {
 			return err
 		}
 		for i, r := range res {
 			switch {
 			case r.Status == proto.StatusOK: // deleting a tombstone, or nothing, succeeds and changes nothing
-				gone[ask[i]] = false
+				deleted[ask[i]] = r.Current != nil && r.Current.Excluded
 			case r.Current != nil:
 				f.heldLive[ask[i]] = true
 			}
 		}
 		ask = ask[n:]
 	}
-	if len(gone) == 0 {
+	if len(deleted) == 0 {
 		return nil
 	}
-	keep := map[string]bool{}
-	for p, excl := range gone {
-		if excl || f.excluded(p) {
-			keep[p] = true
-		}
+	for p := range deleted {
+		deleted[p] = deleted[p] || f.excluded(p) // true: the base stays
 	}
-	paths, err := f.DB.settleHeld(slices.Collect(maps.Keys(gone)), keep)
+	done, free, low, err := f.DB.settleHeld(slices.Collect(maps.Keys(deleted)), deleted, dels, f.frozen)
 	if err != nil {
 		return err
 	}
-	var scopes []string
-	for _, p := range paths {
+	for _, p := range done {
 		delete(f.heldLive, p)
-		scopes = append(scopes, dels[p].scope)
 	}
-	n := len(f.frozen)
-	if err := f.thaw(false, scopes...); err != nil {
-		return err
-	}
-	if len(f.frozen) < n {
+	if len(free) > 0 {
+		f.thawed(free, low)
 		f.pendingDown++ // the thawed scopes are read again from their freeze: not in step until then
 	}
 	return nil
@@ -176,18 +168,22 @@ func probeBatch(ask []string, dels map[string]heldDel) int {
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
 
-// applyPage applies one page of the server's changes. gone collects the held deletions the page shows the server
-// deleted too (settleHeld).
-func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64, gone map[string]bool) error {
+// applyPage applies one page of the server's changes. deleted collects the held deletions the page shows the server
+// deleted too, with whether the exclusion rules did it (settleHeld); the cursor is not kept past such a deletion
+// before it is settled, as that flag is not to be had again.
+func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64, deleted map[string]bool) error {
 	var adds, dels []proto.Entry
 	for _, e := range entries {
 		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
 			if _, ok := f.heldLive[e.Path]; ok { // but what it holds at a held deletion is noted (design 2.8.6)
 				f.heldLive[e.Path] = e.Hash != nil
 				if e.Hash == nil {
-					gone[e.Path] = e.Excluded
+					deleted[e.Path] = e.Excluded
+					if *held == 0 || e.Seq < *held {
+						*held = e.Seq
+					}
 				} else {
-					delete(gone, e.Path)
+					delete(deleted, e.Path)
 				}
 			}
 			continue
