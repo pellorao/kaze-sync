@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"os"
@@ -460,38 +461,57 @@ func TestRunFailsWithoutDatabase(t *testing.T) {
 	}
 }
 
-func TestRunServesTLSAndStops(t *testing.T) {
-	t.Parallel()
-	f := newFakeSystem(t)
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
-	if err := f.install(InstallOptions{Listen: addr}); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, f.data) }()
-	// Run is serving once a TLS handshake with it succeeds.
-	var conn *tls.Conn
-	var err error
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if conn, err = tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true}); err == nil {
-			conn.Close()
+// startRun installs with a free port and starts Run on it, and returns the address and a function that stops Run and
+// returns its error. Another test may take the port between picking and listening: then Run fails at once and the
+// whole step is tried again with another port.
+func startRun(t *testing.T, f *fakeSystem, opts InstallOptions) (addr string, stop func() error) {
+	t.Helper()
+	for try := 0; try < 10; try++ {
+		ln, _ := net.Listen("tcp", "127.0.0.1:0")
+		addr = ln.Addr().String()
+		ln.Close()
+		opts.Listen = addr
+		if err := f.install(opts); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() { done <- Run(ctx, f.data) }()
+		for { // serving once a TLS handshake succeeds; an early return of Run is a failed start
+			select {
+			case err := <-done:
+				cancel()
+				if err == nil || !strings.Contains(err.Error(), "address already in use") {
+					t.Fatalf("Run returned at once: %v", err)
+				}
+			case <-time.After(5 * time.Millisecond):
+				if conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true}); err == nil {
+					conn.Close()
+					return addr, func() error {
+						cancel()
+						select {
+						case err := <-done:
+							return err
+						case <-time.After(5 * time.Second):
+							return errors.New("Run did not stop")
+						}
+					}
+				}
+				continue
+			}
 			break
 		}
 	}
-	if err != nil {
-		t.Fatalf("Run does not serve TLS: %v", err)
-	}
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop")
+	t.Fatal("no free port for Run")
+	return
+}
+
+func TestRunServesTLSAndStops(t *testing.T) {
+	t.Parallel()
+	f := newFakeSystem(t)
+	_, stop := startRun(t, f, InstallOptions{})
+	if err := stop(); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond) // Run's loops may still be closing their files when it returns; TempDir removal must not race them
 }

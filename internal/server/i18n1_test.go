@@ -56,7 +56,7 @@ func TestJSDictEnglishKeepsSingular(t *testing.T) {
 
 // A language that writes its own ".1" keeps it, and the English one of the same key does not replace it.
 func TestJSDictKeepsOwnSingular(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it replaces the global ja dictionary and its script cache, which other tests read.
 	dictMu.Lock()
 	dicts["ja"] = map[string]string{"js.go": "ja {n}", "js.go.1": "ja one {n}"}
 	dictMu.Unlock()
