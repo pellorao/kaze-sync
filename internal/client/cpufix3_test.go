@@ -37,6 +37,7 @@ func cpufix3Pair(t *testing.T, extra []proto.WCRule) (a, b *engine) {
 // subdirectory "x" (or "X": keys fold case) with its own setting, d's unsent change is taken for that scope.
 // a edits d/u (too fresh, unsent), then pulls b's write in the root scope: the root since must stay old.
 func TestCpufix3UnsentDirNamedX(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"", "y", "x", "X"} {
 		t.Run("sub="+name, func(t *testing.T) {
 			var extra []proto.WCRule
@@ -71,6 +72,7 @@ func TestCpufix3UnsentDirNamedX(t *testing.T) {
 
 // The same mapping in clearDirty: d's unsent change does not keep the root's dirty when d has a setting "d/x".
 func TestCpufix3ClearDirtyDirNamedX(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/x", Mode: proto.ModeFree}})
 	a.f.DB.setMeta("dirty:d:", 1)
 	a.f.unsentDirs = map[string]bool{"d": true}
@@ -82,6 +84,7 @@ func TestCpufix3ClearDirtyDirNamedX(t *testing.T) {
 
 // coversDir asks about the files directly in d: a scanned subdirectory named like the stand-in file does not count.
 func TestCpufix3CoversDirNamedX(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, nil)
 	a.f.scope = func(p string) bool { return p == "d/x" || strings.HasPrefix(p, "d/x/") } // a scan of d/x only
 	if a.f.coversDir("d") {
@@ -94,6 +97,7 @@ func TestCpufix3CoversDirNamedX(t *testing.T) {
 
 // A failed held report is a reminder of its own kind: no push, no advice to exclude a file.
 func TestCpufix3HeldReportFailureKind(t *testing.T) {
+	t.Parallel()
 	a, _ := cpufix3Pair(t, nil)
 	a.f.HeldReportFailed(errors.New("down"))
 	var rep Report

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ func rowSeq(t *testing.T, g *engine, p string) int64 {
 // A changed epoch (restored or rebuilt server) makes the folder forget the server's seqs and read everything
 // again; the first epoch a state sees is adopted without that (design 5.5).
 func TestEpochChangeReadsEverythingAgain(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.put("a.txt", []byte("one"))
 	g.scan()
@@ -66,6 +68,7 @@ func TestEpochChangeReadsEverythingAgain(t *testing.T) {
 // The server's latest seq behind the one the request carried means a restored backup: reset that folder only. An
 // answer to an older request cannot trigger it (the comparison is with the request's own cursor).
 func TestHandlePollDetectsGoingBackInTime(t *testing.T) {
+	t.Parallel()
 	a := &Agent{Dir: t.TempDir(), kick: make(chan struct{}, 1), runners: map[int64]*runner{1: {seen: 5, ready: true}, 2: {seen: 5, ready: true}}}
 	req := proto.PollReq{Cursors: map[int64]int64{1: 5, 2: 5}}
 	if !a.handlePoll(req, proto.PollResp{Cursors: map[int64]int64{1: 3, 2: 5}, Epoch: "A"}) {
@@ -92,6 +95,7 @@ func TestHandlePollDetectsGoingBackInTime(t *testing.T) {
 
 // The state of a folder that is not in the cached configuration goes at start; the rest stays.
 func TestAgentDropsStateOfUnmappedFolders(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for _, n := range []string{"folder-1.db", "folder-7.db", "folder-7.db-wal", "folder-7.db-shm", "device.json"} {
 		os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600)
@@ -120,29 +124,26 @@ func TestAgentDropsStateOfUnmappedFolders(t *testing.T) {
 	}
 }
 
-// After the server rejected the token, the agent asks again only after AuthRetry, not at the usual backoff of a second.
+// After the server rejected the token, the agent asks again only after AuthRetry, not at the usual backoff of a
+// second (poll.go): nothing more arrives for a while longer than that backoff.
 func TestAgentBacksOffWhenTheTokenIsRejected(t *testing.T) {
-	var mu sync.Mutex
-	var at []time.Time
+	t.Parallel()
+	var polls atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		at = append(at, time.Now())
-		mu.Unlock()
+		polls.Add(1)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
 	defer ts.Close()
 	api := &API{Base: ts.URL, Token: "revoked", HC: ts.Client()}
-	a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, ScanInterval: time.Hour, RetryAfter: time.Hour, AuthRetry: 1500 * time.Millisecond}
+	a := &Agent{Dir: t.TempDir(), API: api, NewFS: cfs.OS, OS: runtime.GOOS, ScanInterval: time.Hour, RetryAfter: time.Hour, AuthRetry: time.Minute}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
 	defer func() { cancel(); <-done }()
-	eventually(t, "two polls", func() bool { mu.Lock(); defer mu.Unlock(); return len(at) >= 2 })
-	mu.Lock()
-	gap := at[1].Sub(at[0])
-	mu.Unlock()
-	if gap < 1400*time.Millisecond {
-		t.Fatalf("asked again after %v", gap)
+	eventually(t, "the first poll", func() bool { return polls.Load() >= 1 })
+	time.Sleep(1150 * time.Millisecond) // the usual backoff is one second
+	if n := polls.Load(); n != 1 {
+		t.Fatalf("%d polls: asked again before AuthRetry", n)
 	}
 }
 
@@ -150,7 +151,7 @@ func TestAgentBacksOffWhenTheTokenIsRejected(t *testing.T) {
 // NewHTTPClient and GetBlocks).
 func TestSilentServerTimesOut(t *testing.T) {
 	oldResp, oldIdle := responseTimeout, idleTimeout
-	responseTimeout, idleTimeout = 200*time.Millisecond, 200*time.Millisecond
+	responseTimeout, idleTimeout = 60*time.Millisecond, 60*time.Millisecond
 	defer func() { responseTimeout, idleTimeout = oldResp, oldIdle }()
 	release := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +225,7 @@ func (g *engine) scanHint(dirs ...string) Report {
 // A change directly in the root (hint ".") does not walk the whole tree: only the root, and directories the local
 // state does not know yet; a directory that went away is noticed too (design 5.2).
 func TestRootHintDoesNotWalkKnownDirectories(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	g.put("a/one.txt", []byte("1"))
 	g.put("a/deep/two.txt", []byte("2"))
@@ -280,6 +282,7 @@ func TestRootHintDoesNotWalkKnownDirectories(t *testing.T) {
 
 // Lost events (or a watcher that stopped) make the agent start a new watcher, which keeps working.
 func TestAgentRestartsTheWatcherAfterLostEvents(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 300 * time.Millisecond
 	dev, api := e.newDevice()
@@ -340,6 +343,7 @@ func (h *holdCommits) RoundTrip(r *http.Request) (*http.Response, error) {
 // A folder stuck in a long upload does not hold up the others: new files, retries and configuration changes of
 // the rest go on (design 3).
 func TestFoldersAreIndependentDuringALongUpload(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 300 * time.Millisecond
 	dev, api := e.newDevice()
@@ -384,6 +388,7 @@ func TestFoldersAreIndependentDuringALongUpload(t *testing.T) {
 // A partial scan keeps the errors outside the subtrees it covered (design 3.6): a skipped entry stays reported
 // when a change elsewhere triggers a hint; the hint for its own directory clears it once it is gone.
 func TestPartialScanKeepsErrorsOutsideItsScope(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	g.put("a/bad\xff.txt", []byte("1"))
 	g.put("b/x.txt", []byte("1"))
@@ -431,6 +436,7 @@ func (f *failRootFS) ReadDir(d string) ([]cfs.Entry, error) {
 
 // A root hint whose directory listing fails fails the scan: the watched directories must not be taken for gone.
 func TestRootHintFailsWhenTheRootCannotBeListed(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	g.put("a/one.txt", []byte("1"))
 	g.scan()
@@ -454,6 +460,7 @@ func TestRootHintFailsWhenTheRootCannotBeListed(t *testing.T) {
 // A scan of a hint for a directory that has just been removed must not mark it watched: the directory created
 // later under that name is a new one with no watch, and only a root hint can find it (newdir).
 func TestRemovedTopDirectoryHintDoesNotHideTheNewOne(t *testing.T) {
+	t.Parallel()
 	e, f, _, g := setup(t)
 	g.put("d/one.txt", []byte("1"))
 	g.scan()
@@ -474,6 +481,7 @@ func TestRemovedTopDirectoryHintDoesNotHideTheNewOne(t *testing.T) {
 // A top directory the client removed itself while applying the server's deletion is not watched any more either:
 // the directory the user creates under that name later is found by a root hint (newdir).
 func TestPulledRemovalOfTopDirectoryHidesNothing(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, _ := pair(t)
 	g1.put("d/one.txt", []byte("1"))
 	g1.scan()
@@ -496,6 +504,7 @@ func TestPulledRemovalOfTopDirectoryHidesNothing(t *testing.T) {
 // A hint outside the root (an attribute event on the root itself used to give "..") never lists or walks anything
 // but the root, and pruneDirs reads it as a change of the root.
 func TestHintOutsideRootIsRootHint(t *testing.T) {
+	t.Parallel()
 	for _, h := range []string{"..", "../sibling", "../.."} {
 		if out, rootOnly := pruneDirs([]string{h}); len(out) != 0 || !rootOnly {
 			t.Errorf("pruneDirs(%q) = %v, %v; want root only", h, out, rootOnly)

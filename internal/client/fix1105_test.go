@@ -18,6 +18,7 @@ import (
 
 // A block taken from a batch response must have the length the entry says.
 func TestPrefetchedBlockWithTheWrongLengthIsRefused(t *testing.T) {
+	t.Parallel()
 	e := &proto.Entry{Path: "f", Size: 4, Blocks: []proto.Hash{{1}}}
 	r := &blockReader{ctx: context.Background(), e: e, prefetch: map[proto.Hash][]byte{{1}: []byte("abc")}}
 	err := r.load(0)
@@ -43,6 +44,7 @@ func (c *pullCounter) RoundTrip(r *http.Request) (*http.Response, error) {
 // The agent starts before the server is reachable (the cached configuration lets the folder run): the pull
 // that fails must be retried with growing delays, not in a loop (11-04: 190000 lines in 33 seconds).
 func TestAgentDoesNotSpinWhileTheServerIsUnreachable(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	dev, api := e.newDevice()
 	f := e.newFolder("One")
@@ -60,14 +62,14 @@ func TestAgentDoesNotSpinWhileTheServerIsUnreachable(t *testing.T) {
 	hc := *api.HC
 	hc.Transport = pc
 	dead := &API{Base: "https://127.0.0.1:1", Token: api.Token, HC: &hc}
-	a := &Agent{Dir: dir, API: dead, NewFS: cfs.OS, OS: runtime.GOOS, Stable: 0, ScanInterval: time.Hour, RetryAfter: 200 * time.Millisecond}
+	a := &Agent{Dir: dir, API: dead, NewFS: cfs.OS, OS: runtime.GOOS, Stable: 0, ScanInterval: time.Hour, RetryAfter: 40 * time.Millisecond}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
 	defer func() { cancel(); <-done }()
-	time.Sleep(1500 * time.Millisecond)
-	// attempts at about 0, 0.2, 0.6 and 1.4 s
+	time.Sleep(300 * time.Millisecond)
+	// attempts at about 0, 40, 120 and 280 ms
 	if n := pc.n.Load(); n > 8 {
-		t.Fatalf("%d pulls in 1.5 s against a dead server", n)
+		t.Fatalf("%d pulls in 0.3 s against a dead server", n)
 	}
 }

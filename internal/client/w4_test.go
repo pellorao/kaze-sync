@@ -19,6 +19,7 @@ import (
 // A decision is carried out only on the file the user saw: when the local file or the server's version changed since,
 // nothing happens and the held list says why.
 func TestResolveSnapshotGuards(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	ctx := context.Background()
 	g1.put("doc.txt", []byte("base"))
@@ -72,6 +73,7 @@ func items(f *Folder) map[string]string {
 // Overwriting a change of the other kind removes what stands in its way on the server first: a file where the
 // held change has a directory, and the files below a name where it has a file.
 func TestOverwriteTypeClearsBlockingEntries(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	ctx := context.Background()
 	g1.put("out/x", []byte("below"))
@@ -111,6 +113,7 @@ func TestOverwriteTypeClearsBlockingEntries(t *testing.T) {
 
 // The time directories of .syncsaved go after 30 days, by the scan.
 func TestScanCleansSavedAfter30Days(t *testing.T) {
+	t.Parallel()
 	_, _, _, g := setup(t)
 	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
 	g.f.Now = func() time.Time { return now }
@@ -129,6 +132,7 @@ func TestScanCleansSavedAfter30Days(t *testing.T) {
 // A new run of the server (its boot id) makes every folder send the held list again; decisions are queued for the
 // folder they name.
 func TestHandlePollBootAndActions(t *testing.T) {
+	t.Parallel()
 	a := &Agent{Dir: t.TempDir(), kick: make(chan struct{}, 1), runners: map[int64]*runner{1: {ready: true}, 2: {ready: true}}}
 	req := proto.PollReq{}
 	a.handlePoll(req, proto.PollResp{Boot: "A"})
@@ -148,6 +152,7 @@ func TestHandlePollBootAndActions(t *testing.T) {
 // The whole way: a device holds a change, the user decides in the Web UI, the poll brings the decision, the device
 // carries it out and reports the list empty.
 func TestAgentCarriesOutAWebDecision(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	f := e.newFolder("One")
 	devA, apiA := e.newDevice()
@@ -213,6 +218,7 @@ func (e *cenv) get(path string) (int, string) {
 // The server keeps the held lists in memory only. After a restart (a new boot id in the poll answer) a real agent
 // sends its list again, so the Web UI shows the held change without anyone touching the file.
 func TestAgentSendsHeldListAgainAfterServerRestart(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	e.srv.PollTimeout = 300 * time.Millisecond // a poll hanging on the old server ends soon
 	f := e.newFolder("One")
@@ -254,6 +260,7 @@ func TestAgentSendsHeldListAgainAfterServerRestart(t *testing.T) {
 // A note about a decision that was not carried out goes with the held change: when the path is no longer held, a
 // later held change of the same path starts without it.
 func TestHeldNoteDropsWithTheHeldChange(t *testing.T) {
+	t.Parallel()
 	_, _, _, g2, _ := pair(t)
 	g2.f.heldNote = map[string]string{"gone.txt": "local"}
 	if got := items(g2.f); len(got) != 0 || len(g2.f.heldNote) != 0 {

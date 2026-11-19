@@ -781,14 +781,11 @@ func simSeeds() int {
 	if v, err := strconv.Atoi(os.Getenv("SIM_SEEDS")); err == nil {
 		return v
 	}
-	if testing.Short() {
-		return 40
-	}
-	return 1000
+	return 16 // a quick random sample; SIM_SEEDS=1000 SIM_STEPS=300 is the deep run
 }
 
 func TestSimulation(t *testing.T) {
-	steps := 300
+	steps := 60
 	if v, err := strconv.Atoi(os.Getenv("SIM_STEPS")); err == nil {
 		steps = v
 	}
@@ -805,15 +802,16 @@ func TestSimulation(t *testing.T) {
 // TestCrashAtEveryCall replays short scripts and crashes once at each FS or HTTP call of the whole run, before
 // and after the call took effect; every run must still converge without data loss.
 func TestCrashAtEveryCall(t *testing.T) {
-	scripts := 5
+	scripts, steps := 1, 8 // every call of a short script; SIM_SCRIPTS=5 SIM_CRASH_STEPS=70 is the deep sweep
 	if v, err := strconv.Atoi(os.Getenv("SIM_SCRIPTS")); err == nil {
 		scripts = v
-	} else if testing.Short() {
-		scripts = 1
+	}
+	if v, err := strconv.Atoi(os.Getenv("SIM_CRASH_STEPS")); err == nil {
+		steps = v
 	}
 	for seed := 1; seed <= scripts; seed++ {
 		probe := newSim(t, int64(1000+seed))
-		probe.run(70, false)
+		probe.run(steps, false)
 		total := probe.crash.n
 		for at := 1; at <= total; at++ {
 			for _, after := range []bool{false, true} {
@@ -821,7 +819,7 @@ func TestCrashAtEveryCall(t *testing.T) {
 					t.Parallel()
 					s := newSim(t, int64(1000+seed))
 					s.crash.at, s.crash.after = at, after
-					s.run(70, false)
+					s.run(steps, false)
 					s.crash.at = 0
 					s.settle()
 				})

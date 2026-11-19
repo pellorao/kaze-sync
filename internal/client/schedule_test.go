@@ -12,6 +12,7 @@ var testConf = schedConf{Debounce: 2 * time.Second, MaxWait: 10 * time.Second, R
 // The scan finds a file written 1 s ago (Stable 5 s), then a peer's news brings a pull-only task: the file must
 // still be scanned when it becomes stable, not at the fixed retry time or the hourly scan.
 func TestScheduleKeepsUnstableFilesAcrossAPullOnlyTask(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -52,6 +53,7 @@ func TestScheduleKeepsUnstableFilesAcrossAPullOnlyTask(t *testing.T) {
 
 // A task that failed is retried at the retry time; a due unstable time must not make it spin.
 func TestScheduleFailedTaskDoesNotSpinOnAnOldUnstableTime(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.full = true
@@ -66,6 +68,7 @@ func TestScheduleFailedTaskDoesNotSpinOnAnOldUnstableTime(t *testing.T) {
 }
 
 func TestScheduleSlowRetriesRunOutAfterTheirSteps(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.full = true
@@ -88,6 +91,7 @@ func TestScheduleSlowRetriesRunOutAfterTheirSteps(t *testing.T) {
 // With the server unreachable every task fails. The failed pull must wait for the retry time (with growing
 // delays) instead of running again as soon as the task ends: attempts per minute stay bounded.
 func TestScheduleUnreachableServerDoesNotSpin(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -115,6 +119,7 @@ func TestScheduleUnreachableServerDoesNotSpin(t *testing.T) {
 
 // A reset that failed is carried to the retry, not repeated at once.
 func TestScheduleFailedResetWaitsForTheRetry(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -136,6 +141,7 @@ func TestScheduleFailedResetWaitsForTheRetry(t *testing.T) {
 // A retry for files that changed while they were read scans their directories and pulls; it does not scan the
 // whole folder, unless the task before it failed.
 func TestScheduleRetryScansOnlyItsDirectories(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)
@@ -153,6 +159,7 @@ func TestScheduleRetryScansOnlyItsDirectories(t *testing.T) {
 
 // Downloads that cannot be applied retry with a pull alone, with a growing delay.
 func TestScheduleDownloadRetryPullsOnlyAndBacksOff(t *testing.T) {
+	t.Parallel()
 	t0 := time.Unix(1000, 0)
 	var s schedule
 	s.nextFull = t0.Add(time.Hour)

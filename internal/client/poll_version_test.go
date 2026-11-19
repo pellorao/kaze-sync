@@ -25,6 +25,7 @@ func (v versionTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestAgentPollReportsReleaseVersion(t *testing.T) {
+	t.Parallel()
 	requests := make(chan map[string]any, 1)
 	a := &Agent{Dir: t.TempDir(), API: &API{Base: "https://test.invalid", Token: "test", HC: &http.Client{Transport: versionTransport{requests}}}, NewFS: cfs.OS}
 	ctx, cancel := context.WithCancel(context.Background())

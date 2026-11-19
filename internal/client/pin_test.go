@@ -54,6 +54,7 @@ func mkCert(t *testing.T, cn string, ca bool, parent *pinCert, notAfter time.Tim
 func pinOf(c *pinCert) []byte { s := sha256.Sum256(c.der); return s[:] }
 
 func TestCheckPin(t *testing.T) {
+	t.Parallel()
 	soon := time.Now().Add(time.Hour)
 	ca := mkCert(t, "ca", true, nil, soon)
 	leaf := mkCert(t, "leaf", false, ca, soon)
@@ -92,6 +93,7 @@ func TestCheckPin(t *testing.T) {
 // A client enrolled with the CA fingerprint talks to a server in local CA mode, also after the server
 // certificate was renewed, and a server of another CA is refused.
 func TestPinnedCAOverTLS(t *testing.T) {
+	t.Parallel()
 	data := t.TempDir()
 	if err := server.EnsureCA(filepath.Join(data, server.CADir)); err != nil {
 		t.Fatal(err)

@@ -21,6 +21,7 @@ func noTempFiles(t *testing.T, g *engine) {
 
 // Many files share one request; files of one directory with the same content do not share a temporary file.
 func TestPullFetchesManyFilesWithOneRequest(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, gets := pair(t)
 	want := map[string]string{}
 	for i := 0; i < 80; i++ {
@@ -79,6 +80,7 @@ func (c *cutTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // A response that breaks in the middle ends the batch: the files before the break are in place, the rest
 // comes with the next pull.
 func TestPullBatchContinuesAfterABrokenResponse(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, _ := pair(t)
 	want := map[string]string{}
 	for i := 0; i < 30; i++ {
@@ -118,6 +120,7 @@ func TestPullBatchContinuesAfterABrokenResponse(t *testing.T) {
 
 // A file larger than a batch is fetched alone, in windows, between the batches of the small ones.
 func TestPullFetchesLargeFileAlone(t *testing.T) {
+	t.Parallel()
 	old := getBatchBytes
 	getBatchBytes = 40 << 10
 	t.Cleanup(func() { getBatchBytes = old })

@@ -17,6 +17,7 @@ import (
 
 // A file held open by another program (in_use, a standing warning since scopefreeze) must not keep the since old.
 func TestCpufix2InUseDoesNotFreezeScope(t *testing.T) {
+	t.Parallel()
 	for _, dir := range []string{"", "d/"} {
 		a, b := singlePair(t)
 		a.put("x.txt", []byte("one"))
@@ -37,6 +38,7 @@ func TestCpufix2InUseDoesNotFreezeScope(t *testing.T) {
 
 // RetryDirs must name the directory of the file to rescan, not its parent.
 func TestCpufix2RetryDirsAreTheFilesDirectory(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	a.f.retryFile("d/x.txt")
 	a.f.retryDir("e/f/y.txt")
@@ -47,6 +49,7 @@ func TestCpufix2RetryDirsAreTheFilesDirectory(t *testing.T) {
 
 // A file in use in a top-level directory: the slow retry must upload it once it is free.
 func TestCpufix2SlowRetryReachesTheFile(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	a.put("d/keep.txt", []byte("k"))
 	a.sync()
@@ -64,6 +67,7 @@ func TestCpufix2SlowRetryReachesTheFile(t *testing.T) {
 
 // Root single + "t" single: a frozen scope t (held changes waiting for the user) must not keep the root's since old.
 func TestCpufix2FrozenScopeKeepsOtherDirty(t *testing.T) {
+	t.Parallel()
 	for _, freezeT := range []bool{false, true} {
 		t.Run(map[bool]string{false: "control", true: "frozenT"}[freezeT], func(t *testing.T) { cpufix2Cross(t, freezeT) })
 	}
@@ -115,6 +119,7 @@ rest:
 
 // The held report is sized by its encoded length: "&" is 6 bytes in JSON.
 func TestCpufix2HeldReportCountsEscapes(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	long := strings.Repeat("&", 250)
 	rows := make([]heldRow, 0, proto.MaxHeldItems)
@@ -133,6 +138,7 @@ func TestCpufix2HeldReportCountsEscapes(t *testing.T) {
 
 // A failing held report keeps the time of its first failure and is not a file error that pushes a notification.
 func TestCpufix2HeldFailureKeepsStartAndKind(t *testing.T) {
+	t.Parallel()
 	a, _ := singlePair(t)
 	now := time.Unix(1_000, 0)
 	a.f.Now = func() time.Time { return now }

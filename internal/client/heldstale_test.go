@@ -68,6 +68,7 @@ func restartOn(b *engine, fsys cfs.FS) {
 // A held deletion whose path the other device then deleted too is settled: both ends lack the file and the server
 // has it deleted, so nothing is left to decide (design 2.8.6 "same as the server", 2.8.9 "delete vs deleted").
 func TestHeldDeleteClearsWhenServerDeletedToo(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	holdDelete(t, a, b)
 	a.fs.Remove("x.txt")
@@ -81,6 +82,7 @@ func TestHeldDeleteClearsWhenServerDeletedToo(t *testing.T) {
 // The stock case: a client before the fix skipped the server's deletion in its frozen scope and moved its cursor past
 // it, so the tombstone never comes again. After the upgrade the held deletion still clears, by asking the server.
 func TestHeldDeleteClearsAfterCursorPassedTombstone(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	a.fs.Remove("x.txt")
 	a.sync()
@@ -104,6 +106,7 @@ func TestHeldDeleteClearsAfterCursorPassedTombstone(t *testing.T) {
 // The other order: the change held here is a modification, the server's deletion passes by while it is held, and only
 // then is the file deleted here. The held deletion is born after the tombstone went past, and clears all the same.
 func TestHeldDeleteClearsWhenDeletedAfterServerDeletion(t *testing.T) {
+	t.Parallel()
 	_, _, a, b, _ := pair(t)
 	a.put("x.txt", []byte("one"))
 	a.sync()
@@ -128,6 +131,7 @@ func TestHeldDeleteClearsWhenDeletedAfterServerDeletion(t *testing.T) {
 // A file replaced here by a directory of the same name: the held deletion of the file clears once the server deleted
 // it too, and the directory and its contents stay.
 func TestHeldDeleteClearsWhenFileBecameDirectory(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	b.put("x.txt/inner.txt", []byte("in"))
 	b.sync()
@@ -175,6 +179,7 @@ func (r *restoreFS) Stat(p string) (cfs.Entry, error) {
 // Settling a held deletion only forgets the record and the base: a file the user puts back meanwhile, even one with
 // the base's size and mtime, is not deleted (design 2.8.6).
 func TestHeldDeleteSettleKeepsRestoredFile(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	row, have, _ := b.f.DB.get("x.txt")
 	if !have {
@@ -275,6 +280,7 @@ func (c *commitCounter) RoundTrip(r *http.Request) (*http.Response, error) {
 // cost no state-database query each, and the server is asked about the held deletions in one request, once per run of
 // the client, not on every Pull.
 func TestHeldDeleteReconcileCost(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	holdDelete(t, a, b)
 	const n = 200
@@ -295,6 +301,7 @@ func TestHeldDeleteReconcileCost(t *testing.T) {
 
 // Three held deletions of files the server still has: one probe request after a restart, none on the pulls after it.
 func TestHeldDeleteProbeOncePerRun(t *testing.T) {
+	t.Parallel()
 	_, _, a, b, _ := pair(t)
 	names := []string{"x.txt", "y.txt", "z.txt"}
 	for _, p := range names {
@@ -340,6 +347,7 @@ func TestHeldDeleteProbeOncePerRun(t *testing.T) {
 // the freeze goes in the same transaction that moves the cursor back. Here the write of the cursor fails after the
 // held deletion was settled; the scope stays frozen, and a later scan thaws it.
 func TestHeldDeleteThawIsAtomic(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	a.fs.Remove("x.txt")
 	a.sync()
@@ -377,6 +385,7 @@ func TestHeldDeleteThawIsAtomic(t *testing.T) {
 // A server restored from a backup that has never had the path: what was known of it (the server still had the file)
 // is of the old history and goes with the reset, so the held deletion is asked about again and clears.
 func TestHeldDeleteResetForgetsServerPresence(t *testing.T) {
+	t.Parallel()
 	e, _, b := heldDelete(t)
 	b.f.Epoch = "A"
 	b.pull()
@@ -396,6 +405,7 @@ func TestHeldDeleteResetForgetsServerPresence(t *testing.T) {
 // A reset reads the new history from the start, the frozen scopes too: their freeze cursors go to 0, so the replay
 // at their thaw gives the files skipped meanwhile their new seqs.
 func TestHeldDeleteResetRereadsFrozenScope(t *testing.T) {
+	t.Parallel()
 	a, b := singlePair(t)
 	a.put("y.txt", []byte("y"))
 	holdDelete(t, a, b)
@@ -416,6 +426,7 @@ func TestHeldDeleteResetRereadsFrozenScope(t *testing.T) {
 // A held deletion the exclusion rules made on the server keeps its base, like any such deletion: a file put back
 // here with the base's size and mtime is not sent while this device has not got the new rules.
 func TestHeldDeleteExcludedKeepsBase(t *testing.T) {
+	t.Parallel()
 	e, _, b := heldDelete(t)
 	row, _, _ := b.f.DB.get("x.txt")
 	fid := strconv.FormatInt(b.f.ID, 10)
@@ -484,6 +495,7 @@ func TestHeldDeleteProbeBatch(t *testing.T) {
 // The Pull that settles the last held deletion of a scope thaws it, but read it past the freeze: the folder is not in
 // step (last_synced_at, design 3.6) until the next Pull has read the scope again.
 func TestHeldDeleteThawPendsUntilReplay(t *testing.T) {
+	t.Parallel()
 	_, a, b := heldDelete(t)
 	a.fs.Remove("x.txt")
 	a.sync()

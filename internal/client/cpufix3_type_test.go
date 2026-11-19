@@ -10,6 +10,7 @@ import (
 // unsent items in every scan, so sinceHeldBack stays true and the root's since stays old: the cross-scope freeze
 // of cpureview2 (TestCpufix2FrozenScopeKeepsOtherDirty) is still there for this kind of freeze.
 func TestCpufix3TypeHeldScopeKeepsOtherSince(t *testing.T) {
+	t.Parallel()
 	for _, freezeT := range []bool{false, true} {
 		t.Run(map[bool]string{false: "control", true: "typeHeldT"}[freezeT], func(t *testing.T) {
 			a, b := cpufix3Pair(t, []proto.WCRule{{Path: "t", Mode: proto.ModeSingle}})

@@ -33,6 +33,7 @@ func (g *engine) readlink(p string) (string, bool) {
 // Design 6.7: a symbolic link syncs as a link, with its target verbatim (also an absolute or dangling one), is
 // retargeted, replaced by a file and back, and deleted.
 func TestSymbolicLinksSync(t *testing.T) {
+	t.Parallel()
 	e, f, g1, g2, _ := pair(t)
 	g1.link("../outside/dangling", "d/l1")
 	g1.link("/abs/path", "l2")
@@ -90,6 +91,7 @@ func TestSymbolicLinksSync(t *testing.T) {
 // A machine that cannot create links leaves them on the server, says so in one stable notice, and creates them
 // by itself once it can (design 6.7).
 func TestSymbolicLinksCannotBeCreated(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, gets := pair(t)
 	g2.fs.SetNoSymlinks(true)
 	g1.link("target-a", "a")
@@ -144,6 +146,7 @@ func TestSymbolicLinksCannotBeCreated(t *testing.T) {
 
 // A target that is empty or longer than MaxLinkTarget is not synced and says so.
 func TestSymbolicLinkTargetTooLong(t *testing.T) {
+	t.Parallel()
 	_, _, g1, g2, _ := pair(t)
 	g1.link(strings.Repeat("x", proto.MaxLinkTarget+1), "long")
 	g1.link(strings.Repeat("y", proto.MaxLinkTarget), "limit")
@@ -162,6 +165,7 @@ func TestSymbolicLinkTargetTooLong(t *testing.T) {
 
 // A link that points outside the folder is synced as a link and never followed: not on scan, not on download.
 func TestSymbolicLinkOutsideTheFolderIsNeverFollowed(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("creating links needs privileges there")
 	}

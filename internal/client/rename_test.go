@@ -15,6 +15,7 @@ import (
 // A device renamed on the server keeps syncing with its token, takes the new name from the configuration for its
 // folders, and writes it into device.json (design 2.5).
 func TestAgentTakesTheNewDeviceName(t *testing.T) {
+	t.Parallel()
 	e := newCEnv(t)
 	dir := t.TempDir()
 	if err := Enroll(context.Background(), dir, e.ts.URL, e.code(), e.fp); err != nil {
