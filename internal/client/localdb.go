@@ -300,10 +300,40 @@ func (l *localDB) heldCount() (n int) {
 	return n
 }
 
-// heldKind is the kind of the held change of a path, "" when it has none.
-func (l *localDB) heldKind(path string) (kind string) {
-	l.db.QueryRow(`SELECT kind FROM held WHERE path=?`, path).Scan(&kind)
-	return kind
+// heldDeletes returns the scope of each held deletion by path.
+func (l *localDB) heldDeletes() (map[string]string, error) {
+	rows, err := l.db.Query(`SELECT path, scope FROM held WHERE kind='delete'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var p, sc string
+		if err := rows.Scan(&p, &sc); err != nil {
+			return nil, err
+		}
+		out[p] = sc
+	}
+	return out, rows.Err()
+}
+
+// settleHeld drops the held changes of paths and their base rows, in one transaction.
+func (l *localDB) settleHeld(paths []string) error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, p := range paths {
+		if _, err := tx.Exec(`DELETE FROM held WHERE path=?`, p); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM local WHERE path=?`, p); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (l *localDB) dropHeld(paths ...string) error {

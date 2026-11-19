@@ -268,11 +268,11 @@ func overwriteAct(t *testing.T, f *Folder, p string) proto.Action {
 	rows, _ := f.DB.held("")
 	for _, h := range rows {
 		if h.Path == p {
-			cur, err := f.probe(context.Background(), p)
+			res, err := f.probe(context.Background(), p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			seq := int64(0)
+			cur, seq := res[0].Current, int64(0)
 			if cur != nil {
 				seq = cur.Seq
 			}

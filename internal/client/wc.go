@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path"
 	"slices"
@@ -459,13 +460,19 @@ var (
 	errServerChanged = errors.New("the server version changed: decide again")
 )
 
-// probe returns the server's current entry of p, nil when it has none (a deletion that cannot match any base).
-func (f *Folder) probe(ctx context.Context, p string) (*proto.Entry, error) {
-	res, err := f.API.Commit(ctx, f.ID, []proto.Op{{Path: p, BaseSeq: -1, Resolve: true}})
-	if err != nil || len(res) != 1 {
-		return nil, errors.Join(err, errors.New("probe: bad answer"))
+// probe asks the server for its current state of each path with a deletion that cannot match any base: it changes
+// nothing and answers ok where the server has no live file (a tombstone, or nothing), else a conflict with the
+// current entry. At most proto.MaxCommitOps paths.
+func (f *Folder) probe(ctx context.Context, paths ...string) ([]proto.Result, error) {
+	ops := make([]proto.Op, len(paths))
+	for i, p := range paths {
+		ops[i] = proto.Op{Path: p, BaseSeq: -1, Resolve: true}
 	}
-	return res[0].Current, nil
+	res, err := f.API.Commit(ctx, f.ID, ops)
+	if err != nil {
+		return nil, fmt.Errorf("probe: %w", err)
+	}
+	return res, nil
 }
 
 // Resolve carries out the user's decision on the held change of act.Path. It checks first that the local file is
@@ -560,10 +567,11 @@ func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, act pr
 
 // discard sets the local version of the held path aside (or removes it) and takes the server's.
 func (f *Folder) discard(ctx context.Context, h heldRow, exists, save bool) error {
-	cur, err := f.probe(ctx, h.Path)
+	res, err := f.probe(ctx, h.Path)
 	if err != nil {
 		return err
 	}
+	cur := res[0].Current
 	if exists {
 		if st, _ := f.FS.Stat(h.Path); save || st.IsDir {
 			err = f.saveAway(h.Path)

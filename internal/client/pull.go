@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"slices"
 
 	cfs "kaze-sync/internal/client/fs"
 	"kaze-sync/internal/client/place"
@@ -38,15 +39,24 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	if err := f.checkEpoch(); err != nil {
 		return rep, err
 	}
+	dels, err := f.DB.heldDeletes()
+	if err != nil {
+		return rep, err
+	}
+	live := make(map[string]bool, len(dels)) // what is known of the server's state of the held deletions
+	for p := range dels {
+		live[p] = f.heldLive[p]
+	}
+	f.heldLive = live
+	gone := map[string]bool{}
 	cursor := f.DB.metaInt("cursor")
 	since, held := cursor, int64(0)
-	var err error
 	for more := true; more && err == nil; {
 		var page proto.ChangesResp
 		if page, err = f.API.Changes(ctx, f.ID, since); err != nil {
 			break
 		}
-		if err = f.applyPage(ctx, page.Entries, &held); err != nil {
+		if err = f.applyPage(ctx, page.Entries, &held, gone); err != nil {
 			break
 		}
 		since, more = page.Cursor, page.More
@@ -64,6 +74,9 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	if err == nil {
 		f.seen = since
 		err = f.retryUnlinked(ctx)
+	}
+	if err == nil {
+		err = f.settleHeld(ctx, dels, gone)
 	}
 	if err == nil && held == 0 && !f.sinceHeldBack() {
 		// Nothing unsent is known in a scope with no since yet, and the cursor is whole: what is on disk was either sent or came with this Pull, so a
@@ -84,26 +97,73 @@ func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	return rep, err
 }
 
-// heldDeleteSettled reports whether e is the server's deletion of a path whose own deletion here waits for the user:
-// both ends lack the file, so nothing is left to decide and the deletion is applied like any other (design 2.8.6).
-// The held row then goes with the next scan (cleanHeld).
-func (f *Folder) heldDeleteSettled(e proto.Entry) bool {
-	if e.Hash != nil {
-		return false
+// settleHeld drops the held deletions whose path the server has deleted too (design 2.8.6): neither end has the file,
+// so nothing is left to decide. What the server holds comes from the pages of this Pull, else from a probe of the
+// paths it is not known for, in one request per proto.MaxCommitOps paths; a path the server still has is not asked
+// again in this run, since its deletion would come in a page. Asking does not wait for the tombstone: a cursor that
+// went past it (a client before this check skipped it in the frozen scope) never reads it again. Only the held row
+// and the base go; the file system is not touched, so a file put back meanwhile stays and is sent as a new one.
+func (f *Folder) settleHeld(ctx context.Context, dels map[string]string, gone map[string]bool) error {
+	var ask []string
+	for p := range dels {
+		if _, seen := gone[p]; !seen && !f.heldLive[p] {
+			ask = append(ask, p)
+		}
 	}
-	if f.DB.heldKind(e.Path) != "delete" {
-		return false
+	slices.Sort(ask)
+	for len(ask) > 0 {
+		n := min(len(ask), proto.MaxCommitOps)
+		res, err := f.probe(ctx, ask[:n]...)
+		if err != nil {
+			return err
+		}
+		for i, r := range res {
+			switch {
+			case r.Status == proto.StatusOK: // deleting a tombstone, or nothing, succeeds and changes nothing
+				gone[ask[i]] = true
+			case r.Current != nil:
+				f.heldLive[ask[i]] = true
+			}
+		}
+		ask = ask[n:]
 	}
-	_, err := f.FS.Stat(e.Path)
-	return errors.Is(err, fs.ErrNotExist)
+	var paths []string
+	for p, g := range gone {
+		if g {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	if err := f.DB.settleHeld(paths); err != nil {
+		return err
+	}
+	scopes := map[string]bool{}
+	for _, p := range paths {
+		delete(f.heldLive, p)
+		scopes[dels[p]] = true
+	}
+	for sc := range scopes {
+		if err := f.thaw(sc, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
 
-func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64) error {
+// applyPage applies one page of the server's changes. gone collects the held deletions the page shows the server
+// deleted too (settleHeld).
+func (f *Folder) applyPage(ctx context.Context, entries []proto.Entry, held *int64, gone map[string]bool) error {
 	var adds, dels []proto.Entry
 	for _, e := range entries {
-		if f.frozenPath(e.Path) && !f.heldDeleteSettled(e) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
+		if f.frozenPath(e.Path) { // a frozen scope takes nothing from the server until it is decided (design 2.8.5)
+			if _, ok := f.heldLive[e.Path]; ok { // but what it holds at a held deletion is noted (design 2.8.6)
+				gone[e.Path] = e.Hash == nil
+				f.heldLive[e.Path] = e.Hash != nil
+			}
 			continue
 		}
 		if e.Hash == nil {
