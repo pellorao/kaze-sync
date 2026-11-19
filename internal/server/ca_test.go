@@ -345,29 +345,13 @@ func TestCACommand(t *testing.T) {
 func TestRunServesCAMode(t *testing.T) {
 	t.Parallel()
 	f := newFakeSystem(t)
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	addr := ln.Addr().String()
-	ln.Close()
-	if err := f.install(InstallOptions{Listen: addr, CA: true}); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, f.data) }()
-	defer func() { cancel(); <-done }()
+	addr, stop := startRun(t, f, InstallOptions{CA: true})
+	defer stop()
 	chain, _ := loadChain(serverPEMPath(f.data))
 	ca, _ := x509.ParseCertificate(chain.Certificate[1])
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
-	var conn *tls.Conn
-	var err error
-	for i := 0; i < 1000; i++ {
-		conn, err = tls.Dial("tcp", addr, &tls.Config{RootCAs: roots, ServerName: "localhost"})
-		if err == nil {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	conn, err := tls.Dial("tcp", addr, &tls.Config{RootCAs: roots, ServerName: "localhost"})
 	if err != nil {
 		t.Fatal(err)
 	}

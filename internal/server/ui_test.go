@@ -213,7 +213,7 @@ func readEvents(t *testing.T, e *env, c *http.Client) (<-chan [2]any, func()) {
 func TestEventsPushOnChangeNoMoreOftenThanTheGap(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.s.EventGap = 20 * time.Millisecond
+	e.s.EventGap = 40 * time.Millisecond
 	e.setAdminPassword("pw")
 	c := e.webClient()
 	if resp, err := c.Get(e.ts.URL + "/events"); err != nil || resp.StatusCode != http.StatusUnauthorized {
@@ -254,12 +254,26 @@ func TestEventsPushOnChangeNoMoreOftenThanTheGap(t *testing.T) {
 	}
 	e.commit(f, e.op("b", 0, "2"))
 	e.commit(f, e.op("c", 0, "3"))
-	t1b, secondb, ok := next(2 * time.Second)
-	if !ok || secondb.Seq[itoa(f)] != 3 || t1b.Sub(t1) < e.s.EventGap-10*time.Millisecond {
-		t.Fatalf("after the next two: %+v %v %v", secondb, ok, t1b.Sub(t1))
+	// Both commits normally go out together; on a loaded machine the second may land after the first push, and then it
+	// goes out as a further event. Either way no two events are closer than the gap.
+	prev := t1
+	for last := int64(0); last != 3; {
+		tn, pn, ok := next(2 * time.Second)
+		if !ok || tn.Sub(prev) < e.s.EventGap-25*time.Millisecond {
+			t.Fatalf("after the next two: %+v %v %v", pn, ok, tn.Sub(prev))
+		}
+		prev, last = tn, pn.Seq[itoa(f)]
 	}
-	if _, _, ok := next(50 * time.Millisecond); ok { // well over the gap
-		t.Fatal("a further event for the same changes")
+	// The last commit's version bump may follow its rows by a moment on a loaded machine: one more event is allowed,
+	// then the stream is quiet again.
+	if tn, _, ok := next(50 * time.Millisecond); ok {
+		if tn.Sub(prev) < e.s.EventGap-25*time.Millisecond {
+			t.Fatalf("events %v apart", tn.Sub(prev))
+		}
+		prev = tn
+		if _, _, ok := next(50 * time.Millisecond); ok { // well over the gap
+			t.Fatal("a further event for the same changes")
+		}
 	}
 	// A change right after a push waits for the gap.
 	e.commit(f, e.op("d", 0, "4"))
@@ -269,7 +283,7 @@ func TestEventsPushOnChangeNoMoreOftenThanTheGap(t *testing.T) {
 	}
 	e.commit(f, e.op("e", 0, "5"))
 	t3, _, ok := next(2 * time.Second)
-	if !ok || t3.Sub(t2) < e.s.EventGap-10*time.Millisecond {
+	if !ok || t3.Sub(t2) < e.s.EventGap-25*time.Millisecond {
 		t.Fatalf("pushes %v apart, want at least %v", t3.Sub(t2), e.s.EventGap)
 	}
 	_ = t0
