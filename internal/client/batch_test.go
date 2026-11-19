@@ -37,9 +37,7 @@ func TestPullFetchesManyFilesWithOneRequest(t *testing.T) {
 	want["empty.txt"] = ""
 	g1.scan()
 	g2.sync()
-	// One request for the batch. Under heavy CPU load (the other tests run in parallel) a second one shows up in about
-	// one run in ten whose cause was not found; what the test guards is that the files do not take one request each.
-	if n := gets.requests.Load(); n > 2 {
+	if n := gets.requests.Load(); n != 1 {
 		t.Errorf("%d /blocks/get requests, want 1", n)
 	}
 	for p, w := range want {
@@ -121,8 +119,11 @@ func TestPullBatchContinuesAfterABrokenResponse(t *testing.T) {
 }
 
 // A file larger than a batch is fetched alone, in windows, between the batches of the small ones.
+//
+// Not parallel: it lowers the package variable getBatchBytes, and a parallel test that pulls files while it is
+// lowered gets its batch cut in two (about 3 runs in 100 of TestPullFetchesManyFilesWithOneRequest next to it).
+// Sequential tests run before the parallel ones resume, so the value is back before any of them reads it.
 func TestPullFetchesLargeFileAlone(t *testing.T) {
-	t.Parallel()
 	old := getBatchBytes
 	getBatchBytes = 40 << 10
 	t.Cleanup(func() { getBatchBytes = old })
