@@ -10,6 +10,7 @@ import (
 // Every table header cell names what it heads (design 4.8: tables use <th scope>), so a screen reader can announce
 // the column of each cell.
 func TestTableHeadersHaveScope(t *testing.T) {
+	t.Parallel()
 	names, _ := fs.Glob(webFS, "web/*.html")
 	th := regexp.MustCompile(`<th(\s[^>]*)?>`)
 	for _, n := range names {
@@ -25,6 +26,7 @@ func TestTableHeadersHaveScope(t *testing.T) {
 // --faint is for disabled states and decorative lines only (design 4.7). Text the user reads reaches 4.5:1 and an
 // icon that carries meaning (the row menu button, the offline dot) 3:1 on the surface it sits on (WCAG 1.4.3, 1.4.11).
 func TestReadableColoursReachContrast(t *testing.T) {
+	t.Parallel()
 	b, _ := fs.ReadFile(webFS, "web/style.css")
 	css := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(string(b), "")
 	tok := func(scope, name string) string { // the value a rule whose selector list holds scope gives the token

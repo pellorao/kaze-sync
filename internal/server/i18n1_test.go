@@ -22,6 +22,7 @@ func jsDictMap(t *testing.T, code string) map[string]string {
 }
 
 func TestJSDictNoForeignSingular(t *testing.T) {
+	t.Parallel()
 	for _, l := range uiLangs {
 		own := i18nOf(t, l)
 		for k := range jsDictMap(t, l) {
@@ -37,6 +38,7 @@ func TestJSDictNoForeignSingular(t *testing.T) {
 
 // en keeps its own ".1" variants (the singular wording is the point of them).
 func TestJSDictEnglishKeepsSingular(t *testing.T) {
+	t.Parallel()
 	en := jsDictMap(t, "en")
 	n := 0
 	for k, v := range i18nOf(t, "en") {
@@ -54,6 +56,7 @@ func TestJSDictEnglishKeepsSingular(t *testing.T) {
 
 // A language that writes its own ".1" keeps it, and the English one of the same key does not replace it.
 func TestJSDictKeepsOwnSingular(t *testing.T) {
+	t.Parallel()
 	dictMu.Lock()
 	dicts["ja"] = map[string]string{"js.go": "ja {n}", "js.go.1": "ja one {n}"}
 	dictMu.Unlock()
@@ -66,6 +69,7 @@ func TestJSDictKeepsOwnSingular(t *testing.T) {
 }
 
 func TestRtPlaceholdersReplacedOnce(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")

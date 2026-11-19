@@ -13,6 +13,7 @@ import (
 // the folded level keep their own rows, and the dialog has a select-all box and buttons that set the checked rows'
 // action at once.
 func TestHeldDialogFoldsByDirectory(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	var items []proto.HeldItem
 	for _, d := range []string{"s0", "s1", "s2", "s3", "s3b", "s4", "s5", "s6", "s7", "s8", "s9"} {
@@ -76,6 +77,7 @@ func TestHeldDialogFoldsByDirectory(t *testing.T) {
 // Fewer changes than the limit are not folded, and a scope whose changes all sit in one directory is cut instead of
 // folded into a single row (that row would only repeat the whole-scope buttons).
 func TestHeldFoldDepth(t *testing.T) {
+	t.Parallel()
 	few := []proto.HeldItem{{Path: "a/b/c"}, {Path: "a/d"}}
 	if k := heldFoldDepth(few, ""); k != 0 {
 		t.Errorf("few paths folded at %d", k)
@@ -96,6 +98,7 @@ func TestHeldFoldDepth(t *testing.T) {
 }
 
 func TestHeldFoldDepthWithRepeatedReports(t *testing.T) {
+	t.Parallel()
 	items := make([]proto.HeldItem, maxHeldRows+1)
 	for i := range items {
 		items[i].Path = "a/file"

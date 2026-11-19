@@ -9,19 +9,46 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"kaze-sync/internal/version"
 )
 
-func build(t *testing.T, name string) string {
-	t.Helper()
-	exe := filepath.Join(t.TempDir(), name)
-	if out, err := exec.Command("go", "build", "-o", exe, "./"+name).CombinedOutput(); err != nil {
-		t.Fatalf("build %s: %v\n%s", name, err, out)
+var binaries = map[string]string{"kaze-syncc": "", "kaze-syncd": ""} // name -> built executable
+
+// TestMain builds both binaries once, side by side, for every test of the package.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "kaze-cmd-test")
+	if err != nil {
+		panic(err)
 	}
-	return exe
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failed := false
+	for name := range binaries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			exe := filepath.Join(dir, name)
+			out, err := exec.Command("go", "build", "-o", exe, "./"+name).CombinedOutput()
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failed = true
+				os.Stderr.WriteString("build " + name + ": " + err.Error() + "\n" + string(out))
+			}
+			binaries[name] = exe
+		}()
+	}
+	wg.Wait()
+	code := 1
+	if !failed {
+		code = m.Run()
+	}
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 // execute runs exe in an empty directory with every state location pointing there.
@@ -61,7 +88,7 @@ func TestCommandLines(t *testing.T) {
 		{"kaze-syncd", []string{"run", "install", "admin-password", "export"}},
 	}
 	for _, c := range cases {
-		exe := build(t, c.bin)
+		exe := binaries[c.bin]
 		var invocations [][]string
 		for _, h := range []string{"-h", "--help", "-help"} {
 			invocations = append(invocations, []string{h}, []string{"help"})
@@ -70,10 +97,13 @@ func TestCommandLines(t *testing.T) {
 			}
 		}
 		for _, args := range invocations {
-			out, errOut, code := execute(t, exe, args...)
-			if code != 0 || !strings.Contains(out, "usage:") || errOut != "" {
-				t.Errorf("%s %v: code %d, stdout %q, stderr %q; want usage on stdout and exit 0", c.bin, args, code, out, errOut)
-			}
+			t.Run(c.bin+"/"+strings.Join(args, "_"), func(t *testing.T) {
+				t.Parallel()
+				out, errOut, code := execute(t, exe, args...)
+				if code != 0 || !strings.Contains(out, "usage:") || errOut != "" {
+					t.Errorf("%s %v: code %d, stdout %q, stderr %q; want usage on stdout and exit 0", c.bin, args, code, out, errOut)
+				}
+			})
 		}
 		bad := [][]string{{}, {"bogus"}, {"--bogus"}}
 		for _, sub := range c.cmds {
@@ -81,10 +111,13 @@ func TestCommandLines(t *testing.T) {
 		}
 		bad = append(bad, []string{"run", "stray"}, []string{"run", "--data", "/nonexistent", "stray"})
 		for _, args := range bad {
-			_, errOut, code := execute(t, exe, args...)
-			if code != 2 || !strings.Contains(errOut, "usage:") {
-				t.Errorf("%s %v: code %d, stderr %q; want usage on stderr and exit 2", c.bin, args, code, errOut)
-			}
+			t.Run(c.bin+"/bad_"+strings.Join(args, "_"), func(t *testing.T) {
+				t.Parallel()
+				_, errOut, code := execute(t, exe, args...)
+				if code != 2 || !strings.Contains(errOut, "usage:") {
+					t.Errorf("%s %v: code %d, stderr %q; want usage on stderr and exit 2", c.bin, args, code, errOut)
+				}
+			})
 		}
 	}
 }
@@ -92,7 +125,7 @@ func TestCommandLines(t *testing.T) {
 // --version prints the one version both binaries are built with and starts nothing.
 func TestVersionFlag(t *testing.T) {
 	for _, bin := range []string{"kaze-syncc", "kaze-syncd"} {
-		out, _, code := execute(t, build(t, bin), "--version")
+		out, _, code := execute(t, binaries[bin], "--version")
 		if code != 0 || strings.TrimSpace(out) != bin+" "+version.Version {
 			t.Errorf("%s --version: code %d, %q", bin, code, out)
 		}

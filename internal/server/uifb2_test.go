@@ -22,6 +22,7 @@ func (e *env) sized(path string, base int64, content string, mtime int64) proto.
 // A directory row carries the total size and the latest modification time of the files below it, at any depth;
 // deleted files are part of neither (design 4.5).
 func TestDirectoryRowsSumSizeAndLatestMtime(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -88,6 +89,7 @@ type ticksReply struct {
 // The time axis marks the end of every minute with a change in its scope, between the oldest state a restore can
 // go back to and now.
 func TestRestoreTicks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -173,6 +175,7 @@ func mustDur(t *testing.T, s string) time.Duration {
 
 // A request the browser dropped (the line moved on) stops the scan.
 func TestRestorePreviewStopsWhenTheRequestIsCancelled(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	for _, n := range []string{"a", "b", "c"} {

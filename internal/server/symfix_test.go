@@ -33,6 +33,7 @@ func checkVictim(t *testing.T, v string) {
 
 // The service user owns var/tls, so root must not follow a link it plants there (symfix).
 func TestRootWritesInTLSDirIgnorePlantedLinks(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	victim := plantVictim(t, t.TempDir())
 	tls := filepath.Join(data, VarDir, TLSDir)
@@ -73,6 +74,7 @@ func TestRootWritesInTLSDirIgnorePlantedLinks(t *testing.T) {
 
 // var/tls itself may be a link the service user planted.
 func TestRootWritesRefuseLinkedTLSDir(t *testing.T) {
+	t.Parallel()
 	data := caData(t)
 	elsewhere := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(data, VarDir), 0o755); err != nil {
@@ -94,6 +96,7 @@ func TestRootWritesRefuseLinkedTLSDir(t *testing.T) {
 
 // SQLite opens -wal, -shm and -journal with O_CREAT and follows links, in a directory the service user owns.
 func TestOpenDBIgnoresPlantedSidecarLinks(t *testing.T) {
+	t.Parallel()
 	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
 		dir := t.TempDir()
 		victim := plantVictim(t, t.TempDir())

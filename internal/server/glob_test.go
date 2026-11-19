@@ -3,6 +3,7 @@ package server
 import "testing"
 
 func TestGlobFilter(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		glob, path string
 		want       bool
@@ -33,6 +34,7 @@ func TestGlobFilter(t *testing.T) {
 }
 
 func TestHitsViewFilter(t *testing.T) {
+	t.Parallel()
 	var hits []ruleHit
 	for _, p := range []string{"a/1.log", "a/2.log", "b/3.txt"} {
 		hits = append(hits, ruleHit{Folder: 1, Name: "Docs", Path: p})

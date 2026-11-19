@@ -16,6 +16,7 @@ import (
 )
 
 func TestLockoutAfterTenFailures(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("secret")
 	c := e.webClient()
@@ -43,6 +44,7 @@ func TestLockoutAfterTenFailures(t *testing.T) {
 // Only the admin password and enrollment codes count for the lockout (design 4.4): a revoked device that keeps
 // asking neither locks out the administrator nor the other devices behind the same address.
 func TestLockoutCountsCodesNotDeviceTokens(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("secret")
 	for i := 0; i < 30; i++ {
@@ -63,6 +65,7 @@ func TestLockoutCountsCodesNotDeviceTokens(t *testing.T) {
 }
 
 func TestLoginSessionAndHeaders(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := e.webClient()
 	if status, _ := e.get(c, "/"); status != 303 {
@@ -103,6 +106,7 @@ func TestLoginSessionAndHeaders(t *testing.T) {
 }
 
 func TestLogoutEndsSession(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -114,6 +118,7 @@ func TestLogoutEndsSession(t *testing.T) {
 }
 
 func TestCrossOriginPostRefused(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -144,6 +149,7 @@ func TestCrossOriginPostRefused(t *testing.T) {
 
 // adminFlow drives the Web UI from login to a mapped, enrolled device.
 func TestEnrollmentAndMappingFlow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -220,6 +226,7 @@ func TestEnrollmentAndMappingFlow(t *testing.T) {
 }
 
 func TestPollWakesOnConfigChange(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.s.PollTimeout = 10 * time.Second
 	e.setAdminPassword("pw")
@@ -235,7 +242,7 @@ func TestPollWakesOnConfigChange(t *testing.T) {
 		json.Unmarshal(out, &pr)
 		done <- pr
 	}()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	if st, body := e.post(c, "/devices/"+itoa(dev)+"/mapping", url.Values{"folder": {"1"}, "path": {`D:/Docs/`}, "action": {"save"}}); st != 303 {
 		t.Fatalf("save: %d %s", st, body)
 	}
@@ -260,6 +267,7 @@ func TestPollWakesOnConfigChange(t *testing.T) {
 }
 
 func TestCleanMapping(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		os, path string
 		others   []string
@@ -294,6 +302,7 @@ func TestCleanMapping(t *testing.T) {
 }
 
 func TestRevokeStopsDevice(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -317,6 +326,7 @@ func TestRevokeStopsDevice(t *testing.T) {
 }
 
 func TestBrowseVersionsAndRestore(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -367,6 +377,7 @@ func TestBrowseVersionsAndRestore(t *testing.T) {
 }
 
 func TestOverviewAndKeepDays(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -392,6 +403,7 @@ func TestOverviewAndKeepDays(t *testing.T) {
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func TestHealthzNeedsNoLogin(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	if status, body := e.get(e.webClient(), "/healthz"); status != 200 || body != "ok\n" {
 		t.Fatalf("%d %q", status, body)
@@ -399,6 +411,7 @@ func TestHealthzNeedsNoLogin(t *testing.T) {
 }
 
 func TestRulesEditingValidatesBumpsAndBroadcasts(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.s.PollTimeout = 10 * time.Second
 	e.setAdminPassword("pw")
@@ -428,7 +441,7 @@ func TestRulesEditingValidatesBumpsAndBroadcasts(t *testing.T) {
 		json.Unmarshal(out, &pr)
 		done <- pr
 	}()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	if st, _ := e.post(c, "/rules", url.Values{"rules": {"*.o\r\nbuild/\r\n"}}); st != 303 {
 		t.Fatal("save global rules")
 	}
@@ -479,6 +492,7 @@ func (e *env) rawAPI(token, path, version string, body any) (int, string) {
 }
 
 func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -486,7 +500,7 @@ func TestTooOldClientGetsAClearErrorAndTheOverviewShowsIt(t *testing.T) {
 	dev, tok := e.enrollDevice("d1", "linux")
 	f := e.folder("Docs")
 	e.mapFolder(dev, f, "/x")
-	e.s.PollTimeout = 50 * time.Millisecond
+	e.s.PollTimeout = 5 * time.Millisecond
 
 	// A client without the header (every client before it) and one with an older number are refused on every device route.
 	for _, v := range []string{"", "1"} {

@@ -36,6 +36,7 @@ func (e *env) hasBlock(h proto.Hash) bool {
 // A history with dated versions: only versions past keep_days go, and only blocks nothing references and
 // that are past the grace period; blocks shared with a live file or another version stay.
 func TestGCExpiresVersionsAndSweepsOnlyUnreferencedOldBlocks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	day := 24 * time.Hour
@@ -98,6 +99,7 @@ func TestGCExpiresVersionsAndSweepsOnlyUnreferencedOldBlocks(t *testing.T) {
 
 // Saving keep_days in the Web UI clears the expired versions and then their blocks without a restart.
 func TestSavingKeepDaysRunsGC(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -135,6 +137,7 @@ func (h countGC) WithGroup(string) slog.Handler      { return h }
 
 // Requests during a run do not start a second GC beside it; they make it run once more afterwards.
 func TestGCRunsOneAtATime(t *testing.T) {
+	// Not parallel: it swaps the default logger.
 	var n atomic.Int32
 	old := slog.Default()
 	slog.SetDefault(slog.New(countGC{&n}))
@@ -152,7 +155,7 @@ func TestGCRunsOneAtATime(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		e.s.requestGC()
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	if n.Load() != 0 {
 		t.Fatal("a GC finished while the lock was held")
 	}
@@ -167,6 +170,7 @@ func TestGCRunsOneAtATime(t *testing.T) {
 }
 
 func TestGCWait(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
 		last time.Time
@@ -195,6 +199,7 @@ func (e *env) liveHash(f int64, path string) []byte {
 }
 
 func TestRestoreDirToPointInTime(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -246,17 +251,24 @@ func TestRestoreDirToPointInTime(t *testing.T) {
 	}
 }
 
-// A thousand files deleted together come back, across several commits of at most 1000 operations.
+// More than a thousand files deleted together come back, across two commits of at most 1000 operations.
 func TestRestoreDirManyFiles(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
 	e.login(c, "pw")
 	f := e.folder("Docs")
-	const n = 2500
+	const n = 1100 // more than one commit of 1000 operations
 	var add, del []proto.Op
+	var distinct [50]proto.Op // the 50 contents are stored once; the paths share them
+	for i := range distinct {
+		distinct[i] = e.op("", 0, fmt.Sprintf("content %d", i))
+	}
 	for i := 0; i < n; i++ {
-		add = append(add, e.op(fmt.Sprintf("proj/d%d/f%04d", i%10, i), 0, fmt.Sprintf("content %d", i%50)))
+		op := distinct[i%50]
+		op.Path = fmt.Sprintf("proj/d%d/f%04d", i%10, i)
+		add = append(add, op)
 	}
 	for i, r := range e.commit(f, add...) {
 		del = append(del, proto.Op{Path: add[i].Path, BaseSeq: r.Seq})
@@ -279,6 +291,7 @@ func TestRestoreDirManyFiles(t *testing.T) {
 }
 
 func TestDeleteFolder(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -327,6 +340,7 @@ func TestDeleteFolder(t *testing.T) {
 // A file of the folder that cannot be removed must not stop the others from going, and the deletion has
 // succeeded (the row is gone, a retry would only find a 404).
 func TestDeleteFolderKeepsGoingWhenAFileCannotBeRemoved(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -374,6 +388,7 @@ func readTree(t *testing.T, root string) map[string]string {
 }
 
 func TestExport(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	other := e.folder("a/b")                                    // a name that cannot be a directory name

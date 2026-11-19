@@ -27,6 +27,7 @@ func rowOf(t *testing.T, page, path string) string {
 // The file list shows write control by icon only (design 2.8.11): shape and color by the effective mode for directories
 // and files alike, a filled body where the setting is on the path itself, and the former labels in the icon's tip.
 func TestFileListShowsWriteControlByIcon(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.op("README.md", 0, "r"), l.op("key.pem", 0, "k"), l.op("repo/x.go", 0, "x"),
 		l.op("scratch/a.txt", 0, "a"), l.op("scratch/b.txt", 0, "b"), l.op("scratch/sub/c.txt", 0, "c"))
@@ -90,6 +91,7 @@ func TestFileListShowsWriteControlByIcon(t *testing.T) {
 
 // The overview shows each folder's root setting without opening it; a root without a row is single writer by default.
 func TestOverviewShowsTheRootWriteControl(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	g := l.folder("G")
 	if st, _ := l.post(l.web, "/folders/"+itoa(g)+"/writectl", url.Values{"path": {""}, "mode": {"free"}}); st != 303 {
@@ -108,6 +110,7 @@ func TestOverviewShowsTheRootWriteControl(t *testing.T) {
 // Every icon the templates, the Go code and app.js name is in the sprite, and no icon is a font glyph (the user asked
 // for vector icons, 2026-11-12); a glyph may stay only as screen-reader text.
 func TestIconsAreVectorsOfTheSprite(t *testing.T) {
+	t.Parallel()
 	sprite, _ := fs.ReadFile(webFS, "web/icons.svg")
 	has := map[string]bool{}
 	for _, m := range regexp.MustCompile(`<symbol id="i-([a-z-]+)"`).FindAllStringSubmatch(string(sprite), -1) {
@@ -147,6 +150,7 @@ func TestIconsAreVectorsOfTheSprite(t *testing.T) {
 // Every icon is drawn in one style (design 4.7, wcicon2): the same 24-unit grid and the stroke of style.css (no symbol
 // sets its own width), the sprite holds no unused icon, and the CSS sizes an icon only to the four sizes of 4.7.
 func TestIconsShareOneStyle(t *testing.T) {
+	t.Parallel()
 	sprite, _ := fs.ReadFile(webFS, "web/icons.svg")
 	symbols := regexp.MustCompile(`<symbol id="i-([a-z-]+)"([^>]*)>(.*?)</symbol>`).FindAllStringSubmatch(string(sprite), -1)
 	if len(symbols) < 20 {
@@ -203,6 +207,7 @@ func TestIconsShareOneStyle(t *testing.T) {
 // The behaviour of the tip box in app.js (design 4.8) is tested with node's built-in runner, without a dependency; the
 // test is skipped where node is not installed.
 func TestTipBoxScript(t *testing.T) {
+	t.Parallel()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed")

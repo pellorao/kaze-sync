@@ -14,6 +14,7 @@ import (
 // The top bar of a signed-in page reads "Kaze Sync" and the version in a muted grey; the login page names the product but
 // does not tell the version to someone who is not signed in (semver task).
 func TestTopBarShowsNameAndVersion(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -54,6 +55,7 @@ func lum(c [3]float64) float64 { return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2] 
 
 // The version text is greyer than the name but still reads at 4.5:1 on the bar (ui.md); the page has one (dark) theme.
 func TestVersionContrast(t *testing.T) {
+	t.Parallel()
 	css, _ := fs.ReadFile(webFS, "web/style.css")
 	root := string(css)
 	tok := func(name string) string {

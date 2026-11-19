@@ -501,6 +501,7 @@ func TestPushCapAndNoSubscriptions(t *testing.T) {
 }
 
 func TestBellListsTheServersOwnProblemsAndOfflineAfterThreeDays(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.enrollDevice("laptop", "linux")
 	if v := e.s.notifications(); v.Total() != 0 {
@@ -583,6 +584,7 @@ func (e *env) editSubsGone(gone bool) {
 // The mapping snapshot of the push checks is read outside s.mu (design 4.3): the global lock stays free while the
 // query waits for the database.
 func TestNoticeMappingsQueryOutsideLock(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("docs")
 	dev, _ := e.enrollDevice("laptop", "linux")
@@ -599,7 +601,7 @@ func TestNoticeMappingsQueryOutsideLock(t *testing.T) {
 	e.s.mu.Unlock()
 	done := make(chan map[noticeMapping]bool, 1)
 	go func() { m, _ := e.s.noticeMappingSnapshot(); done <- m }()
-	time.Sleep(100 * time.Millisecond) // the query is waiting for the only connection
+	time.Sleep(20 * time.Millisecond) // the query is waiting for the only connection
 	if !e.s.mu.TryLock() {
 		conn.Close()
 		t.Fatal("s.mu is held while the mapping query runs")

@@ -16,6 +16,7 @@ import (
 )
 
 func TestGCPasses(t *testing.T) {
+	t.Parallel()
 	const mb = 1 << 20
 	for _, tc := range []struct {
 		refs, budget int64
@@ -66,6 +67,7 @@ func memSource(lists ...[]proto.Hash) refSource {
 }
 
 func TestCollectRefsRangeSortDedup(t *testing.T) {
+	t.Parallel()
 	hs := hashesOf(rand.New(rand.NewPCG(1, 2)), 2000)
 	src := memSource(hs, hs[:500]) // duplicates across lists
 	all, err := collectRefs([]refSource{src}, 0, 256, nil)
@@ -91,6 +93,7 @@ func TestCollectRefsRangeSortDedup(t *testing.T) {
 
 // Whatever the budget, the same blobs are removed: only unreferenced old ones.
 func TestSweepPassesRemovesOnlyUnreferenced(t *testing.T) {
+	t.Parallel()
 	for _, budget := range []int64{GCMemoryBudget, 32 * 40, 32} { // one pass, a few passes, as many as possible
 		e := newEnv(t)
 		a, b := e.folder("a"), e.folder("b")

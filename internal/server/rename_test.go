@@ -16,6 +16,7 @@ import (
 // TestRenameDevice: a rename checks the name like enrollment, keeps the token, announces the name in the
 // configuration, moves the current rows to the new name and leaves older versions under the old one (design 2.5).
 func TestRenameDevice(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -117,6 +118,7 @@ func TestRenameDevice(t *testing.T) {
 }
 
 func TestConcurrentRenamesWaitForCurrentWriterUpdate(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	c := adminClient(e)
 	id, tok := e.enrollDevice("first", "linux")

@@ -54,6 +54,7 @@ func (l *lockEnv) lock(path string, dev int64) (int, string) {
 }
 
 func TestLockRejectsOtherDevicesWrites(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	if st, _ := l.lock("repo/.git", l.a); st != 303 {
 		t.Fatalf("lock: %d", st)
@@ -83,6 +84,7 @@ func TestLockRejectsOtherDevicesWrites(t *testing.T) {
 }
 
 func TestLockWholeFolder(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.lock("", l.a)
 	if r := l.apiCommit(l.tb, l.f, l.op("any/file", 0, "x")); r[0].Reason != proto.ReasonOwner {
@@ -94,6 +96,7 @@ func TestLockWholeFolder(t *testing.T) {
 }
 
 func TestLockRules(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	if st, _ := l.lock("a/b", l.a); st != 303 {
 		t.Fatalf("lock: %d", st)
@@ -131,6 +134,7 @@ func TestLockRules(t *testing.T) {
 }
 
 func TestLockGoesWithTheDeviceOrItsMapping(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.lock("x", l.a)
 	l.lock("y", l.b)
@@ -149,6 +153,7 @@ func TestLockGoesWithTheDeviceOrItsMapping(t *testing.T) {
 
 // Restoring through the Web UI works inside a locked range, and the result reaches every device.
 func TestWebRestoreIgnoresLocks(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.lock("d", l.a)
 	l.apiCommit(l.ta, l.f, l.op("d/f", 0, "one"))
@@ -167,6 +172,7 @@ func TestWebRestoreIgnoresLocks(t *testing.T) {
 }
 
 func TestMigrateToLocksSchema(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	if e.count(`SELECT count(*) FROM sqlite_master WHERE name='writectl'`) != 1 || SchemaVersion != 5 {
 		t.Fatal("no locks table")
@@ -174,6 +180,7 @@ func TestMigrateToLocksSchema(t *testing.T) {
 }
 
 func TestLockWebUI(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.lock("repo", l.a)
 	l.apiCommit(l.ta, l.f, l.op("repo/x.txt", 0, "x"), l.op("other/y.txt", 0, "y"))
@@ -196,6 +203,7 @@ func TestLockWebUI(t *testing.T) {
 
 // A device that is not there is named by its id in the refusal.
 func TestLockUnknownDeviceNamedById(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	if st, body := l.lock("z", 987); st != 400 || !strings.Contains(body, "987") {
 		t.Fatalf("unknown device: %d %s", st, body)
@@ -205,6 +213,7 @@ func TestLockUnknownDeviceNamedById(t *testing.T) {
 // The other side of a concurrent write is taken within the scope of the held changes, and not carried over to
 // another device's notice (it never names the device itself).
 func TestHeldOtherWriterPerScope(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	c, tc := l.enrollDevice("C", "linux")
 	l.mapFolder(c, l.f, "/c")

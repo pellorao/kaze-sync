@@ -35,6 +35,7 @@ func owner(r proto.Result) string {
 
 // Single scope, the time window: another device's write is concurrent for N, then the writer changes hands.
 func TestSingleWindow(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	if r := l.apiCommit(l.ta, l.f, l.wcOp("repo/a", 0, 0, "1")); r[0].Status != proto.StatusOK {
 		t.Fatalf("A: %+v", r[0])
@@ -64,6 +65,7 @@ func TestSingleWindow(t *testing.T) {
 
 // The version condition catches a device that went offline: its since is from before.
 func TestSingleStaleAfterOffline(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.wcOp("x", 0, 0, "1")) // seq 1
 	l.clk.Add(time.Hour)
@@ -81,6 +83,7 @@ func TestSingleStaleAfterOffline(t *testing.T) {
 
 // The window can be turned off; the rules deletions (web:rules) and the Web UI (devID 0) are not bound.
 func TestSingleWindowZeroAndClockBack(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.wcOp("a", 0, 0, "1"))
 	SetMeta(l.s.db, "write_window", 0)
@@ -96,6 +99,7 @@ func TestSingleWindowZeroAndClockBack(t *testing.T) {
 
 // Exclusive refuses everything of the others, also a write of a file inside it; the owner is bound by the base check only.
 func TestExclusiveAndFree(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.mode("repo", proto.ModeExclusive, l.a)
 	if r := l.apiCommit(l.tb, l.f, l.wcOp("repo/f", 0, 0, "x")); owner(r[0]) != "exclusive:A" {
@@ -121,6 +125,7 @@ func TestExclusiveAndFree(t *testing.T) {
 
 // A decision (resolve) skips the check, and writes in a deeper scope do not count in the outer one.
 func TestResolveAndNestedScopes(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.wcOp("a", 0, 0, "1"))
 	l.clk.Add(time.Hour)
@@ -144,6 +149,7 @@ func TestResolveAndNestedScopes(t *testing.T) {
 
 // Saving the default for the root changes nothing the devices see; a transfer does; the config lists the root first.
 func TestWritectlConfig(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	v := metaInt(l.s.db, "config_version")
 	l.mode("", proto.ModeSingle, 0)
@@ -166,6 +172,7 @@ func TestWritectlConfig(t *testing.T) {
 
 // Version 3 locks become exclusive settings, the window gets its default.
 func TestMigrateLocksToWritectl(t *testing.T) {
+	t.Parallel()
 	db, err := OpenDB(t.TempDir()+"/meta.db", true)
 	if err != nil {
 		t.Fatal(err)

@@ -78,6 +78,7 @@ func (se *stageEnv) sendAll(dev int, id string) {
 }
 
 func TestStageBigFileCommits(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	se.sendAll(0, se.id)
 	r := se.commitStage(0, se.id)
@@ -96,6 +97,7 @@ func TestStageBigFileCommits(t *testing.T) {
 }
 
 func TestStageResendAndNeed(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	missing := proto.Hash{9}
 	hs := append([]proto.Hash{missing}, se.hashes[:10]...)
@@ -109,6 +111,7 @@ func TestStageResendAndNeed(t *testing.T) {
 }
 
 func TestStageGapRefused(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	if r := se.stage(0, se.id, 5, se.hashes[:5]); r.Reason != proto.ReasonGap || r.Have != 0 {
 		t.Fatalf("new stage at offset 5: %+v", r)
@@ -123,6 +126,7 @@ func TestStageGapRefused(t *testing.T) {
 }
 
 func TestStageBelongsToDevice(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	se.sendAll(0, se.id)
 	if r := se.commitStage(1, se.id); r.Status != proto.StatusRejected || r.Reason != proto.ReasonNoStage {
@@ -137,6 +141,7 @@ func TestStageBelongsToDevice(t *testing.T) {
 }
 
 func TestStageExpires(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	se.sendAll(0, se.id)
 	old := time.Now().Add(-stageTTL - time.Hour)
@@ -154,6 +159,7 @@ func TestStageExpires(t *testing.T) {
 }
 
 func TestStageLimits(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	for i := 0; i < proto.MaxStagesPerDevice; i++ {
 		id := strings.Repeat(string(rune('a'+i)), 32)
@@ -197,6 +203,7 @@ func TestStageNoSpace(t *testing.T) {
 }
 
 func TestGCKeepsStagedBlocks(t *testing.T) {
+	t.Parallel()
 	se := newStageEnv(t)
 	old := time.Now().Add(-3 * time.Hour)
 	blobPathOf(t, se.s.varDir, se.h, old)

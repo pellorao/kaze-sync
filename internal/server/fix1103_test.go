@@ -14,6 +14,7 @@ import (
 
 // A keep_days that cannot be read stops the GC instead of expiring everything older than a day.
 func TestGCRefusesWithoutKeepDays(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	e.commit(f, e.op("a", 0, "first"))
@@ -35,6 +36,7 @@ func TestGCRefusesWithoutKeepDays(t *testing.T) {
 // One unreadable folder database does not take the overview down (design 2.3), and a leftover database file
 // of the same id does not stop a new folder from being created.
 func TestOverviewSurvivesBrokenFolderAndLeftovers(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAdminPassword("pw")
 	c := e.webClient()
@@ -71,6 +73,7 @@ func TestOverviewSurvivesBrokenFolderAndLeftovers(t *testing.T) {
 // The history queries work without HTTP: a version comes back as the current state, and a directory comes back as
 // it was at a time (history.go).
 func TestHistoryWithoutHTTP(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.folder("Docs")
 	e.commit(f, e.op("d/a", 0, "first"), e.op("d/b", 0, "bee"))

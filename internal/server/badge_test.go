@@ -13,6 +13,7 @@ import (
 // "12" touched the gear): the overhang may not exceed the gap plus the extra room the bell keeps at its right. The badge is
 // anchored at its right edge, so a wider count (2 digits, 99+) grows to the left and the overhang does not change.
 func TestBadgeStaysOffTheNextButton(t *testing.T) {
+	t.Parallel()
 	cssb, _ := fs.ReadFile(webFS, "web/style.css")
 	css := string(cssb)
 	num := func(re string) int {

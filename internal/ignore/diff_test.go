@@ -97,6 +97,12 @@ func TestDifferentialAgainstGit(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	for _, fold := range []bool{false, true} {
+		t.Run(map[bool]string{true: "fold", false: "exact"}[fold], func(t *testing.T) { t.Parallel(); diffAgainstGit(t, fold) })
+	}
+}
+
+func diffAgainstGit(t *testing.T, fold bool) {
+	{
 		rng := rand.New(rand.NewPCG(diffSeed, 1))
 		root := t.TempDir()
 		git := func(stdin []byte, args ...string) []byte {

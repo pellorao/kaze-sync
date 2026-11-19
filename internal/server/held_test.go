@@ -40,6 +40,7 @@ func heldEnv(t *testing.T) (*lockEnv, proto.HeldItem) {
 
 // A decision reaches the device once through its poll, and the next held report ends it.
 func TestResolveDeliversActionOnce(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	l.heldReport(l.tb, l.f, it)
 	row := "1\t5\t7000000000\td/x.txt"
@@ -73,6 +74,7 @@ func TestResolveDeliversActionOnce(t *testing.T) {
 
 // A batch button acts only on what the server has not changed since the dialog was drawn.
 func TestResolveBatchSkipsChangedPaths(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	l.apiCommit(l.ta, l.f, l.op("d/y.txt", 0, "y"))
 	it2 := it
@@ -89,6 +91,7 @@ func TestResolveBatchSkipsChangedPaths(t *testing.T) {
 
 // The boot id changes with the process, which tells the devices to send their held lists again.
 func TestBootChangesWithRestart(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t)
 	_, b1 := l.pollActions(l.ta, l.f)
 	_, b2 := l.pollActions(l.ta, l.f)
@@ -101,6 +104,7 @@ func TestBootChangesWithRestart(t *testing.T) {
 
 // changes?blocking= lists the live entries that stand in the way of a file at a path.
 func TestChangesBlockingEntries(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	l.apiCommit(l.ta, l.f, l.op("a", 0, "file"), l.op("b/c/d", 0, "deep"), l.op("b/e", 0, "e"))
 	blocking := func(p string) []string {
@@ -135,6 +139,7 @@ func TestChangesBlockingEntries(t *testing.T) {
 
 // A folder shows the new-folder reminder until its write rules are saved or kept.
 func TestNewFolderReminderUntilAcknowledged(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	has := func() bool { _, p := l.get(l.web, "/"); return strings.Contains(p, "还没有设置写入规则") }
 	if !has() {
@@ -154,6 +159,7 @@ func TestNewFolderReminderUntilAcknowledged(t *testing.T) {
 }
 
 func TestWriteWindowSetting(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	if st, _ := l.post(l.web, "/settings/window", url.Values{"window": {"5"}}); st != 303 || metaInt(l.s.db, "write_window") != 300 {
 		t.Fatalf("window = %d", metaInt(l.s.db, "write_window"))
@@ -170,6 +176,7 @@ func TestWriteWindowSetting(t *testing.T) {
 
 // Migrations: the conflict column goes from the folder databases, wc_ack comes to the folders.
 func TestMigrationsDropConflictAddAck(t *testing.T) {
+	t.Parallel()
 	l := newLockEnv(t)
 	db := l.s.folderDBMust(t, l.f)
 	for _, tb := range []string{"files", "versions"} {
@@ -203,6 +210,7 @@ func manyHeld(it proto.HeldItem, n int) []proto.HeldItem {
 
 // A device cannot make the server keep more than maxHeldItems held changes for a folder: the rest is dropped.
 func TestHeldListIsCapped(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	l.heldReport(l.tb, l.f, manyHeld(it, maxHeldItems+5)...)
 	l.s.mu.Lock()
@@ -215,6 +223,7 @@ func TestHeldListIsCapped(t *testing.T) {
 
 // The decision dialog draws at most maxHeldRows rows of a scope and says how many there are in all.
 func TestHeldDialogDrawsAtMostMaxRows(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	items := manyHeld(it, maxHeldRows)
 	for range 30 {
@@ -240,6 +249,7 @@ func TestHeldDialogDrawsAtMostMaxRows(t *testing.T) {
 // A report over the limit is cut, and the cut is not silent: the answer counts what was dropped and the folder's
 // notices say so, until a report fits again.
 func TestHeldReportCutIsShown(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t)
 	items := make([]proto.HeldItem, maxHeldItems+3)
 	for i := range items {
@@ -282,6 +292,7 @@ func TestHeldReportCutIsShown(t *testing.T) {
 
 // What the device itself left out (HeldReq.Cut) is counted with what the server drops.
 func TestHeldReportCutAddsDeviceCut(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	st, out := l.api(l.tb, "held", proto.HeldReq{Folder: l.f, Items: []proto.HeldItem{it}, Cut: 9000})
 	if st != 200 {
@@ -303,6 +314,7 @@ func TestHeldReportCutAddsDeviceCut(t *testing.T) {
 
 // A new device whose file equals the server's is not refused for ownership; a different one still is.
 func TestOwnerCheckLetsSameContentThrough(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t) // A committed d/x.txt = "one"
 	same := l.op("d/x.txt", 0, "one")
 	r := l.apiCommit(l.tb, l.f, same)
@@ -319,6 +331,7 @@ func TestOwnerCheckLetsSameContentThrough(t *testing.T) {
 
 // The page the user returns to after a decision keeps the directory he was in, whatever characters its name has.
 func TestResolveRedirectKeepsDirectory(t *testing.T) {
+	t.Parallel()
 	l, _ := heldEnv(t)
 	resp, err := l.web.PostForm(l.ts.URL+"/folders/"+itoa(l.f)+"/resolve", url.Values{"device": {itoa(l.b)}, "dir": {"a&b#c"}})
 	if err != nil {
@@ -334,6 +347,7 @@ func TestResolveRedirectKeepsDirectory(t *testing.T) {
 // After "discard all" the dialog shows at once that the decision is sent (the device carries it out on its own time),
 // and the group buttons are off, so a second click is not needed nor offered (discard2x).
 func TestGroupDecisionShowsWaiting(t *testing.T) {
+	t.Parallel()
 	l, it := heldEnv(t)
 	l.heldReport(l.tb, l.f, it)
 	seen := l.seq(l.f)
