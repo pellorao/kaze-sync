@@ -196,6 +196,7 @@ M3 内的产品代码 (约 30): 健康检查端点 `/healthz`, `--no-autostart`.
 - Windows 单元测试: 在 WSL 中 `GOOS=windows go test -c -o <Windows 磁盘上的目录>/x.test.exe ./internal/...`, 再经互操作运行, 使其临时目录位于 NTFS. 可执行文件不受 PowerShell 执行策略限制.
 - 服务端二进制: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/kaze-syncd`.
 - 端到端: `go run ./e2e -config <path>`, 每个里程碑结束时运行全部已有场景.
+- 默认 `go test` 里仿真与崩溃点扫描是缩小规模 (16 个种子 x 60 步, 崩溃点 1 个脚本 x 8 步); 设计要求的全规模 (1000 种子, 数百步) 用深度运行: `SIM_SEEDS=1000 SIM_STEPS=300 SIM_SCRIPTS=5 SIM_CRASH_STEPS=70 go test ./client -count=1` (约 2800 CPU 秒, 不与其他测试同时跑), 每个里程碑结束, 发版前和每周测试清理时各跑一次. 上一条的内存与耗时数字是缩小规模之前的实测.
 - 每个里程碑结束时: 单元与模拟测试全绿, 端到端场景通过, 提交一次.
 
 计划层面没有待决问题 (原 E1 随虚拟机改由另一项工作构建而取消, E2 原为 systemd 相关问题, 已由 M8 的设计取代).

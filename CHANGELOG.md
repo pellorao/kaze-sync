@@ -4,13 +4,16 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.5.3 - 2026-11-19
+
+Patch release: held deletions clear by themselves once the server has deleted the path too.
 
 ### Fixed
 
 - Held changes: a held deletion now clears by itself once the server has deleted the path too, also when the server's deletion came before this check existed (the client asks the server instead of waiting for the deletion to come again). Only the record goes; a file put back in the meantime stays and syncs as a new file.
 - After a server restore (new epoch), a scope that was waiting for a decision now reads the server's new history from the start once it is unfrozen; before, the files skipped while it was frozen kept no server version.
-- Server: a client checking its held deletions gets the current entries without their block lists, so the check stays small whatever the size of the files. Upgrade the server first to benefit; older servers still work.
+- Server: a client checking its held deletions gets the current entries without their block lists, so the check stays small whatever the size of the files. Upgrade the server first to benefit; older servers still work. The check never disturbs the client's own pending uploads on the server, and it asks one path at a time until the server is known to support it.
+- Held changes: clearing a held deletion also drops a stale "link not created" record for that path.
 
 ## v0.5.2 - 2026-11-19
 
