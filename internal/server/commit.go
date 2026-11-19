@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 
 	"kaze-sync/internal/proto"
@@ -131,16 +130,7 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	res := make([]proto.Result, len(ops))
 	var owner []*proto.OwnerInfo
 	if devID != 0 {
-		skip := maps.Clone(noStage)
-		for i := range ops {
-			if ops[i].Probe {
-				if skip == nil {
-					skip = map[int]bool{}
-				}
-				skip[i] = true
-			}
-		}
-		if owner, err = s.ownerChecks(tx, rules, devID, device, ops, skip, now); err != nil {
+		if owner, err = s.ownerChecks(tx, rules, devID, device, ops, noStage, now); err != nil {
 			return nil, err
 		}
 	}
@@ -166,7 +156,7 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 		return nil, err
 	}
 	for i, r := range res {
-		if r.Status == proto.StatusOK && ops[i].Stage != "" {
+		if r.Status == proto.StatusOK && !ops[i].Probe && ops[i].Stage != "" {
 			s.dropStage(devID, folder, ops[i].Stage)
 		}
 	}
@@ -191,7 +181,7 @@ func (s *Server) ownerChecks(tx *sql.Tx, rules []lockRow, devID int64, device st
 	groups := map[string]*group{}
 	var order []*group
 	for i := range ops {
-		if skip[i] {
+		if skip[i] || ops[i].Probe { // a probe is no write
 			continue
 		}
 		sc := scopeOf(rules, ops[i].Path)

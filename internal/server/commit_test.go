@@ -257,19 +257,22 @@ func TestProbeLeavesStageAndOwnerAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := proto.Hash{1}
-	res := l.apiCommit(l.tb, l.f,
+	res, err := l.s.commitFor(l.f, l.b, "B", []proto.Op{
 		proto.Op{Path: "x", BaseSeq: -1, Probe: true, Hash: &h, Size: 1, Stage: "abcd1234"},
 		proto.Op{Path: "y", BaseSeq: -1, Probe: true}, // no Resolve: B is not the owner, a probe is no write
-	)
-	if res[0].Status != proto.StatusOK || res[1].Status != proto.StatusOK {
+	})
+	if err != nil || res[0].Status != proto.StatusOK || res[1].Status != proto.StatusOK {
 		t.Fatalf("probes: %+v", res)
 	}
 	if _, ok := stageHave(sp); !ok {
 		t.Fatal("a probe dropped the stage")
 	}
 	// Mixed with a write of B's, the probe is still answered and the write refused.
-	res = l.apiCommit(l.tb, l.f, proto.Op{Path: "y", BaseSeq: -1, Probe: true}, l.op("z", 0, "z"))
-	if res[0].Status != proto.StatusOK || res[1].Reason != proto.ReasonOwner {
+	res, err = l.s.commitFor(l.f, l.b, "B", []proto.Op{{Path: "y", BaseSeq: -1, Probe: true, Hash: &h, Size: 1, Stage: "abcd1234"}, l.op("z", 0, "z")})
+	if err != nil || res[0].Status != proto.StatusOK || res[1].Reason != proto.ReasonOwner {
 		t.Fatalf("mixed: %+v", res)
+	}
+	if _, ok := stageHave(sp); !ok {
+		t.Fatal("an ok probe in a batch with a write dropped the stage")
 	}
 }

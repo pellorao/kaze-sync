@@ -49,7 +49,7 @@ func TestProbeBatchOneUntilBare(t *testing.T) {
 		{proto.Result{Status: proto.StatusConflict, Current: &proto.Entry{Size: 5, Hash: &h}}, true},
 		{proto.Result{Status: proto.StatusConflict, Current: &proto.Entry{Size: 5, Hash: &h, Blocks: []proto.Hash{h}}}, false}, // older server
 		{proto.Result{Status: proto.StatusConflict, Current: &proto.Entry{Hash: &h}}, false},                                   // empty file: no proof
-		{proto.Result{Status: proto.StatusOK, Current: &proto.Entry{Size: 5}}, false},
+		{proto.Result{Status: proto.StatusOK, Current: &proto.Entry{Seq: 3}}, true},                                            // the tombstone only a newer server attaches
 		{proto.Result{Status: proto.StatusOK}, false},
 	} {
 		if got := bareAnswer(c.r); got != c.want {

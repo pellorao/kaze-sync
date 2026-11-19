@@ -144,6 +144,7 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 		for i, r := range res {
 			switch {
 			case r.Status == proto.StatusOK: // deleting a tombstone, or nothing, succeeds and changes nothing
+				f.bareProbe = f.bareProbe || bareAnswer(r)
 				deleted[ask[i]] = r.Current != nil && r.Current.Excluded
 			case r.Current != nil:
 				f.heldLive[ask[i]] = true
@@ -197,10 +198,13 @@ func probeBatch(ask []string, dels map[string]heldDel, bare bool) int {
 	return n
 }
 
-// bareAnswer reports whether a probe result shows the server leaves the block list out: a conflict with content and
-// none. An empty file shows nothing either way.
+// bareAnswer reports whether a probe result shows the server knows Probe: a conflict with content and no block list,
+// or an ok with the tombstone (an older server attaches no entry to an ok). An empty file shows nothing either way.
 func bareAnswer(r proto.Result) bool {
-	return r.Status == proto.StatusConflict && r.Current != nil && r.Current.Size > 0 && len(r.Current.Blocks) == 0
+	if r.Current == nil {
+		return false
+	}
+	return r.Status == proto.StatusOK || r.Status == proto.StatusConflict && r.Current.Size > 0 && len(r.Current.Blocks) == 0
 }
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }
