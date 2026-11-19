@@ -58,7 +58,7 @@ func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
 }
 
 func TestSimulationSeed1637(t *testing.T) {
-	t.Parallel()
+	oneWorker(t)
 	s := newSim(t, 1637)
 	s.run(300, true)
 	s.settle()
