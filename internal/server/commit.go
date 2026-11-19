@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"kaze-sync/internal/proto"
@@ -75,7 +76,12 @@ func (s *Server) commit(folder int64, device string, ops []proto.Op) ([]proto.Re
 // commitFor is commit for a device API request: devID (non-zero) lets an op name a staged block list (design 2.4).
 func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) ([]proto.Result, error) {
 	var noStage map[int]bool
+	allProbe := len(ops) > 0
 	for i := range ops {
+		if ops[i].Probe { // a probe changes nothing: it reads no stage, drops none, and is no write to check (design 2.8.6)
+			continue
+		}
+		allProbe = false
 		if ops[i].Stage != "" {
 			if len(ops[i].Blocks) != 0 || ops[i].Hash == nil || devID == 0 {
 				return nil, badRequest{"stage with blocks, or on a delete"}
@@ -95,6 +101,15 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	db, err := s.folderDB(folder)
 	if err != nil {
 		return nil, err
+	}
+	if allProbe { // reads only: no write lock, no write control
+		res := make([]proto.Result, len(ops))
+		for i := range ops {
+			if res[i], err = probeOp(db, ops[i].Path); err != nil {
+				return nil, err
+			}
+		}
+		return res, nil
 	}
 	var rules []lockRow
 	if devID != 0 { // the Web UI and the rule deletions (devID 0) are the administrator: not bound by write control
@@ -116,7 +131,16 @@ func (s *Server) commitFor(folder, devID int64, device string, ops []proto.Op) (
 	res := make([]proto.Result, len(ops))
 	var owner []*proto.OwnerInfo
 	if devID != 0 {
-		if owner, err = s.ownerChecks(tx, rules, devID, device, ops, noStage, now); err != nil {
+		skip := maps.Clone(noStage)
+		for i := range ops {
+			if ops[i].Probe {
+				if skip == nil {
+					skip = map[int]bool{}
+				}
+				skip[i] = true
+			}
+		}
+		if owner, err = s.ownerChecks(tx, rules, devID, device, ops, skip, now); err != nil {
 			return nil, err
 		}
 	}
@@ -227,7 +251,9 @@ func sameAsServer(tx *sql.Tx, op *proto.Op) (bool, error) {
 // probeOp answers an op with Probe (design 2.8.6) and changes nothing, whatever the rest of the op says: ok where the
 // path has no live file, else a conflict, each with the current entry (a tombstone for ok, none when the path never
 // existed) without its block list, which is not even read. Only the conflict names the device, as for any conflict.
-func probeOp(tx *sql.Tx, path string) (proto.Result, error) {
+func probeOp(tx interface {
+	QueryRow(string, ...any) *sql.Row
+}, path string) (proto.Result, error) {
 	var cur fileRow
 	err := cur.scan(tx.QueryRow(`SELECT `+probeCols+` FROM files WHERE path=?`, path))
 	if errors.Is(err, sql.ErrNoRows) {

@@ -31,7 +31,7 @@ const (
 func (f *Folder) Pull(ctx context.Context) (Report, error) {
 	var rep Report
 	f.savedTS = ""
-	f.pullErrs, f.sink, f.pendingDown, f.linkProbe = nil, &f.pullErrs, 0, 0
+	f.pullErrs, f.sink, f.pendingDown, f.linkProbe, f.bareProbe = nil, &f.pullErrs, 0, 0, false
 	defer func() { f.sink = &f.errs }()
 	if !f.ready {
 		f.finish(&rep)
@@ -136,7 +136,7 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 	}
 	slices.Sort(ask)
 	for len(ask) > 0 {
-		n := probeBatch(ask, dels)
+		n := probeBatch(ask, dels, f.bareProbe)
 		res, err := f.probe(ctx, true, ask[:n]...)
 		if err != nil {
 			return false, err
@@ -147,6 +147,9 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 				deleted[ask[i]] = r.Current != nil && r.Current.Excluded
 			case r.Current != nil:
 				f.heldLive[ask[i]] = true
+				if bareAnswer(r) {
+					f.bareProbe = true // a file with content and no block list: the server knows Probe
+				}
 			}
 		}
 		ask = ask[n:]
@@ -175,7 +178,13 @@ func (f *Folder) settleHeld(ctx context.Context, dels map[string]heldDel, delete
 // probeBatch is how many leading paths of ask go into one probe: at most proto.MaxCommitOps, and unless it is the
 // first one alone, within a share of proto.MaxJSONBody for the request (a path escapes to at most six times its
 // length) and proto.MaxCommitBlocks for the block lists of the conflicts that answer it, as the bases tell them.
-func probeBatch(ask []string, dels map[string]heldDel) int {
+//
+// Until a conflict has shown the server answers a probe without block lists (bare), every probe is one path: a server
+// before the Probe field returns the whole current list, of a file that may be far larger than its base.
+func probeBatch(ask []string, dels map[string]heldDel, bare bool) int {
+	if !bare {
+		return min(1, len(ask))
+	}
 	n, size, blocks := 0, 0, int64(0)
 	for n < len(ask) && n < proto.MaxCommitOps {
 		size += 6*len(ask[n]) + 100
@@ -186,6 +195,12 @@ func probeBatch(ask []string, dels map[string]heldDel) int {
 		n++
 	}
 	return n
+}
+
+// bareAnswer reports whether a probe result shows the server leaves the block list out: a conflict with content and
+// none. An empty file shows nothing either way.
+func bareAnswer(r proto.Result) bool {
+	return r.Status == proto.StatusConflict && r.Current != nil && r.Current.Size > 0 && len(r.Current.Blocks) == 0
 }
 
 func (f *Folder) excluded(p string) bool { return f.Matcher.ExcludedPath(p, false) || builtinPath(p) }

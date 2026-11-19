@@ -324,13 +324,13 @@ func TestHeldDeleteProbeOncePerRun(t *testing.T) {
 	cc := &commitCounter{base: b.f.API.HC.Transport}
 	b.f.API.HC.Transport = cc
 	b.pull()
-	if got := cc.n.Load(); got != 1 {
-		t.Fatalf("%d commit requests to check three held deletions, want 1", got)
+	if got := cc.n.Load(); got != 2 { // the first path alone, then the other two once the answer showed a bare list
+		t.Fatalf("%d commit requests to check three held deletions, want 2", got)
 	}
 	b.sync()
 	b.sync()
-	if got := cc.n.Load(); got != 1 {
-		t.Fatalf("%d commit requests after two more syncs, want still 1", got)
+	if got := cc.n.Load(); got != 2 {
+		t.Fatalf("%d commit requests after two more syncs, want still 2", got)
 	}
 	if rows, _ := b.f.DB.held(); len(rows) != 3 {
 		t.Fatalf("held deletions of files the server has went away: %+v", rows)
@@ -515,7 +515,7 @@ func TestHeldDeleteProbeBatch(t *testing.T) {
 	} {
 		old := maxCommitBlocks
 		maxCommitBlocks = c.maxB
-		got := probeBatch(c.ask, dels)
+		got := probeBatch(c.ask, dels, true)
 		maxCommitBlocks = old
 		if got != c.want {
 			t.Errorf("%.10q with %d blocks: %d, want %d", c.ask, c.maxB, got, c.want)
@@ -525,7 +525,7 @@ func TestHeldDeleteProbeBatch(t *testing.T) {
 	for i := range many {
 		many[i] = "c"
 	}
-	if got := probeBatch(many, dels); got != proto.MaxCommitOps {
+	if got := probeBatch(many, dels, true); got != proto.MaxCommitOps {
 		t.Errorf("%d paths: %d, want %d", len(many), got, proto.MaxCommitOps)
 	}
 }
