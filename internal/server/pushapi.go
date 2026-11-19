@@ -38,6 +38,7 @@ type pushSub struct {
 	At       int64     `json:"at"`             // when it was made
 	Gone     bool      `json:"gone,omitempty"` // the push service has forgotten it (404 or 410)
 	Last     *pushLast `json:"last,omitempty"` // the last push to it
+	revision *byte     // changes when the endpoint is subscribed again
 }
 
 type pushLast struct {
@@ -99,26 +100,43 @@ func (s *Server) editSubs(f func([]pushSub) ([]pushSub, error)) error {
 	return nil
 }
 
-// recordPush stores the result of a push on its subscription; 404 and 410 mark it invalid, which the bell shows.
-func (s *Server) recordPush(id string, res pushResult) {
+// pushSubActive checks the current subscription before sending a queued push.
+func (s *Server) pushSubActive(sub pushSub) bool {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	for _, cur := range s.subList {
+		if cur.ID == sub.ID && cur.revision == sub.revision && !cur.Gone {
+			return true
+		}
+	}
+	return false
+}
+
+var errStaleSub = errors.New("subscription removed or replaced")
+
+// recordPush stores the result and reports whether it still belongs to the current subscription.
+// A 404 or 410 marks that subscription invalid.
+func (s *Server) recordPush(sub pushSub, res pushResult) bool {
 	gone := false
 	err := s.editSubs(func(l []pushSub) ([]pushSub, error) {
 		for i := range l {
-			if l[i].ID == id {
+			if l[i].ID == sub.ID && l[i].revision == sub.revision {
 				l[i].Last = &pushLast{Status: res.Status, Ms: res.Took.Milliseconds(), At: s.now().Unix(), Err: res.Err}
 				if res.Gone() && !l[i].Gone {
 					l[i].Gone, gone = true, true
 				}
+				return l, nil
 			}
 		}
-		return l, nil
+		return nil, errStaleSub
 	})
-	if err != nil {
+	if err != nil && err != errStaleSub {
 		slog.Warn("push: cannot store the result", "err", err)
 	}
 	if gone {
 		s.uiBump()
 	}
+	return err != errStaleSub
 }
 
 // browserName is a short name for the browser of a request, from its User-Agent.
@@ -238,7 +256,7 @@ func (s *Server) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if name == "" || !utf8.ValidString(name) {
 		name = browserName(r.UserAgent())
 	}
-	sub := pushSub{ID: subID(req.Endpoint), Endpoint: req.Endpoint, P256dh: req.Keys.P256dh, Auth: req.Keys.Auth, Lang: requestLang(r), Browser: name, At: s.now().Unix()}
+	sub := pushSub{ID: subID(req.Endpoint), Endpoint: req.Endpoint, P256dh: req.Keys.P256dh, Auth: req.Keys.Auth, Lang: requestLang(r), Browser: name, At: s.now().Unix(), revision: new(byte)}
 	err = s.editSubs(func(l []pushSub) ([]pushSub, error) {
 		for i := range l {
 			if l[i].ID == sub.ID { // the same browser again: new keys and language, valid again
@@ -329,7 +347,7 @@ func (s *Server) pushTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := s.sendTo(r.Context(), *sub, pushPayload(trFor(sub.Lang).T("push.test"), "test-"+strconv.FormatInt(time.Now().UnixNano(), 36)), "")
-	s.recordPush(sub.ID, res)
+	s.recordPush(*sub, res)
 	writeJSON(w, map[string]any{"status": res.Status, "ms": res.Took.Milliseconds(), "err": res.Err})
 }
 

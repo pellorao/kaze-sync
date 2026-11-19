@@ -69,9 +69,10 @@ type Server struct {
 	// EventGap is the shortest time between two pushes on /events (design 4.1).
 	EventGap time.Duration
 
-	fmu     sync.Mutex        // guards fdbs
-	stageMu sync.Mutex        // guards the files in var/stage (stage.go)
-	fdbs    map[int64]*sql.DB // open folder databases
+	renameMu sync.Mutex        // serializes device renames through the last folder update
+	fmu      sync.Mutex        // guards fdbs
+	stageMu  sync.Mutex        // guards the files in var/stage (stage.go)
+	fdbs     map[int64]*sql.DB // open folder databases
 
 	gcMu               sync.Mutex // guards the GC state: at most one runs
 	gcRunning, gcAgain bool
@@ -85,9 +86,10 @@ type Server struct {
 	codes                         map[[32]byte]pendingCode
 	fails                         map[string]*failure
 	reports                       map[int64]*report
-	notify                        chan struct{} // closed (and replaced) when the config changes
-	uiGen                         int64         // the version of everything the Web UI shows (design 4.1)
-	uiCh                          chan struct{} // closed (and replaced) when uiGen goes up
+	noticeMappings                map[noticeMapping]bool // push eligibility, rebuilt after a configuration change
+	notify                        chan struct{}          // closed (and replaced) when the config changes
+	uiGen                         int64                  // the version of everything the Web UI shows (design 4.1)
+	uiCh                          chan struct{}          // closed (and replaced) when uiGen goes up
 	stats                         map[int64]folderStat
 	evDone                        chan struct{} // closed by StopEvents: the /events streams end
 	evOnce                        sync.Once
@@ -265,10 +267,14 @@ func securityHeaders(next http.Handler) http.Handler {
 // broadcast wakes all hanging polls.
 func (s *Server) broadcast() {
 	s.mu.Lock()
+	s.broadcastLocked()
+	s.mu.Unlock()
+}
+
+func (s *Server) broadcastLocked() {
 	close(s.notify)
 	s.notify = make(chan struct{})
 	s.bumpLocked()
-	s.mu.Unlock()
 }
 
 func (s *Server) waitCh() <-chan struct{} {

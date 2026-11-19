@@ -2,10 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"kaze-sync/internal/proto"
 )
@@ -111,4 +114,81 @@ func TestRenameDevice(t *testing.T) {
 	if st, _ := e.post(c, "/devices/999/rename", url.Values{"name": {"x"}}); st != 404 {
 		t.Fatalf("unknown device: %d", st)
 	}
+}
+
+func TestConcurrentRenamesWaitForCurrentWriterUpdate(t *testing.T) {
+	e := newEnv(t)
+	c := adminClient(e)
+	id, tok := e.enrollDevice("first", "linux")
+	f := e.folder("Docs")
+	e.mapFolder(id, f, "/docs")
+	commit := func(path string) {
+		t.Helper()
+		st, out := e.api(tok, "commit", proto.CommitReq{Folder: f, Ops: []proto.Op{e.op(path, 0, path)}})
+		var resp proto.CommitResp
+		if err := json.Unmarshal(out, &resp); st != 200 || err != nil || len(resp.Results) != 1 || resp.Results[0].Status != "ok" {
+			t.Fatalf("commit %s: %d %s", path, st, out)
+		}
+	}
+	commit("a.txt")
+	db, err := e.s.folderDB(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	rename := func(name string) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			resp, err := c.PostForm(e.ts.URL+"/devices/"+itoa(id)+"/rename", url.Values{"name": {name}})
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusSeeOther {
+					err = fmt.Errorf("rename to %s returned %d", name, resp.StatusCode)
+				}
+			}
+			done <- err
+		}()
+		return done
+	}
+	name := func() string {
+		t.Helper()
+		var name string
+		if err := e.s.db.QueryRow(`SELECT name FROM devices WHERE id=?`, id).Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		return name
+	}
+	first := rename("second")
+	for deadline := time.Now().Add(3 * time.Second); name() != "second"; {
+		if time.Now().After(deadline) {
+			t.Fatal("the first rename did not reach the device table")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	second := rename("third")
+	// Keep the first folder rewrite blocked long enough for an unguarded rename to advance the device name.
+	for deadline := time.Now().Add(100 * time.Millisecond); time.Now().Before(deadline); {
+		if got := name(); got != "second" {
+			t.Errorf("device advanced to %q while the first writer update was blocked", got)
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	for _, done := range []<-chan error{first, second} {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var writer string
+	if err := db.QueryRow(`SELECT device FROM files WHERE path='a.txt'`).Scan(&writer); err != nil || writer != "third" || name() != "third" {
+		t.Fatalf("current writer %q, device %q, error %v", writer, name(), err)
+	}
+	commit("b.txt")
 }

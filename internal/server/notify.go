@@ -62,6 +62,27 @@ func browseLink(folder int64, p string) string {
 	return "/folders/" + strconv.FormatInt(folder, 10) + "?dir=" + url.QueryEscape(dir) + "#" + url.PathEscape(p)
 }
 
+type noticeMapping struct{ device, folder int64 }
+
+const noticeMappingFrom = ` FROM mappings m JOIN devices d ON d.id=m.device_id JOIN folders f ON f.id=m.folder_id`
+
+// noticeMappingsLocked gives the push checks the current mappings without querying on each report.
+func (s *Server) noticeMappingsLocked() map[noticeMapping]bool {
+	if s.noticeMappings == nil {
+		mappings, err := queryAll(s.db, func(rows *sql.Rows, m *noticeMapping) error { return rows.Scan(&m.device, &m.folder) },
+			`SELECT d.id, f.id`+noticeMappingFrom)
+		if err != nil {
+			slog.Warn("push: cannot read notification mappings", "err", err)
+			return nil
+		}
+		s.noticeMappings = make(map[noticeMapping]bool, len(mappings))
+		for _, m := range mappings {
+			s.noticeMappings[m] = true
+		}
+	}
+	return s.noticeMappings
+}
+
 // folderNotices lists the notices of a folder: what the mapped devices report, the changes they hold for the user,
 // and the reminder of a new folder.
 func (s *Server) folderNotices(folder int64) ([]notice, error) {
@@ -70,7 +91,7 @@ func (s *Server) folderNotices(folder int64) ([]notice, error) {
 		name string
 	}
 	devs, err := queryAll(s.db, func(rows *sql.Rows, d *dev) error { return rows.Scan(&d.id, &d.name) },
-		`SELECT d.id, d.name FROM mappings m JOIN devices d ON d.id=m.device_id WHERE m.folder_id=? ORDER BY d.name`, folder)
+		`SELECT d.id, d.name`+noticeMappingFrom+` WHERE f.id=? ORDER BY d.name`, folder)
 	if err != nil {
 		return nil, err
 	}
@@ -352,20 +373,26 @@ func (s *Server) oldDevices() []offlineDevice {
 
 // serverNotices lists the server's own problems and the browsers whose push subscription is invalid (design 4.3).
 func (s *Server) serverNotices() []srvNotice {
-	var out []srvNotice
 	s.mu.Lock()
+	out := s.serverProblemsLocked()
+	s.mu.Unlock()
+	for _, sub := range s.subscriptions() {
+		if sub.Gone {
+			out = append(out, srvNotice{Kind: "pushgone", Name: sub.Browser})
+		}
+	}
+	return out
+}
+
+// serverProblemsLocked lists the server errors common to the bell and Web Push.
+func (s *Server) serverProblemsLocked() []srvNotice {
+	var out []srvNotice
 	for _, c := range []struct {
 		on   bool
 		kind string
 	}{{s.diskLow, "disk"}, {s.gcFailed, "gc"}, {s.certFailed, "cert"}} {
 		if c.on {
 			out = append(out, srvNotice{Error: true, Kind: c.kind})
-		}
-	}
-	s.mu.Unlock()
-	for _, sub := range s.subscriptions() {
-		if sub.Gone {
-			out = append(out, srvNotice{Kind: "pushgone", Name: sub.Browser})
 		}
 	}
 	return out

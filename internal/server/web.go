@@ -969,7 +969,10 @@ func (s *Server) configChange(change func(tx *sql.Tx) (bool, error)) error {
 		return err
 	}
 	if changed {
-		s.broadcast()
+		s.mu.Lock()
+		s.noticeMappings = nil
+		s.broadcastLocked()
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -1248,6 +1251,7 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.mu.Lock()
 	delete(s.reports, d.ID)
+	s.noticeMappings = nil
 	s.bumpLocked()
 	s.mu.Unlock()
 	slog.Info("device revoked", "device", d.Name)
@@ -1255,9 +1259,11 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// renameDevice gives a device another name (design 2.5). The device keeps its token and mappings; the configuration
-// version goes up, so that the device learns its new name from the next poll. Rows written under the old name keep it.
+// renameDevice gives a device another name (design 2.5). It serializes name reads with the best-effort updates
+// to current rows across folders. Historical versions keep their writer's name.
 func (s *Server) renameDevice(w http.ResponseWriter, r *http.Request) error {
+	s.renameMu.Lock()
+	defer s.renameMu.Unlock()
 	d, err := s.loadDevice(r)
 	if err != nil {
 		return err
@@ -1278,7 +1284,7 @@ func (s *Server) renameDevice(w http.ResponseWriter, r *http.Request) error {
 		_, err := tx.Exec(`UPDATE devices SET name=? WHERE id=?`, name, d.ID)
 		return true, err
 	})
-	if err != nil && strings.Contains(err.Error(), "UNIQUE") { // another rename or an enrollment took the name since the check
+	if err != nil && strings.Contains(err.Error(), "UNIQUE") { // an enrollment took the name since the check
 		return fieldErr(s.devicePage, http.StatusConflict, "dlg-rename", "name", "err.deviceDup")
 	}
 	if err != nil {

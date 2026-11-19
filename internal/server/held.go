@@ -293,59 +293,50 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 		return nil, err
 	}
 	s.mu.Lock()
-	var items []proto.HeldItem
+	var reported []proto.HeldItem
 	waiting := map[string]bool{}
 	online := false
 	if rep := s.reports[devID]; rep != nil {
-		items = append(items, rep.held[folder]...)
-		online = rep.online(s.now())
+		reported = rep.held[folder] // reports replace the slice; only the grouped copies are sorted
+		now := s.now()
+		online = rep.online(now)
 		for k, a := range rep.actions {
-			if k.folder == folder && s.now().Sub(a.at) < waitingFor {
+			if k.folder == folder && now.Sub(a.at) < waitingFor {
 				waiting[k.path] = true
 			}
 		}
 	}
 	s.mu.Unlock()
 	v := &heldDevView{DeviceID: devID, Device: name, Online: online, Seen: metaInt(db, "next_seq") - 1}
-	byScope := map[string]*heldGroupView{}
-	for _, it := range items {
-		g := byScope[it.Scope]
-		if g == nil {
-			g = &heldGroupView{Scope: it.Scope, Path: heldScopePath(rules, it.Scope, it.Path), Reason: it.Reason}
-			if rule := ruleFor(rules, pp.Key(it.Path)); it.Reason == "owner" && rule.Mode == proto.ModeExclusive {
-				g.Reason, g.Other = "exclusive", rule.Device
-			}
-			if g.Reason == "owner" { // the other side of a concurrent write: the latest write of another device
-				g.Other = lastOtherWriter(db, name, it.Scope)
-			}
-			byScope[it.Scope] = g
-			v.Groups = append(v.Groups, *g)
-		}
-	}
 	idx := map[string]int{}
-	for i, g := range v.Groups {
-		idx[g.Scope] = i
-	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
-	byGroup := make([][]proto.HeldItem, len(v.Groups))
-	for _, it := range items {
-		byGroup[idx[it.Scope]] = append(byGroup[idx[it.Scope]], it)
-	}
-	for gi, its := range byGroup {
-		g := &v.Groups[gi]
-		paths := make([]string, len(its))
-		for i, it := range its {
-			paths[i] = it.Path
+	var groups [][]proto.HeldItem
+	for _, it := range reported {
+		i, ok := idx[it.Scope]
+		if !ok {
+			i = len(groups)
+			idx[it.Scope] = i
+			groups = append(groups, nil)
 		}
-		k := heldFoldDepth(paths, g.Path)
+		groups[i] = append(groups[i], it)
+	}
+	for _, items := range groups {
+		first := items[0]
+		g := heldGroupView{Scope: first.Scope, Path: heldScopePath(rules, first.Scope, first.Path), Reason: first.Reason, Total: len(items)}
+		if g.Reason == "owner" {
+			if rule := ruleFor(rules, pp.Key(first.Path)); rule.Mode == proto.ModeExclusive {
+				g.Reason, g.Other = "exclusive", rule.Device
+			} else {
+				g.Other = lastOtherWriter(db, name, g.Scope)
+			}
+		}
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+		k := heldFoldDepth(items, g.Path)
 		g.Folded = k > 0
-		for _, it := range its {
-			g.Total++
+		for _, it := range items {
 			if waiting[it.Path] {
 				g.Decided++
 			}
-			if key := heldRowKey(it.Path, k); key != it.Path { // folded: one row for the directory
-				dir := strings.TrimSuffix(key, "/")
+			if dir := dirAt(it.Path, k); dir != "" {
 				if n := len(g.Rows); n > 0 && g.Rows[n-1].Dir && g.Rows[n-1].Path == dir {
 					g.Rows[n-1].N++
 					g.Rows[n-1].Waiting = g.Rows[n-1].Waiting && waiting[it.Path]
@@ -367,17 +358,19 @@ func (s *Server) heldView(folder, devID int64) (*heldDevView, error) {
 			row.Field = strconv.FormatInt(row.CurSeq, 10) + "\t" + strconv.FormatInt(it.Size, 10) + "\t" + strconv.FormatInt(it.MtimeNs, 10) + "\t" + it.Path
 			g.Rows = append(g.Rows, row)
 		}
+		v.Groups = append(v.Groups, g)
 	}
 	return v, nil
 }
 
-// heldFoldDepth folds the sorted paths of one scope for the decision dialog (design 2.8.11: at most maxHeldRows rows,
+// heldFoldDepth folds the path-sorted items of one scope for the decision dialog (design 2.8.11: at most maxHeldRows rows,
 // more are folded by directory). It returns the deepest k such that showing every path with more than k components
 // as its directory of k components gives at most maxHeldRows rows; 0 when the paths fit unfolded, or when even the
 // first level under the scope does not fit (the dialog then draws the first maxHeldRows rows). The paths under one
-// directory are contiguous in sorted order, so counting changes of the row key counts the rows.
-func heldFoldDepth(paths []string, scope string) int {
-	if len(paths) <= maxHeldRows {
+// directory are contiguous in sorted order. Each unfolded item counts separately, so once no path is deep enough
+// to fold, the row count is len(items) and the search ends.
+func heldFoldDepth(items []proto.HeldItem, scope string) int {
+	if len(items) <= maxHeldRows {
 		return 0
 	}
 	base := 0
@@ -386,28 +379,21 @@ func heldFoldDepth(paths []string, scope string) int {
 	}
 	k := 0
 	for d := base + 1; ; d++ {
-		rows, last := 0, ""
-		for _, p := range paths {
-			if key := heldRowKey(p, d); rows == 0 || key != last {
-				rows, last = rows+1, key
+		rows, lastDir := 0, ""
+		for _, it := range items {
+			dir := dirAt(it.Path, d)
+			if dir == "" || dir != lastDir {
+				rows++
+				if rows > maxHeldRows {
+					return k
+				}
 			}
-		}
-		if rows > maxHeldRows {
-			return k
+			lastDir = dir
 		}
 		if rows > 1 { // one directory row for all of them says no more than the whole-scope buttons
 			k = d
 		}
 	}
-}
-
-// heldRowKey is the row a path is shown in when the dialog folds at depth d: its directory of d components (with a
-// trailing slash, so that it differs from a file of that name), or the path itself.
-func heldRowKey(p string, d int) string {
-	if dir := dirAt(p, d); dir != "" {
-		return dir + "/"
-	}
-	return p
 }
 
 // dirAt is the directory of the first d components of p, or "" when p has no more than d components.
@@ -422,6 +408,9 @@ func dirAt(p string, d int) string {
 			return ""
 		}
 		i += j + 1
+	}
+	if i == len(p)-1 {
+		return ""
 	}
 	return p[:i]
 }

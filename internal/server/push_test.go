@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -18,13 +19,14 @@ import (
 
 // fakePush is a push service on 127.0.0.1: it decrypts what it gets with the keys of the subscriptions made here.
 type fakePush struct {
-	t      *testing.T
-	srv    *httptest.Server
-	mu     sync.Mutex
-	status map[string]int // path -> the status to answer (default 201)
-	keys   map[string]*ecdh.PrivateKey
-	auths  map[string][]byte
-	got    []pushed
+	t           *testing.T
+	srv         *httptest.Server
+	mu          sync.Mutex
+	status      map[string]int // path -> the status to answer (default 201)
+	keys        map[string]*ecdh.PrivateKey
+	auths       map[string][]byte
+	got         []pushed
+	beforeReply func(string)
 }
 
 type pushed struct {
@@ -41,6 +43,9 @@ func (f *fakePush) setStatus(path string, st int) {
 func newFakePush(t *testing.T) *fakePush {
 	f := &fakePush{t: t, status: map[string]int{}, keys: map[string]*ecdh.PrivateKey{}, auths: map[string][]byte{}}
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.beforeReply != nil {
+			f.beforeReply(r.URL.Path)
+		}
 		body, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -90,6 +95,27 @@ func (f *fakePush) take() []pushed {
 	return out
 }
 
+func (f *fakePush) pause(path string) (<-chan struct{}, func()) {
+	started, release := make(chan struct{}), make(chan struct{})
+	signal := sync.OnceFunc(func() { close(started) })
+	f.beforeReply = func(p string) {
+		if p == path {
+			signal()
+			<-release
+		}
+	}
+	return started, sync.OnceFunc(func() { close(release) })
+}
+
+func waitForPush(t *testing.T, started <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("first send did not reach the push service")
+	}
+}
+
 // check runs a full check and waits for the pushes it started.
 func (e *env) check() {
 	e.t.Helper()
@@ -100,6 +126,51 @@ func (e *env) check() {
 func (e *env) heldFor(tok string, folder int64) {
 	e.t.Helper()
 	e.heldReport(tok, folder, proto.HeldItem{Path: "sub/secret-report.docx", Scope: "d:sub", Reason: "owner", Kind: "modify", At: e.clk.Now().Unix()})
+}
+
+func TestPushQueuedSubscriptionsUseOneReservation(t *testing.T) {
+	e := newEnv(t)
+	fp := newFakePush(t)
+	fp.sub(e, "slow", "en")
+	fp.sub(e, "queued", "en")
+	started, unblock := fp.pause("/slow")
+	defer func() { unblock(); e.s.pushWG.Wait() }()
+	e.s.setServerState(&e.s.gcFailed, true)
+	e.s.pushCheck(false)
+	waitForPush(t, started)
+	e.clk.Add(2*pushTimeout + time.Second)
+	e.s.pushCheck(false)
+	unblock()
+	e.s.pushWG.Wait()
+	if got := fp.take(); len(got) != 2 || got[0].path != "/slow" || got[1].path != "/queued" || e.s.pushSent != 2 {
+		t.Fatalf("requests = %d, hourly reservations = %d; want one request and reservation per subscription", len(got), e.s.pushSent)
+	}
+}
+
+func TestPushDropsCanceledQueueAndIgnoresItsLateResult(t *testing.T) {
+	e := newEnv(t)
+	fp := newFakePush(t)
+	fp.sub(e, "slow", "en")
+	fp.sub(e, "queued", "en")
+	started, unblock := fp.pause("/slow")
+	defer func() { unblock(); e.s.pushWG.Wait() }()
+	e.s.setServerState(&e.s.gcFailed, true)
+	e.s.pushCheck(false)
+	waitForPush(t, started)
+
+	e.s.setServerState(&e.s.gcFailed, false)
+	e.s.pushCheck(false)
+	e.s.setServerState(&e.s.gcFailed, true)
+	e.s.pushCheck(false)
+	unblock()
+	e.s.pushWG.Wait()
+	if got := fp.take(); len(got) != 1 || got[0].path != "/slow" {
+		t.Fatalf("canceled batch sent %d requests; want only the request already in flight", len(got))
+	}
+	e.check()
+	if got := fp.take(); len(got) != 2 {
+		t.Fatalf("returned cause sent %d requests; want a fresh push to each subscription", len(got))
+	}
 }
 
 func TestPushHeldWaitsThenGoesOnceWithAnEncryptedPayload(t *testing.T) {
@@ -212,6 +283,68 @@ func TestPushDeviceErrorsWaitFiveMinutesAndSayNothingOfThem(t *testing.T) {
 	}
 	if b := got[0].msg["body"]; strings.Contains(b, "private") || strings.Contains(b, "disk full") {
 		t.Errorf("the body tells what the device reported: %q", b)
+	}
+}
+
+func TestBellAndPushFollowCurrentMappings(t *testing.T) {
+	e := newEnv(t)
+	fp := newFakePush(t)
+	fp.sub(e, "phone", "en")
+	c := adminClient(e)
+	f := e.folder("docs")
+	dev, tok := e.enrollDevice("laptop", "linux")
+	path := "/devices/" + itoa(dev) + "/mapping"
+	changeMapping := func(action string) {
+		t.Helper()
+		if st, _ := e.post(c, path, url.Values{"folder": {itoa(f)}, "action": {action}, "path": {"/docs"}}); st != 303 {
+			t.Fatalf("mapping %s: %d", action, st)
+		}
+	}
+	pollError := func() {
+		t.Helper()
+		st, out := e.api(tok, "poll", proto.PollReq{ConfigVersion: -1, Folders: []proto.FolderState{{ID: f,
+			Errors: []proto.FileError{{Path: "x", Kind: proto.KindIO}}}}})
+		if st != 200 {
+			t.Fatalf("poll: %d %s", st, out)
+		}
+	}
+	check := func() {
+		e.s.pushCheck(false)
+		e.s.pushWG.Wait()
+	}
+
+	changeMapping("")
+	e.heldFor(tok, f)
+	pollError()
+	check()
+	if v := e.s.notifications(); v.Errors != 2 {
+		t.Fatalf("bell on the mapping: %d errors, want two", v.Errors)
+	}
+	changeMapping("delete")
+	pollError() // the client can still be using the old configuration
+	if st, _ := e.api(tok, "held", proto.HeldReq{Folder: f}); st != http.StatusForbidden {
+		t.Fatalf("held report on the removed mapping: %d", st)
+	}
+	e.clk.Add(pushErrorsWait)
+	check()
+	if v := e.s.notifications(); v.Errors != 0 {
+		t.Fatalf("bell on the removed mapping: %d errors", v.Errors)
+	}
+	if got := fp.take(); len(got) != 0 || e.s.pushSent != 0 {
+		t.Fatalf("removed mapping: %d pushes and %d hourly reservations", len(got), e.s.pushSent)
+	}
+
+	changeMapping("")
+	e.heldFor(tok, f)
+	pollError()
+	check()
+	if got := fp.take(); len(got) != 0 {
+		t.Fatalf("remapping bypassed the wait: %d pushes", len(got))
+	}
+	e.clk.Add(pushErrorsWait)
+	check()
+	if got := fp.take(); len(got) != 2 {
+		t.Fatalf("remapped folder got %d pushes, want two", len(got))
 	}
 }
 

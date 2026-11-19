@@ -216,7 +216,11 @@ func TestHeldListIsCapped(t *testing.T) {
 // The decision dialog draws at most maxHeldRows rows of a scope and says how many there are in all.
 func TestHeldDialogDrawsAtMostMaxRows(t *testing.T) {
 	l, it := heldEnv(t)
-	l.heldReport(l.tb, l.f, manyHeld(it, maxHeldRows+30)...)
+	items := manyHeld(it, maxHeldRows)
+	for range 30 {
+		items = append(items, items[0])
+	}
+	l.heldReport(l.tb, l.f, items...)
 	v, err := l.s.heldView(l.f, l.b)
 	if err != nil || v == nil || len(v.Groups) != 1 {
 		t.Fatalf("view: %v %+v", err, v)

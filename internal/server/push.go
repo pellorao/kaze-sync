@@ -39,10 +39,16 @@ type pushEvent struct {
 // pushKey is what is known about one cause between checks.
 type pushKey struct {
 	active    bool
-	notBefore time.Time            // the earliest time to push: the wait, and the hour since the last push of it
-	lastSent  time.Time            // the last time a push of it was delivered
-	done      map[string]bool      // subscriptions that got it (or refused it for good) while it is there
-	retry     map[string]pushRetry // subscriptions that failed for a while
+	notBefore time.Time               // the earliest time to push: the wait, and the hour since the last push of it
+	lastSent  time.Time               // the last time a push of it was delivered
+	done      map[string]bool         // subscriptions that got it (or refused it for good) while it is there
+	retry     map[string]pushRetry    // subscriptions that failed for a while
+	pending   map[string]*pushAttempt // one reservation for each queued or sending subscription
+}
+
+type pushAttempt struct {
+	sub      pushSub
+	canceled bool // the cause went away or the subscription was replaced
 }
 
 type pushRetry struct {
@@ -50,29 +56,25 @@ type pushRetry struct {
 	at time.Time // the earliest time to try again
 }
 
-// pushEvents lists the causes there are now. It reads memory only (the reports, the three server states and the
-// offline devices of the last slow check), so a check after a state change costs no query.
+// pushEvents lists the current causes in memory. The mapping snapshot is refreshed after configuration changes.
 func (s *Server) pushEvents() []pushEvent {
 	var out []pushEvent
 	s.mu.Lock()
+	mappings := s.noticeMappingsLocked()
 	for dev, rep := range s.reports {
 		d := strconv.FormatInt(dev, 10)
 		if rep.tooOld > 0 {
 			out = append(out, pushEvent{key: "old-" + d, kind: "old", device: dev})
 		}
-		held := map[int64]int{}
 		for f, items := range rep.held {
-			held[f] += len(items)
-		}
-		for f, n := range rep.heldCut {
-			held[f] += n
-		}
-		for f, n := range held {
-			if n > 0 {
+			if n := len(items) + rep.heldCut[f]; n > 0 && mappings[noticeMapping{dev, f}] {
 				out = append(out, pushEvent{key: "held-" + strconv.FormatInt(f, 10) + "-" + d, kind: "held", folder: f, device: dev, n: n, wait: pushHeldWait})
 			}
 		}
 		for _, fs := range rep.req.Folders {
+			if !mappings[noticeMapping{dev, fs.ID}] {
+				continue
+			}
 			n := 0
 			for _, e := range fs.Errors {
 				if e.Kind == proto.KindRejected || e.Kind == proto.KindIO || e.Kind == proto.KindFolder {
@@ -84,13 +86,8 @@ func (s *Server) pushEvents() []pushEvent {
 			}
 		}
 	}
-	for _, c := range []struct {
-		on   bool
-		kind string
-	}{{s.diskLow, "disk"}, {s.gcFailed, "gc"}, {s.certFailed, "cert"}} {
-		if c.on {
-			out = append(out, pushEvent{key: c.kind, kind: c.kind})
-		}
+	for _, n := range s.serverProblemsLocked() {
+		out = append(out, pushEvent{key: n.Kind, kind: n.Kind})
 	}
 	s.mu.Unlock()
 	s.pushMu.Lock()
@@ -155,7 +152,8 @@ func (s *Server) pushCheck(full bool) time.Duration {
 	now := s.now()
 	type job struct {
 		ev      pushEvent
-		targets []pushSub
+		key     *pushKey
+		targets []*pushAttempt
 	}
 	var jobs []job
 	var next time.Duration
@@ -168,7 +166,7 @@ func (s *Server) pushCheck(full bool) time.Duration {
 		seen[ev.key] = true
 		k := s.pkeys[ev.key]
 		if k == nil {
-			k = &pushKey{}
+			k = &pushKey{pending: map[string]*pushAttempt{}}
 			s.pkeys[ev.key] = k
 		}
 		if !k.active {
@@ -184,9 +182,9 @@ func (s *Server) pushCheck(full bool) time.Duration {
 			}
 			continue
 		}
-		var targets []pushSub
+		var targets []*pushAttempt
 		for _, sub := range subs {
-			if sub.Gone || k.done[sub.ID] || now.Before(k.retry[sub.ID].at) {
+			if sub.Gone || k.pending[sub.ID] != nil || k.done[sub.ID] || now.Before(k.retry[sub.ID].at) {
 				continue
 			}
 			if s.pushSent >= pushCap {
@@ -194,13 +192,12 @@ func (s *Server) pushCheck(full bool) time.Duration {
 				break
 			}
 			s.pushSent++
-			r := k.retry[sub.ID] // not again before this one has ended: a check 10 s later must not send it twice
-			r.at = now.Add(2 * pushTimeout)
-			k.retry[sub.ID] = r
-			targets = append(targets, sub)
+			a := &pushAttempt{sub: sub}
+			k.pending[sub.ID] = a
+			targets = append(targets, a)
 		}
 		if len(targets) > 0 {
-			jobs = append(jobs, job{ev, targets})
+			jobs = append(jobs, job{ev, k, targets})
 		}
 	}
 	for key, k := range s.pkeys {
@@ -208,7 +205,10 @@ func (s *Server) pushCheck(full bool) time.Duration {
 			continue
 		}
 		k.active, k.done, k.retry = false, nil, nil
-		if k.lastSent.IsZero() || now.Sub(k.lastSent) >= pushRepeat {
+		for _, a := range k.pending {
+			a.canceled = true
+		}
+		if len(k.pending) == 0 && (k.lastSent.IsZero() || now.Sub(k.lastSent) >= pushRepeat) {
 			delete(s.pkeys, key)
 		}
 	}
@@ -217,24 +217,22 @@ func (s *Server) pushCheck(full bool) time.Duration {
 		s.pushWG.Add(1)
 		go func() {
 			defer s.pushWG.Done()
-			s.pushSend(j.ev, j.targets)
+			s.pushSend(j.ev, j.key, j.targets)
 		}()
 	}
 	return next
 }
 
 // pushBody is the text of a push in a language: the bell's notification, without paths, file contents, error texts or
-// credentials. "" when the folder or the device is gone (the report of a deleted folder lingers until the device
-// polls again).
+// credentials. A queued folder notice still needs the device and folder to be mapped when it reaches the sender.
 func (s *Server) pushBody(ev pushEvent, lang string) string {
 	t := trFor(lang)
 	var folder, device string
 	if ev.folder != 0 {
-		if s.db.QueryRow(`SELECT name FROM folders WHERE id=?`, ev.folder).Scan(&folder) != nil {
+		if s.db.QueryRow(`SELECT f.name, d.name`+noticeMappingFrom+` WHERE f.id=? AND d.id=?`, ev.folder, ev.device).Scan(&folder, &device) != nil {
 			return ""
 		}
-	}
-	if ev.device != 0 {
+	} else if ev.device != 0 {
 		if s.db.QueryRow(`SELECT name FROM devices WHERE id=?`, ev.device).Scan(&device) != nil {
 			return ""
 		}
@@ -272,64 +270,58 @@ func pushTopic(key string) string {
 }
 
 // pushSend delivers one cause to its subscriptions and records the results.
-func (s *Server) pushSend(ev pushEvent, targets []pushSub) {
+func (s *Server) pushSend(ev pushEvent, k *pushKey, targets []*pushAttempt) {
 	start := time.Now()
 	ok := 0
-	for _, sub := range targets {
+	for _, a := range targets {
+		sub := a.sub
 		body := s.pushBody(ev, sub.Lang)
-		if body == "" { // the folder or device is gone: nothing to tell
-			s.pushMu.Lock()
-			if k := s.pkeys[ev.key]; k != nil && k.active {
-				k.done[sub.ID] = true
-			}
-			s.pushMu.Unlock()
-			continue
-		}
-		s.pushMu.Lock() // the targets of one job go one after another: keep the guard of the later ones alive
-		if k := s.pkeys[ev.key]; k != nil && k.active {
-			r := k.retry[sub.ID]
-			r.at = s.now().Add(2 * pushTimeout)
-			k.retry[sub.ID] = r
-		}
+		s.pushMu.Lock()
+		canceled := a.canceled
 		s.pushMu.Unlock()
-		res := s.sendTo(context.Background(), sub, pushPayload(body, ev.key), pushTopic(ev.key))
-		s.pushResult(ev.key, sub, res)
-		if res.OK() {
-			ok++
+		var res *pushResult
+		if !canceled && body != "" && s.pushSubActive(sub) {
+			r := s.sendTo(context.Background(), sub, pushPayload(body, ev.key), pushTopic(ev.key))
+			switch {
+			case r.OK():
+				ok++
+			case r.Status == 401 || r.Status == 403:
+				slog.Error("push: the push service rejected VAPID", "host", pushHost(sub.Endpoint), "status", r.Status)
+			default:
+				slog.Warn("push: not delivered", "host", pushHost(sub.Endpoint), "status", r.Status, "err", r.Err)
+			}
+			if s.recordPush(sub, r) {
+				res = &r
+			}
 		}
+		s.finishPush(k, a, res)
 	}
 	slog.Info("push", "key", ev.key, "subscriptions", len(targets), "delivered", ok, "took", time.Since(start).Round(time.Millisecond))
 }
 
-// pushResult records how one push ended: delivered, to be retried, given up, or the subscription is gone.
-func (s *Server) pushResult(key string, sub pushSub, res pushResult) {
-	now := s.now()
+// finishPush releases the reservation. A canceled attempt cannot update the current delivery or retry state.
+func (s *Server) finishPush(k *pushKey, a *pushAttempt, res *pushResult) {
+	id := a.sub.ID
 	s.pushMu.Lock()
-	if k := s.pkeys[key]; k != nil && k.active {
-		switch {
-		case res.OK():
-			k.done[sub.ID], k.lastSent = true, now
-			delete(k.retry, sub.ID)
-		case res.Gone():
-			k.done[sub.ID] = true
-		case res.Temporary():
-			r := k.retry[sub.ID]
-			wait := pushRepeat
-			if r.n == 0 {
-				wait = pushRetryFirst
-			}
-			k.retry[sub.ID] = pushRetry{n: r.n + 1, at: now.Add(wait)}
-		default: // another 4xx: sending it again would not change the answer
-			k.done[sub.ID] = true
+	defer s.pushMu.Unlock()
+	delete(k.pending, id)
+	if a.canceled || res == nil {
+		return
+	}
+	switch {
+	case res.OK():
+		k.done[id], k.lastSent = true, s.now()
+		delete(k.retry, id)
+	case res.Temporary():
+		r := k.retry[id]
+		wait := pushRepeat
+		if r.n == 0 {
+			wait = pushRetryFirst
 		}
+		k.retry[id] = pushRetry{n: r.n + 1, at: s.now().Add(wait)}
+	default: // 4xx other than 429: sending it again would not change the answer
+		k.done[id] = true
 	}
-	s.pushMu.Unlock()
-	if res.Status == 401 || res.Status == 403 {
-		slog.Error("push: the push service rejected VAPID", "host", pushHost(sub.Endpoint), "status", res.Status)
-	} else if !res.OK() {
-		slog.Warn("push: not delivered", "host", pushHost(sub.Endpoint), "status", res.Status, "err", res.Err)
-	}
-	s.recordPush(sub.ID, res)
 }
 
 // pushLoop runs the checks: after a state change (at most every pushMinGap), when a cause leaves its wait, and every
@@ -382,5 +374,8 @@ func (s *Server) forgetSub(id string) {
 	for _, k := range s.pkeys {
 		delete(k.done, id)
 		delete(k.retry, id)
+		if a := k.pending[id]; a != nil {
+			a.canceled = true
+		}
 	}
 }

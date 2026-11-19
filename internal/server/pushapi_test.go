@@ -204,6 +204,38 @@ func TestSubscriptionsSurviveAndOffGivesNoPush(t *testing.T) {
 	s2.pushCheck(true)
 }
 
+func TestPushLateGoneDoesNotInvalidateANewSubscription(t *testing.T) {
+	e := newEnv(t)
+	fp := newFakePush(t)
+	c := adminClient(e)
+	if err := SetMeta(e.s.db, "tls", "ca"); err != nil {
+		t.Fatal(err)
+	}
+	sub := fp.sub(e, "phone", "en")
+	fp.setStatus("/phone", 410)
+	started, unblock := fp.pause("/phone")
+	defer func() { unblock(); e.s.pushWG.Wait() }()
+	e.s.setServerState(&e.s.gcFailed, true)
+	e.s.pushCheck(false)
+	waitForPush(t, started)
+
+	body := map[string]any{"endpoint": sub.Endpoint, "keys": map[string]string{"p256dh": sub.P256dh, "auth": sub.Auth}}
+	if status, out := pushReq(t, e, c, "POST", "/push/subscribe", body); status != 200 {
+		t.Fatalf("resubscribe: %d %v", status, out)
+	}
+	unblock()
+	e.s.pushWG.Wait()
+	if cur := e.s.subscriptions()[0]; cur.Gone || cur.Last != nil {
+		t.Fatalf("late result updated the new subscription: gone=%v last=%+v", cur.Gone, cur.Last)
+	}
+	fp.take()
+	fp.setStatus("/phone", 201)
+	e.check()
+	if got := fp.take(); len(got) != 1 {
+		t.Fatalf("new subscription received %d pushes, want one", len(got))
+	}
+}
+
 // The push card's helpers (which problem it names, this browser's subscription id, the server key) are tested with node's
 // built-in runner; the id must be the server's subID of the same endpoint.
 func TestPushCardScript(t *testing.T) {

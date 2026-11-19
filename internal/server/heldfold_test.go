@@ -76,13 +76,13 @@ func TestHeldDialogFoldsByDirectory(t *testing.T) {
 // Fewer changes than the limit are not folded, and a scope whose changes all sit in one directory is cut instead of
 // folded into a single row (that row would only repeat the whole-scope buttons).
 func TestHeldFoldDepth(t *testing.T) {
-	few := []string{"a/b/c", "a/d"}
+	few := []proto.HeldItem{{Path: "a/b/c"}, {Path: "a/d"}}
 	if k := heldFoldDepth(few, ""); k != 0 {
 		t.Errorf("few paths folded at %d", k)
 	}
-	var flat []string
+	var flat []proto.HeldItem
 	for i := 0; i < maxHeldRows+1; i++ {
-		flat = append(flat, "a/f"+strconv.Itoa(100000+i))
+		flat = append(flat, proto.HeldItem{Path: "a/f" + strconv.Itoa(100000+i)})
 	}
 	if k := heldFoldDepth(flat, ""); k != 0 {
 		t.Errorf("one directory folded at %d", k)
@@ -92,5 +92,20 @@ func TestHeldFoldDepth(t *testing.T) {
 	}
 	if dirAt("a/b/c", 0) != "" || dirAt("a/b/c", 1) != "a" || dirAt("a/b/c", 2) != "a/b" || dirAt("a/b/c", 3) != "" {
 		t.Error("dirAt")
+	}
+}
+
+func TestHeldFoldDepthWithRepeatedReports(t *testing.T) {
+	items := make([]proto.HeldItem, maxHeldRows+1)
+	for i := range items {
+		items[i].Path = "a/file"
+	}
+	if k := heldFoldDepth(items, ""); k != 0 {
+		t.Errorf("repeated reports in one directory folded at %d", k)
+	}
+
+	items[len(items)-1].Path = "a/zz/nested"
+	if k := heldFoldDepth(items, ""); k != 0 {
+		t.Errorf("folded at %d, although each repeated file would still occupy a row", k)
 	}
 }
