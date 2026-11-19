@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"database/sql"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -240,5 +242,37 @@ func TestCommitNameCheckUsesIndex(t *testing.T) {
 		if strings.HasPrefix(detail, "SCAN files") {
 			t.Errorf("full scan in the type check: %s", detail)
 		}
+	}
+}
+
+// A probe changes nothing, the staged block list it names included, and is no write: the owner check does not see it
+// (design 2.8.6). A batch of probes only takes no write lock.
+func TestProbeLeavesStageAndOwnerAlone(t *testing.T) {
+	t.Parallel()
+	l := newLockEnv(t)
+	l.lock("", l.a) // A holds the whole folder
+	sp := l.s.stagePath(l.b, l.f, "abcd1234")
+	os.MkdirAll(filepath.Dir(sp), 0o700)
+	if err := os.WriteFile(sp, make([]byte, proto.HashLen), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := proto.Hash{1}
+	res, err := l.s.commitFor(l.f, l.b, "B", []proto.Op{
+		proto.Op{Path: "x", BaseSeq: -1, Probe: true, Hash: &h, Size: 1, Stage: "abcd1234"},
+		proto.Op{Path: "y", BaseSeq: -1, Probe: true}, // no Resolve: B is not the owner, a probe is no write
+	})
+	if err != nil || res[0].Status != proto.StatusOK || res[1].Status != proto.StatusOK {
+		t.Fatalf("probes: %+v", res)
+	}
+	if _, ok := stageHave(sp); !ok {
+		t.Fatal("a probe dropped the stage")
+	}
+	// Mixed with a write of B's, the probe is still answered and the write refused.
+	res, err = l.s.commitFor(l.f, l.b, "B", []proto.Op{{Path: "y", BaseSeq: -1, Probe: true, Hash: &h, Size: 1, Stage: "abcd1234"}, l.op("z", 0, "z")})
+	if err != nil || res[0].Status != proto.StatusOK || res[1].Reason != proto.ReasonOwner {
+		t.Fatalf("mixed: %+v", res)
+	}
+	if _, ok := stageHave(sp); !ok {
+		t.Fatal("an ok probe in a batch with a write dropped the stage")
 	}
 }

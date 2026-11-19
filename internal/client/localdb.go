@@ -362,6 +362,9 @@ func (l *localDB) settleHeld(paths []string, keepBase map[string]bool, dels map[
 		if _, err := tx.Exec(`DELETE FROM local WHERE path=?`, p); err != nil {
 			return nil, nil, 0, err
 		}
+		if _, err := tx.Exec(`DELETE FROM unlinked WHERE path=?`, p); err != nil { // as applyDeleted: no link to retry
+			return nil, nil, 0, err
+		}
 	}
 	if len(cand) > 0 {
 		busy, err := heldScopes(tx)
