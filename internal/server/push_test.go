@@ -597,10 +597,11 @@ func TestNoticeMappingsQueryOutsideLock(t *testing.T) {
 	e.s.mu.Lock()
 	e.s.dropNoticeMappingsLocked()
 	e.s.mu.Unlock()
-	done := make(chan map[noticeMapping]bool)
-	go func() { done <- e.s.noticeMappingSnapshot() }()
+	done := make(chan map[noticeMapping]bool, 1)
+	go func() { m, _ := e.s.noticeMappingSnapshot(); done <- m }()
 	time.Sleep(100 * time.Millisecond) // the query is waiting for the only connection
 	if !e.s.mu.TryLock() {
+		conn.Close()
 		t.Fatal("s.mu is held while the mapping query runs")
 	}
 	e.s.mu.Unlock()

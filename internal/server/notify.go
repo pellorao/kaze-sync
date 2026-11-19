@@ -67,19 +67,20 @@ type noticeMapping struct{ device, folder int64 }
 const noticeMappingFrom = ` FROM mappings m JOIN devices d ON d.id=m.device_id JOIN folders f ON f.id=m.folder_id`
 
 // noticeMappingSnapshot gives the push checks the current mappings without querying on each report. The query runs
-// outside s.mu (design 4.3): a configuration change drops the cache and the next check rebuilds it.
-func (s *Server) noticeMappingSnapshot() map[noticeMapping]bool {
+// outside s.mu (design 4.3): a configuration change drops the cache and the next check rebuilds it. The returned
+// generation lets the caller see, under s.mu, that no change came in since.
+func (s *Server) noticeMappingSnapshot() (map[noticeMapping]bool, int64) {
 	s.mu.Lock()
 	m, gen := s.noticeMappings, s.noticeGen
 	s.mu.Unlock()
 	if m != nil {
-		return m
+		return m, gen
 	}
 	mappings, err := queryAll(s.db, func(rows *sql.Rows, m *noticeMapping) error { return rows.Scan(&m.device, &m.folder) },
 		`SELECT d.id, f.id`+noticeMappingFrom)
 	if err != nil {
 		slog.Warn("push: cannot read notification mappings", "err", err)
-		return nil
+		return nil, gen
 	}
 	m = make(map[noticeMapping]bool, len(mappings))
 	for _, e := range mappings {
@@ -90,7 +91,7 @@ func (s *Server) noticeMappingSnapshot() map[noticeMapping]bool {
 		s.noticeMappings = m
 	}
 	s.mu.Unlock()
-	return m
+	return m, gen
 }
 
 // dropNoticeMappingsLocked invalidates the cache after a change of mappings or devices.
