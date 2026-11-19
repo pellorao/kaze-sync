@@ -9,8 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 var errInjected = errors.New("injected")
@@ -200,9 +203,12 @@ func TestMemLockAndFail(t *testing.T) {
 
 func TestFaultTransport(t *testing.T) {
 	var got []int
+	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(r.Body)
+		mu.Lock()
 		got = append(got, len(b))
+		mu.Unlock()
 		if err != nil {
 			return
 		}
@@ -228,11 +234,14 @@ func TestFaultTransport(t *testing.T) {
 	if err := post(10); err != nil {
 		t.Fatalf("third request: %v", err)
 	}
-	if len(got) != 2 {
-		t.Errorf("server saw %d requests, want 2 (failed one is not sent)", len(got))
+	mu.Lock()
+	n := len(got)
+	got = nil
+	mu.Unlock()
+	if n != 2 {
+		t.Errorf("server saw %d requests, want 2 (failed one is not sent)", n)
 	}
 
-	got = nil
 	ft.CutBodyAfter(0, 4000, errInjected)
 	if err := post(100000); !errors.Is(err, errInjected) {
 		t.Fatalf("cut request: %v", err)
@@ -240,7 +249,21 @@ func TestFaultTransport(t *testing.T) {
 	if err := post(10); err != nil {
 		t.Fatalf("request after cut: %v", err)
 	}
-	if len(got) < 2 || got[0] != 4000 || got[len(got)-1] != 10 {
+	// The handler of the cut request records its body when it notices the cut, which may be after the next request.
+	sawBodies := func(sizes ...int) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, want := range sizes {
+			if !slices.Contains(got, want) {
+				return false
+			}
+		}
+		return true
+	}
+	for end := time.Now().Add(5 * time.Second); !sawBodies(4000, 10) && time.Now().Before(end); {
+		time.Sleep(time.Millisecond)
+	}
+	if !sawBodies(4000, 10) {
 		t.Errorf("server saw bodies of %v bytes", got)
 	}
 }

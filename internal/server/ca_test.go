@@ -354,7 +354,11 @@ func TestRunServesCAMode(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, f.data) }()
-	defer func() { cancel(); <-done }()
+	defer func() {
+		cancel()
+		<-done
+		time.Sleep(50 * time.Millisecond) // Run's loops may still be closing their files when it returns; TempDir removal must not race them
+	}()
 	chain, _ := loadChain(serverPEMPath(f.data))
 	ca, _ := x509.ParseCertificate(chain.Certificate[1])
 	roots := x509.NewCertPool()

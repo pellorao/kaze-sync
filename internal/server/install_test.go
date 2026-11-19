@@ -493,6 +493,7 @@ func TestRunServesTLSAndStops(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
+	time.Sleep(50 * time.Millisecond) // Run's loops may still be closing their files when it returns; TempDir removal must not race them
 }
 
 // Installing again over data from an older version migrates every database and hands what root
