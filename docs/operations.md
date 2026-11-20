@@ -157,6 +157,15 @@ go run ./tools/adminstatus -url https://HOST:PORT [-ca CA.pem | -fp sha256:HEX] 
 - `-rename OLD=NEW`: 登录后先把总览上名为 `OLD` 的设备改名为 `NEW` (与设备页 "设备改名…" 同一个表单, design 2.5), 再按上面检查并打印; 名字不合规或重名时退出码 2, 并给出页面上的错误. 给不开浏览器又不能把密码交给别人的场合用 (例如由自动化代管理员改名).
 - 自签名证书模式下 Web Push 本来就不可用, 只显示 `available=false`, 不算问题. `-setup` 的关回显只在有 `stty` 的系统上生效. 页面改版会使解析失败: 找不到服务端版本或设备时报告为问题, 不静默通过.
 
+## 客户端状态快照 (诊断)
+
+`go run ./tools/statecopy PATH/TO/folder-ID.db` 给客户端某个文件夹的状态库 (在客户端状态目录里, 见下一节, 名为 `folder-<id>.db`) 做一份只读快照, 用于诊断同步状态时查看, 不必停 agent, 也不会改动正在使用的库. 成功时只在标准输出打印快照路径 (`<临时目录>/kaze-state-XXXX/state.db`), 之后可用任意 SQLite 工具查看; 用完自行删除该目录 (工具不清理).
+
+- 以只读方式 (`mode=ro`) 打开源库, 用 `VACUUM INTO` 生成快照: 是一致的时间点副本, 还没合并回主库的 WAL 里已提交的改动也包含在内. 源库不被写入.
+- 安全限制: 临时目录 (`os.TempDir()`, 即 `TMPDIR`) 必须是绝对路径, 且它自己及各级上层目录里都不能有 `.syncroot` 标记 (即不能在任何同步根之内), 否则拒绝并退出码 1: 快照含客户端的文件名与状态, 放进同步根会被同步出去. 需要时设 `TMPDIR` 指向同步根之外的目录.
+- 参数必须恰好一个, 否则打印用法并退出码 2. 失败 (源库打不开, 快照出错) 时退出码 1, 并删掉已建的临时目录, 不留残余文件.
+- 只做快照, 不提供过滤, 脱敏或修复; 快照里仍有文件路径等信息, 对外分享前自行处理.
+
 ## 客户端调试日志
 
 默认日志只记启动, 警告和错误. 诊断同步延迟时, 在客户端状态目录 (Linux `~/.local/state/kaze-sync`, Windows `%LOCALAPPDATA%\kaze-sync`) 里创建一个名为 `debug` 的空文件并重启 agent, 日志 (`kaze-syncc.log`) 就多出 `level=DEBUG` 的时间线: 文件事件 (`watcher event`), 去抖到点后的任务 (`task planned`), 扫描 (`scan`) 与拉取 (`pull`) 的耗时和结果, 到服务端的请求 (`poll`, `server commit`, `upload blocks`, `changes`, `download blocks`, 带耗时 `ms`) 和轮询带来的通知 (`poll news`). 用完删掉该文件并重启 agent; 日志仍受 10 MB 轮转限制.
