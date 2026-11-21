@@ -308,7 +308,7 @@ An installer fetched from the dialog carries the enrollment code and the certifi
 
 ### 3.1 Linux client
 
-You need an x86-64 (`amd64`) Linux computer with a systemd user session (other init systems are not supported on the client). On that computer, either paste the `curl` line from the dialog into a terminal, or download the Linux link in a browser and run the file:
+You need an x86-64 (`amd64`) Linux computer that runs systemd, because the client agent runs as a systemd user service (other init systems, such as OpenRC on Alpine, are not supported on the client; the installer checks for `systemctl` first and stops with an explanation, before it changes anything). On that computer, either paste the `curl` line from the dialog into a terminal, or download the Linux link in a browser and run the file:
 
 ```bash
 sh ~/Downloads/kaze-sync-client.sh                     # client: file saved by the browser from the dialog's link
@@ -831,7 +831,7 @@ kaze-syncc upgrade                                    # client
 
 (`kaze-syncc` is in `~/.local/bin` on Linux; on Windows it is in `%LOCALAPPDATA%\Programs\kaze-sync` unless you installed it elsewhere, and you run `kaze-syncc.exe upgrade` in a terminal there.) The command asks only your own server, never GitHub: it fetches the client installer that the server holds, with the device's own token over the pinned connection, checks its checksums, and runs the same installation as the installers do. It stops the agent, replaces the program files (and puts the old ones back if a step fails), starts the agent again and keeps `device.json`, the registration and the folder databases. It prints the old and the new version. When the server holds no newer version it just says it is up to date, and nothing changes; `--force` installs anyway (it also overrides the order check above). It only runs when you run it: nothing upgrades by itself.
 
-On Windows a running program cannot replace itself, so `upgrade` downloads the setup program, starts it in a **new console window** and exits; watch the new window for the result and press Enter to close it.
+On Windows a running program cannot replace itself, so `upgrade` downloads the setup program, starts it in a **new console window** and exits; watch the new window for the result and press Enter to close it. Run `upgrade` in a desktop session (a local console or Remote Desktop), not in an SSH session: a window opened from an SSH session ends with that session, and the installation is cut off and the agent stays stopped.
 
 If a client is too old to have the `upgrade` command (it was installed by a release from before the installers), use one of these once; they also work for any client:
 
