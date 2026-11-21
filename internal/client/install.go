@@ -63,6 +63,7 @@ type installEnv struct {
 	OldVersion   func(dir string) string                            // "" when unknown
 	ServerAgent  func(ctx context.Context, dev Device) (int, error) // the server's protocol version
 	Linger       func() (enabled, known bool)
+	Preflight    func() error // nil: nothing to check; an error stops the installation before anything changes
 	Sleep        func(time.Duration)
 	Self         func() string // the running program, which Windows cannot replace
 }
@@ -82,6 +83,7 @@ func realInstallEnv() (installEnv, error) {
 		OldVersion:   installedVersion,
 		ServerAgent:  serverAgentVersion,
 		Linger:       lingerEnabled,
+		Preflight:    preflight,
 		Sleep:        time.Sleep,
 		Self:         func() string { p, _ := os.Executable(); return p },
 	}, nil
@@ -95,6 +97,18 @@ func Install(ctx context.Context, o InstallOptions) error {
 		return err
 	}
 	return install(ctx, o, env)
+}
+
+// preflight refuses a Linux machine without systemd: the agent runs as a systemd user unit and there is no other
+// supported way to run it (design 9.5), so installing would only leave a registered device with no agent.
+func preflight() error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return errors.New("the Linux client needs systemd (systemctl was not found); other init systems are not supported, nothing was installed")
+	}
+	return nil
 }
 
 func payloadNames(goos string) []string {
@@ -142,6 +156,11 @@ func install(ctx context.Context, o InstallOptions, env installEnv) error {
 	}
 	if pkg.Manifest.OS != env.GOOS || pkg.Manifest.Arch != env.GOARCH {
 		return fmt.Errorf("this installer is for %s/%s, not %s/%s", pkg.Manifest.OS, pkg.Manifest.Arch, env.GOOS, env.GOARCH)
+	}
+	if env.Preflight != nil {
+		if err := env.Preflight(); err != nil {
+			return err
+		}
 	}
 	dev, err := LoadDevice(env.StateDir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {

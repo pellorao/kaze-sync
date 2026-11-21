@@ -287,6 +287,19 @@ func TestInstallSaysWhenTheAgentWouldStopAtLogout(t *testing.T) {
 	}
 }
 
+func TestInstallRefusesBeforeAnythingChangesWhenThereIsNoSystemd(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, "linux")
+	r.env.Preflight = func() error { return errors.New("no systemd") }
+	err := r.run(InstallOptions{From: r.pkg("linux", 6, &testReg, "kaze-syncc")})
+	if err == nil || !strings.Contains(err.Error(), "no systemd") || r.seq() != "" {
+		t.Fatalf("%v %q", err, r.seq())
+	}
+	if _, e := os.Stat(r.def); e == nil {
+		t.Fatal("install directory was created")
+	}
+}
+
 func TestParseInstallArgs(t *testing.T) {
 	t.Parallel()
 	o, err := ParseInstallArgs([]string{"https://s:1", "ABCD", "--fingerprint", "sha256:aa", "--from", "/x", "--dir", "/d", "--force"}, "/self")
