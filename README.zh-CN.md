@@ -22,35 +22,34 @@ Web UI 提供简体中文, 繁体中文, 英文, 日文和韩文五种界面语�
 
 ## 快速开始
 
-如果以上特性符合你的需要, 只需五步就能装好服务端并让第一台电脑开始同步. 你需要一台能以 root 登录的服务器 (预编译包适用于 x86-64 Linux; 其他 CPU 请用 Go 从源码编译, 见[手册附录 A](docs/manuals/user-manual.zh-CN.md#附录-a-从源码编译)).
+如果以上特性符合你的需要, 只需五步就能装好服务端, 并让第一台电脑开始同步. 你需要一台能以 root 登录的服务器 (预编译包适用于 x86-64 Linux; 其他 CPU 请用 Go 从源码编译, 见[手册附录 A](docs/manuals/user-manual.zh-CN.md#附录-a-从源码编译)).
 
-1. **下载并校验** (在任意机器上执行): 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面把 `kaze-sync-<版本>-linux-amd64.tar.gz` (服务端和 Linux 客户端), `kaze-sync-<版本>-windows-amd64.zip` (Windows 客户端) 和 `SHA256SUMS` 下载到同一个目录, 然后核对校验和并解压 Linux 归档:
-
-   ```bash
-   sha256sum -c SHA256SUMS
-   mkdir kaze-sync && tar -xzf kaze-sync-<版本>-linux-amd64.tar.gz -C kaze-sync
-   ```
-
-2. **安装服务端.** 把解压出的 `kaze-syncd` 复制到服务器, 以 root 执行以下两条命令:
+1. **下载并校验** (在服务器上): 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-server-<version>-linux-amd64.sh` (服务端安装包, 约 36 MB, 内含两个客户端安装包) 和 `SHA256SUMS` 到同一个目录, 然后核对校验和:
 
    ```bash
-   ./kaze-syncd install --data /var/lib/kaze-sync       # OpenWrt: 已挂载的数据盘, 如 /mnt/data/kaze-sync
-   /var/lib/kaze-sync/kaze-syncd admin-password         # 只显示一次管理员密码
+   grep ' kaze-sync-server-<version>-linux-amd64.sh$' SHA256SUMS | sha256sum -c -
    ```
 
-   `install` 会启动服务并打印监听端口和证书指纹. 请在防火墙或云厂商安全组中放行该 TCP 端口, 以便浏览器和客户端连接 (在 OpenWrt 上加 `install --wan` 可以自动放行; 见[手册 2.6 节](docs/manuals/user-manual.zh-CN.md#26-端口与防火墙规则)).
-
-   升级时以 root 身份运行新的 `kaze-syncd install`. 它会沿用数据目录, 并保留现有的 OpenWrt WAN 规则. 见[手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级).
-
-3. **登录.** 在浏览器中打开 `https://<服务器>:<端口>/`, 用 `admin-password` 打印出的密码登录. 因为默认使用自签名证书, 浏览器会弹出证书警告; 核对指纹与 `install` 打印的一致后接受即可.
-4. **注册客户端.** 登录 Web UI 后, 把第一台电脑接入服务端. 在总览页点 **添加设备**, 输入设备名称, 复制对话框里生成的命令. 把 `kaze-syncc` 或 `kaze-syncc.exe` 放到这台电脑的固定目录后执行该命令:
+2. **安装服务端.** 以 root 运行安装包:
 
    ```bash
-   kaze-syncc enroll https://<服务器>:<端口> <CODE> --fingerprint sha256:<HEX>
+   sudo sh kaze-sync-server-<version>-linux-amd64.sh --data /var/lib/kaze-sync       # OpenWrt: 没有 sudo, 使用已挂载的数据盘, 例如 /mnt/data/kaze-sync
    ```
 
-   这会向服务端注册该设备, 并将后台 agent 设为每次登录自动启动.
-5. **映射文件夹.** 设备注册后还要把服务端文件夹与本机目录关联起来才会开始同步. 在总览页点 **新建文件夹**. 随后打开该设备的页面, 点 **添加映射**, 选择刚才建好的文件夹并输入本机路径. 如果该目录里已有文件, 勾选 **允许接管非空目录**. 保存后同步立即开始. 要接入更多电脑, 对每台电脑重复第 4 步和第 5 步即可.
+   它会安装并启动服务, 然后打印监听端口, 证书指纹, 以及只显示一次的管理员密码. 请在防火墙或云厂商安全组中放行该 TCP 端口, 使客户端和你的浏览器能够连接 (在 OpenWrt 上加 `--wan`, 安装包会替你完成; 见[手册 2.6 节](docs/manuals/user-manual.zh-CN.md#26-端口与防火墙规则)).
+
+   以后升级时, 以 root 不带选项运行新的安装包即可. 它会沿用数据目录, 并保留现有的 OpenWrt WAN 规则. 见[手册第 15 节](docs/manuals/user-manual.zh-CN.md#15-升级). 如果你更愿意解压归档并自己运行 `kaze-syncd install`, 手册也有说明 ([2.1 节](docs/manuals/user-manual.zh-CN.md#21-用安装包安装服务端)).
+
+3. **登录.** 在浏览器中打开 `https://<服务器>:<端口>/`, 用安装包打印的管理员密码登录 (忘记了可用 `/var/lib/kaze-sync/kaze-syncd admin-password` 生成新的, 数据目录按你的实际路径). 因为默认使用自签名证书, 浏览器会弹出证书警告; 核对指纹与安装时打印的一致后接受即可.
+4. **注册客户端.** 登录 Web UI 后, 把第一台电脑接入服务端. 在总览页按 **添加设备** (`添加设备`), 输入设备名称, 再按 **生成注册码** (`生成注册码`). 对话框提供 Windows 的下载链接 (下载后双击运行; 如果 SmartScreen 提示发布者未知, 请点 **更多信息**, 再点 **仍要运行**); 对 Linux, 则提供一行命令, 可以粘贴到终端或 SSH 会话中, 在没有图形界面的机器上也能用:
+
+   ```bash
+   curl -fsS 'https://<服务器>:<端口>/dl/<CODE>/linux' | sh
+   ```
+
+   (服务端使用自签名证书时, 对话框中的命令会更长, 并固定服务端的公钥.) 安装程序会放好客户端, 注册设备, 并在每次登录时自动启动后台 agent; 你不需要再输入其他内容. 以后可以用 `kaze-syncc upgrade` 从你的服务端升级客户端.
+5. **映射文件夹.** 设备注册后, 还需要把服务端文件夹与一个本机路径关联起来, 才会开始同步. 在总览页按 **新建文件夹** (`新建文件夹`). 然后打开该设备的页面, 按 **添加映射** (`添加映射`), 选择文件夹, 并输入这台电脑上的本机路径. 如果该目录里已有文件, 勾选 **允许接管非空目录** (`允许接管非空目录`). 保存后同步立即开始. 要接入更多电脑, 对每台电脑重复第 4 步和第 5 步即可.
+
 
 ## 接下来看什么
 

@@ -17,7 +17,7 @@
 
 - [1. 各部分如何配合](#1-各部分如何配合)
 - [2. 安装服务端](#2-安装服务端)
-  - [2.1 下载并校验服务端发布包](#21-下载并校验服务端发布包)
+  - [2.1 用安装包安装服务端](#21-用安装包安装服务端)
   - [2.2 OpenWrt](#22-openwrt)
   - [2.3 普通 Linux (systemd 或 OpenRC)](#23-普通-linux-systemd-或-openrc)
   - [2.4 端口, 证书与防火墙](#24-端口-证书与防火墙)
@@ -26,7 +26,8 @@
 - [3. 安装并注册客户端](#3-安装并注册客户端)
   - [3.1 Linux 客户端](#31-linux-客户端)
   - [3.2 Windows 客户端](#32-windows-客户端)
-  - [3.3 注册之后](#33-注册之后)
+  - [3.3 无图形界面的 Linux 客户端](#33-无图形界面的-linux-客户端)
+  - [3.4 注册之后](#34-注册之后)
 - [4. Web UI](#4-web-ui)
 - [5. 文件夹与映射](#5-文件夹与映射)
   - [5.1 写入控制: 谁可以在哪里写入](#51-写入控制-谁可以在哪里写入)
@@ -65,9 +66,10 @@ Web UI 的所有操作均由唯一的管理员完成, 凭一个随机生成的�
 - Linux 客户端状态目录: `~/.local/state/kaze-sync/` (XDG)
 - Linux systemd 用户单元目录: `~/.config/systemd/user/`
 - Linux 用户程序目录: `~/.local/bin/`
-- Windows 客户端状态与自启动: `%LOCALAPPDATA%\kaze-sync\` 与注册表 `Run` 项
+- Windows 客户端程序, 状态与自启动: `%LOCALAPPDATA%\Programs\kaze-sync\` (程序), `%LOCALAPPDATA%\kaze-sync\` (状态) 与注册表 `Run` 项
 - Linux 上 root 安装的服务端数据目录: `/var/lib/kaze-sync`
 - OpenWrt 上的服务端数据目录: 已挂载的数据盘
+- 服务端上的客户端安装包: `<数据目录>/dl/` (Windows 与 Linux 客户端安装包)
 
 其余由你自己指定位置的内容 (例如手动启动的测试服务端传给 `--data` 的目录, 或保存管理员密码这类私有文件), 建议统一放在 `~/.kaze-sync/` 一个目录下 (例如 `--data ~/.kaze-sync/server` 和 `~/.kaze-sync/config/`), 免得散落在家目录各处.
 
@@ -75,32 +77,57 @@ Web UI 的所有操作均由唯一的管理员完成, 凭一个随机生成的�
 
 因为客户端需要连接服务端来完成注册和拉取配置, 所以第一步是获取服务端程序并装好服务端.
 
-### 2.1 下载并校验服务端发布包
+### 2.1 用安装包安装服务端
 
-项目的 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面仅提供 x86-64 (`amd64`) 架构 Linux 与 Windows 的预编译发布包. 安装服务端时, 请把 `kaze-sync-0.3.5-linux-amd64.tar.gz` (把 `0.3.5` 换成你要安装的版本号) 和 `SHA256SUMS` 下载到同一个目录下 (可以直接下载到服务器, 也可以先下载到工作站再复制过去). 这份 Linux 归档里包含两个静态链接, 无外部依赖的二进制文件: 服务端 `kaze-syncd` 和 Linux 客户端 `kaze-syncc`. 如果你的机器没有预编译包 (例如使用非 x86-64 CPU 的 OpenWrt 路由器), 或你想自己从源码编译, 请参见[附录 A: 从源码编译](#附录-a-从源码编译).
+[GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面的每个版本都包含 `kaze-sync-server-<version>-linux-amd64.sh`, 这是一个自解压的 shell 脚本, 适用于 x86-64 (`amd64`) Linux, 包括 OpenWrt. 它内含服务端程序 (`kaze-syncd`) 和两个客户端的安装包. 脚本会自我校验, 解压, 运行 `kaze-syncd install`, 把两个客户端安装包放到服务端上 (这样 Web UI 才能分发它们, 见第 3 节), 首次安装时显示管理员密码. 首次安装和以后的升级都用同一个文件 (见第 15 节). 没有安装包文件的发布版本, 以及非 x86-64 Linux 的机器, 需要使用本节末尾的手动安装方法和[附录 A](#附录-a-从源码编译).
 
-解压前请先用 `SHA256SUMS` 校验归档的 SHA-256 校验和, 确认文件下载完整且未被篡改:
+1. **下载并校验.** 把 `kaze-sync-server-<version>-linux-amd64.sh` 和 `SHA256SUMS` 下载到同一个目录, 可以直接在服务器上下载, 也可以先在工作电脑上下载, 再用 `scp` 复制过去. 对照 `SHA256SUMS` 核对校验和, 防止下载过程中文件被改动:
+
+   ```bash
+   grep ' kaze-sync-server-<version>-linux-amd64.sh$' SHA256SUMS | sha256sum -c -     # server
+   ```
+
+   输出必须以 `OK` 结尾. 安装包在动手前还会核对它内部保存的 SHA-256, 因此损坏或下载不完整的文件会被拒绝; 但这项检查不能代替上面的核对, 因为改过文件的人也可以同时改掉内部的摘要.
+
+2. **以 root 运行.** 用 `sh` 运行该文件, 不需要 `chmod`:
+
+   ```bash
+   sudo sh kaze-sync-server-<version>-linux-amd64.sh --data /var/lib/kaze-sync        # server
+   ```
+
+   在 OpenWrt 上没有 `sudo`: 以 root 登录后执行 `sh kaze-sync-server-<version>-linux-amd64.sh --data /mnt/data/kaze-sync`, 如果路由器要允许从 WAN 侧访问该端口, 再加上 `--wan`. 文件名后面可以加 `kaze-syncd install` 的任何选项: `--data`, `--listen`, `--cert` 和 `--key`, `--ca` 和 `--san`, `--wan` (选项表见 2.2 节). 首次安装必须指定 `--data`, 另外有两个便利: 在普通 Linux 上, 如果你在终端中运行安装包且没有给 `--data`, 它会询问数据目录 (默认 `/var/lib/kaze-sync`); 在 OpenWrt 上, 或没有终端时, 它会停下来并打印带 `--data` 的命令, 因为 OpenWrt 的数据目录必须位于已挂载的数据盘上 (见 2.2 节).
+
+3. **读取输出, 记下三个值.** `kaze-syncd install` 会打印监听端口和证书指纹 (`sha256:...`); 首次安装之后还会打印一次管理员密码. 这三个值登录和注册客户端时都要用到. 然后在防火墙或云厂商安全组中放行该端口 (见 2.6 节; 在 OpenWrt 上 `--wan` 已经完成了这一步). 安装包最后打印 `kaze-sync server <version> is installed`, 并提醒你逐台升级客户端 (见第 15 节).
+
+   如果 `kaze-syncd install` 失败, 安装包会在那里停止, 后面的步骤都不执行; 按它报告的原因修复后重新运行安装包即可. 如果服务端已装好, 但两个客户端安装包没能放到服务端上, 安装包会说明这一点, 并给出要手动执行的命令 (`kaze-syncd client-pkg`, 见第 15 节); 服务端本身仍然可用.
+
+**它做什么, 需要什么.** 必须以 root 运行 (脚本会检查). 它只使用 `sh` 以及 busybox 也有的工具: `tail`, `head`, `gunzip`, `tar`, `sha256sum` 和 `mktemp`; 缺少哪一个它会指出来. 它解压到一个临时目录中, 无论成功还是失败, 结束时都会删除该目录.
+
+**文件大小与小型路由器.** 服务端安装包约 36 MB, 运行时解压后的内容约 40 MB, 放在临时目录中 (`/tmp`, 或 `TMPDIR` 指定的目录). 在 OpenWrt 上 `/tmp` 位于内存中, 内存较小的路由器可能不够用, 请先用 `free` 和 `df /tmp` 检查. 如果空间紧张, 可在数据盘上建一个目录, 把它作为 `TMPDIR` 运行安装包 (例如 `mkdir -p /mnt/data/tmp && TMPDIR=/mnt/data/tmp sh kaze-sync-server-<version>-linux-amd64.sh --data /mnt/data/kaze-sync`), 并把 36 MB 的安装包文件本身也放在数据盘上, 不要放在路由器容量很小的闪存里. Windows 客户端安装包约 22 MB, Linux 客户端安装包约 5 MB; 它们保存在服务端数据盘的 `<数据目录>/dl/` 中, 供客户端从服务端下载.
+
+**手动安装 (不使用安装包).** 发布版本中也有 `kaze-sync-<version>-linux-amd64.tar.gz`, 内含两个静态链接, 不依赖任何外部库的 Linux 程序: `kaze-syncd` (服务端) 和 `kaze-syncc` (Linux 客户端). 如果你想逐步了解每一步, 或者你自己编译了程序, 可以用它 (见[附录 A: 从源码编译](#附录-a-从源码编译); 非 x86-64 的机器, 例如 CPU 不同的 OpenWrt 路由器, 没有预编译包). 把归档文件和 `SHA256SUMS` 下载到同一个目录, 可以直接在服务器上下载, 也可以先下载到工作电脑上, 之后再复制程序过去; 解压前先对照 `SHA256SUMS` 核对 SHA-256:
 
 ```bash
 sha256sum -c SHA256SUMS
 ```
 
-如果你只下载了 `kaze-sync-0.3.5-linux-amd64.tar.gz`, 没有同时下载 Windows 的 `.zip` 归档, `sha256sum` 会提示缺少那个 `.zip` 文件; 只要 `kaze-sync-0.3.5-linux-amd64.tar.gz` 这一行显示 `OK`, 就可以继续.
+如果你只下载了 `kaze-sync-0.3.5-linux-amd64.tar.gz`, 没有下载 `SHA256SUMS` 中列出的其他文件, `sha256sum` 会报告它们缺失; 继续之前请确认 `kaze-sync-0.3.5-linux-amd64.tar.gz` 那一行输出 `OK` (把 `0.3.5` 换成你下载的版本号).
 
-由于该归档把 `kaze-syncd` 和 `kaze-syncc` 直接放在根目录而没有外层文件夹, 请先建一个专用目录再解压:
+归档中的 `kaze-syncd` 和 `kaze-syncc` 直接位于根目录, 没有外层目录, 因此请建一个专用目录再解压:
 
 ```bash
 mkdir -p kaze-sync-0.3.5
 tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C kaze-sync-0.3.5
 ```
 
-两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.3.5` 和 `kaze-syncc 0.3.5` (以 `0.3.5` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
+之后从解压出的 `kaze-syncd` 按 2.2 节 (OpenWrt) 或 2.3 节 (普通 Linux) 操作. 两个程序都内嵌了发布版本号: `kaze-syncd --version` 和 `kaze-syncc --version` 分别输出 `kaze-syncd 0.3.5` 和 `kaze-syncc 0.3.5` (以 `0.3.5` 版本为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁边会显示服务端版本号 (登录页不显示). 用手动方法安装的服务端上没有客户端安装包; 第 15 节说明如何添加.
+
 
 ### 2.2 OpenWrt
 
 如果服务端运行在 OpenWrt 路由器上, 数据目录必须放在已挂载的独立数据盘上, 不能放在根文件系统 (overlay) 上. `install` 会拒绝根文件系统上的路径, 因为路由器的闪存很小, 很快就会被同步文件写满, 而且升级固件时根文件系统上的数据会被抹掉. 如果路由器只有一块磁盘, 请先在这块盘上划分并挂载一个数据分区, 具体步骤见 [`docs/operations.md`](../operations.md) 的 "OpenWrt 只有一块盘: 新建数据分区" 一节.
 
-[2.1 节](#21-下载并校验服务端发布包)的预编译发布包只适用于 x86-64 架构的 OpenWrt 路由器, 其他 CPU 架构的 OpenWrt 没有预编译包 (见[附录 A](#附录-a-从源码编译), 且[第 18 节](#18-kaze-sync-不做什么)说明服务端不支持 x86-64 以外的架构). 挂载好数据盘后, 把 [2.1 节](#21-下载并校验服务端发布包)解压出的 `kaze-syncd` 复制到路由器上 (或直接在路由器上解压校验后的归档), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/mnt/data/kaze-sync/kaze-syncd`):
+[2.1 节](#21-用安装包安装服务端)的预编译发布包只适用于 x86-64 架构的 OpenWrt 路由器, 其他 CPU 架构的 OpenWrt 没有预编译包 (见[附录 A](#附录-a-从源码编译), 且[第 18 节](#18-kaze-sync-不做什么)说明服务端不支持 x86-64 以外的架构). 挂载好数据盘后, 把 [2.1 节](#21-用安装包安装服务端)解压出的 `kaze-syncd` 复制到路由器上 (或直接在路由器上解压校验后的归档), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/mnt/data/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync        # server
@@ -129,7 +156,7 @@ tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C kaze-sync-0.3.5
 
 ### 2.3 普通 Linux (systemd 或 OpenRC)
 
-在普通 x86-64 Linux 服务器上, 根文件系统空间充足且升级系统不会抹掉数据, 因此数据目录可以选在任意位置 (包括根文件系统上). 在你解压出 `kaze-syncd` 的目录下 ([2.1 节](#21-下载并校验服务端发布包)), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/var/lib/kaze-sync/kaze-syncd`):
+在普通 x86-64 Linux 服务器上, 根文件系统空间充足且升级系统不会抹掉数据, 因此数据目录可以选在任意位置 (包括根文件系统上). 在你解压出 `kaze-syncd` 的目录下 ([2.1 节](#21-用安装包安装服务端)), 以 root 执行 (`install` 会把 `kaze-syncd` 复制到 `/var/lib/kaze-sync/kaze-syncd`):
 
 ```bash
 ./kaze-syncd install --data /var/lib/kaze-sync         # server
@@ -247,19 +274,40 @@ uci commit firewall
 
 ## 3. 安装并注册客户端
 
-登录 Web UI 之后, 下一步就是把你的各台电脑接入服务端.
+连上 Web UI 之后, 下一步就是把你的电脑接入服务端. 客户端不需要从 GitHub 下载任何东西: 服务端自己分发客户端安装包 (2.1 节的服务端安装包已经把它们放到了服务端上), 以这种方式下载的安装包在运行时会自行注册设备.
 
-注册客户端需要先在 Web UI 中生成一条注册命令. 在总览页点 **添加设备**, 输入设备名称 (只能含字母, 数字, `-` 和 `_`, 至多 32 个字符, 且不能与现有设备重名; 该名称会出现在指明设备的通知里), 再点 **生成注册码**. 弹出的对话框会显示一个有效期 15 分钟的一次性注册码, 以及可直接复制的 Linux 和 Windows 注册命令 (当服务端使用自签名证书或本地 CA 时, 命令末尾会自动带上 `--fingerprint`):
+要添加电脑, 在总览页按 **添加设备** (`添加设备`), 输入设备名称 (最多 32 个字符, 只能用字母, 数字, `-` 和 `_`; 名称必须唯一, 通知中指明设备时显示的就是它), 然后按 **生成注册码** (`生成注册码`). **注册设备** (`注册设备`) 对话框会显示一个只能使用一次, 有效期 15 分钟的注册码, 下面列出:
 
-```text
-kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sha256:...
-```
+- **Windows**: Windows 安装包的下载链接, 带复制按钮.
+- **Linux**: 一行 `curl ... | sh` 命令, 一个校验 SHA-256 的 `wget` 替代命令, 以及可在浏览器中下载的链接. 3.3 节说明这些命令行.
+- 每个系统名称旁边显示服务端上保存的客户端安装包版本 (例如 `package <version>`); 与服务端版本不同时会有一行警告. 只要协议兼容, 其他版本的安装包仍可使用; 要替换它, 见第 15 节的 "仅发布客户端的版本".
+- 两条手动的 `kaze-syncc enroll ...` 命令, 适用于电脑上已有客户端程序的情况 (服务端使用自签名证书或本地 CA 时, 命令中包含 `--fingerprint`).
 
-请确认命令中的服务端地址是客户端电脑实际能访问到的域名或 IP 加端口, 且必须以 `https://` 开头.
+如果服务端上没有客户端安装包 (你是手动安装的服务端, 见 2.1 节), 对话框会说明这一点, 只显示手动命令.
+
+下载链接, 命令, 以及安装好的客户端都使用你在浏览器中打开 Web UI 时输入的地址, 包括端口. 请用新电脑也能访问的名称或地址打开 Web UI (不要用 `localhost`), 或者复制链接后替换其中的主机部分.
+
+从对话框下载的安装包已经包含本服务端的注册码和证书指纹, 因此新电脑上不需要输入任何内容. 注册码只能用于一次注册, 且 15 分钟内有效, 以先到者为准; 过期后请重新生成.
 
 ### 3.1 Linux 客户端
 
-在 x86-64 (`amd64`) Linux 电脑上, 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-0.3.5-linux-amd64.tar.gz` (选用与服务端兼容的版本) 和 `SHA256SUMS` 到同一个目录. 该归档内含 `kaze-syncc` 和 `kaze-syncd` 两个程序. (如果你的 Linux 电脑使用其他 CPU 架构, 没有对应的预编译发布包; 请参见[附录 A: 从源码编译](#附录-a-从源码编译).)
+你需要一台 x86-64 (`amd64`) Linux 电脑, 并且有 systemd 用户会话 (客户端不支持其他 init 系统). 在该电脑上, 可以把对话框中的 `curl` 命令粘贴到终端, 或者在浏览器中下载对话框中的 Linux 链接并运行该文件:
+
+```bash
+sh ~/Downloads/kaze-sync-client.sh                     # client: 浏览器从对话框链接保存的文件
+```
+
+安装程序不需要 root. 它把 `kaze-syncc` 放到 `~/.local/bin/` (这是**固定**目录: 自启动服务记录了程序的确切路径, 以后移动会导致自启动失效; 如果要换一个目录, 在文件名后加 `--dir DIR`), 把设备令牌保存到 `~/.local/state/kaze-sync/`, 完成注册, 写入 systemd 用户单元 `~/.config/systemd/user/kaze-sync.service`, 启用它并启动后台 agent. 它会打印旧版本和新版本, 以及 `enrolled this device` 和 `the agent is running and starts at login`. 用 `systemctl --user status kaze-sync` 验证; 电脑会出现在设备表中 (见 3.4 节). 如果 `~/.local/bin` 不在你的 `PATH` 中, 请用 `~/.local/bin/kaze-syncc` 运行程序.
+
+在没有图形会话的机器 (服务器或 NAS) 上, 还要阅读 3.3 节: 默认情况下, 你的最后一个会话结束时 systemd 会停止 agent.
+
+你也可以用发布页上的安装包文件 `kaze-sync-client-<version>-linux-amd64.sh` (约 5 MB), 代替对话框中的链接. 该文件不含注册码, 因此要把命令中的值告诉它: `sh kaze-sync-client-<version>-linux-amd64.sh https://<server>:<port> <CODE> --fingerprint sha256:<HEX>` (三个值取自对话框中的 `kaze-syncc enroll` 行). 如果不提供这些值, 它只安装程序, 并提示你自己运行 `kaze-syncc enroll`. 先用 `SHA256SUMS` 核对文件:
+
+```bash
+grep ' kaze-sync-client-<version>-linux-amd64.sh$' SHA256SUMS | sha256sum -c -     # client
+```
+
+**手动安装 (不使用安装包).** 在 x86-64 Linux 电脑上, 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面把 `kaze-sync-0.3.5-linux-amd64.tar.gz` (请选择与服务端兼容的版本) 和 `SHA256SUMS` 下载到同一个目录. 该归档同时包含 `kaze-syncc` 和 `kaze-syncd`. (如果你的 Linux 电脑使用其他 CPU 架构, 没有预编译包; 见[附录 A: 从源码编译](#附录-a-从源码编译).)
 
 解压前先核对校验和:
 
@@ -267,50 +315,79 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 sha256sum -c SHA256SUMS                                # client
 ```
 
-(如果你没有同时下载 Windows 的 `.zip` 归档, `sha256sum` 会提示缺少该文件; 确认 `kaze-sync-0.3.5-linux-amd64.tar.gz` 这一行显示 `OK` 即可.)
+(如果你没有下载其他文件, `sha256sum` 会报告它们缺失; 请确认 `kaze-sync-0.3.5-linux-amd64.tar.gz` 输出 `OK`.)
 
-接下来把 `kaze-syncc` 解压到一个**固定**目录 (例如 `~/.local/bin/`), 因为 `enroll` 会把当时二进制文件所在的路径写入自启动服务, 之后移动文件会导致自启动失效 (归档中同时带有 `kaze-syncc` 和 `kaze-syncd`, 这里只提取 `kaze-syncc`):
+然后把 `kaze-syncc` 解压到一个**固定**目录, 例如 `~/.local/bin/`, 因为自启动服务记录的是你运行 `enroll` 时的确切路径 (之后移动程序会导致自启动失效):
 
 ```bash
 mkdir -p ~/.local/bin                                  # client
 tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C ~/.local/bin kaze-syncc
 ```
 
-然后在终端执行 Web UI 对话框里复制的命令 (如果 `~/.local/bin` 不在 `PATH` 中, 请直接运行 `~/.local/bin/kaze-syncc`):
+然后运行 Web UI 对话框中的注册命令 (如果 `~/.local/bin` 不在 `PATH` 中, 请运行 `~/.local/bin/kaze-syncc`):
 
 ```bash
 kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HEX>    # client
 ```
 
-`enroll` 会把设备令牌保存到 `~/.local/state/kaze-sync/`, 写入 systemd 用户单元文件 `~/.config/systemd/user/kaze-sync.service`, 启用开机自启并立即启动后台 agent. 你可以用 `systemctl --user status kaze-sync` 查看运行状态.
+`enroll` 把设备令牌保存到 `~/.local/state/kaze-sync/`, 写入 systemd 用户单元 `~/.config/systemd/user/kaze-sync.service`, 启用它并启动后台 agent. 用 `systemctl --user status kaze-sync` 可以确认它正在运行.
 
-Linux 客户端要求系统提供 systemd 用户会话, 不支持其他初始化系统. 默认情况下 systemd 用户服务只在用户登录期间运行; 如果你希望未登录时 agent 也在后台同步, 请执行 `loginctl enable-linger` 开启 linger. 如果执行注册时加上 `--no-autostart`, 则只完成设备注册而不配置或启动服务, 之后需要时可执行 `kaze-syncc run` 在前台运行 agent.
+默认情况下, systemd 用户会话只在你登录期间运行; 如果希望注销后 agent 仍然继续同步, 用 `loginctl enable-linger` 开启 lingering (见 3.3 节). 如果传入 `--no-autostart`, `enroll` 只注册设备, 不创建或启动 systemd 服务, 之后可以随时用 `kaze-syncc run` 在前台运行 agent.
 
 ### 3.2 Windows 客户端
 
-在 x86-64 (`amd64`) Windows 电脑上, 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-0.3.5-windows-amd64.zip` (选用与服务端兼容的版本) 和 `SHA256SUMS`. 该 `.zip` 归档包含 `kaze-syncc.exe` 和无控制台窗口的 `kaze-syncc-agent.exe`. (如果你的 Windows 电脑使用其他 CPU 架构, 没有对应的预编译发布包; 请参见[附录 A: 从源码编译](#附录-a-从源码编译).)
+在 x86-64 (`amd64`) Windows 电脑上, 用浏览器打开对话框中的 Windows 链接. 它会下载 `kaze-sync-setup.exe` (约 22 MB), 这是内含你注册信息的 Windows 安装程序. 双击运行即可, 不需要管理员权限.
 
-解压前在 PowerShell 中计算归档的 SHA-256 哈希, 并与 `SHA256SUMS` 中 `kaze-sync-0.3.5-windows-amd64.zip` 那一行比对 (PowerShell 输出大写十六进制而 `SHA256SUMS` 为小写, 大小写不影响校验):
+**SmartScreen.** 安装程序没有代码签名, 因此第一次运行时, Windows SmartScreen 会显示 "Windows 已保护你的电脑" 并提示发布者未知. 点 **更多信息** (More info), 再点 **仍要运行** (Run anyway). 由于这个警告无法区分本文件和有害文件, 请先确认文件来源: 从对话框下载的文件是通过 HTTPS 从你自己的服务器获取的, 也就是你第一次登录时核对过证书的那台服务器. 如果你使用的是 GitHub Releases 页面上的副本, 请在 PowerShell 中计算哈希, 并与 `SHA256SUMS` 中该文件的那一行对照 (PowerShell 输出大写十六进制, `SHA256SUMS` 使用小写; 大小写不影响比较):
+
+```powershell
+Get-FileHash .\kaze-sync-client-<version>-windows-amd64-setup.exe -Algorithm SHA256
+```
+
+(从对话框下载的文件末尾附加了你的注册信息, 因此它的哈希与 `SHA256SUMS` 中的不同; 不要比较这两者.)
+
+**安装程序做什么.** 它打开一个控制台窗口, 把 `kaze-syncc.exe` 和不带窗口的 `kaze-syncc-agent.exe` 复制到 `%LOCALAPPDATA%\Programs\kaze-sync\` (如果这台电脑之前装过, 则使用已有自启动记录中的目录), 完成注册并把设备令牌保存到 `%LOCALAPPDATA%\kaze-sync\`, 在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下以值名 `kaze-sync` 登记 `kaze-syncc-agent.exe`, 并立即启动 agent. 此后每次登录 Windows 时 agent 都会自动启动. 结束时它会打印执行的结果, 并等待你按 Enter 后才关闭窗口. 之后可以删除 `kaze-sync-setup.exe`.
+
+如果你使用发布页的安装包 (`kaze-sync-client-<version>-windows-amd64-setup.exe`, 不含注册信息), 它会要求你粘贴注册命令: 从对话框复制 `kaze-syncc.exe enroll ...` 那一行, 粘贴后按 Enter (空行表示跳过注册, 之后自己运行该命令).
+
+**手动安装 (不使用安装包).** 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面下载 `kaze-sync-0.3.5-windows-amd64.zip` (请选择与服务端兼容的版本) 和 `SHA256SUMS`. `.zip` 归档包含 `kaze-syncc.exe` 和不带窗口的 `kaze-syncc-agent.exe`. (如果你的 Windows 电脑使用其他 CPU 架构, 没有预编译包; 见[附录 A: 从源码编译](#附录-a-从源码编译).)
+
+解压前, 在 PowerShell 中核对归档, 并把输出的哈希与 `SHA256SUMS` 中 `kaze-sync-0.3.5-windows-amd64.zip` 那一行对照:
 
 ```powershell
 Get-FileHash .\kaze-sync-0.3.5-windows-amd64.zip -Algorithm SHA256
 ```
 
-把归档解压到一个**固定**目录 (`<安装目录>`), 让 `kaze-syncc.exe` 和 `kaze-syncc-agent.exe` 一起放在自启动将要记录的目录里:
+把归档解压到一个**固定**目录 (`<安装目录>`), 使 `kaze-syncc.exe` 和 `kaze-syncc-agent.exe` 都位于自启动将记录的同一个文件夹中:
 
 ```powershell
 Expand-Archive .\kaze-sync-0.3.5-windows-amd64.zip -DestinationPath <安装目录>
 ```
 
-在 `<安装目录>` 中打开终端, 执行对话框里的注册命令 (`kaze-syncc.exe enroll ...`).
+在 `<安装目录>` 中打开终端, 运行对话框中的注册命令 (`kaze-syncc.exe enroll ...`). `enroll` 把设备令牌保存到 `%LOCALAPPDATA%\kaze-sync\`, 在同一个 `Run` 项和值名下登记不带窗口的 `kaze-syncc-agent.exe`, 并立即启动 agent.
 
-`enroll` 会把设备令牌保存到 `%LOCALAPPDATA%\kaze-sync\`, 在注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下以名称 `kaze-sync` 注册无窗口的 `kaze-syncc-agent.exe` (无需管理员权限), 并立即启动它. 此后每次登录 Windows 时 agent 都会自动在后台启动.
+### 3.3 无图形界面的 Linux 客户端
 
-### 3.3 注册之后
+服务器, NAS 或只能通过 SSH 访问的虚拟机没有浏览器. 浏览器部分在另一台电脑上完成, SSH 会话只需粘贴一行:
 
-注册命令执行成功后, 这台电脑就会出现在 Web UI 总览页的设备表中, 在线时显示绿点. 新注册的设备还不会同步任何文件, 接下来需要在第 5 节中把文件夹映射给它.
+1. 在任意有浏览器的电脑上登录 Web UI, 按 **添加设备** (`添加设备`), 输入名称并生成注册码. 对话框在 **Linux** 下显示 Linux 命令行.
+2. 按它的复制按钮, 把这一行粘贴到无图形界面机器上的 SSH 会话中. 它需要 `curl`, `sh`, `base64`, `tar`, `gunzip`, `sha256sum` 和 `mktemp`, 不需要 root. 对于使用自签名证书或本地 CA 的服务端, 命令形如:
 
-如果日后需要重新注册同一台电脑 (例如重装操作系统之后), 因为设备名称不能重复, 请先在 Web UI 中吊销旧设备, 或者换一个新名称添加设备, 然后生成并执行新的注册命令.
+   ```bash
+   curl -fsSk --pinnedpubkey 'sha256//<base64 哈希>' 'https://<server>:<port>/dl/<CODE>/linux' | sh     # client
+   ```
+
+   这台机器不信任你服务端的证书, 因此 `-k` 跳过对系统证书颁发机构的检查, `--pinnedpubkey` 让 `curl` 只接受你服务端的公钥, 从而防止中间人攻击. 如果服务端使用你自己从公共 CA 获得的证书, 对话框中的命令既没有 `-k` 也没有 `--pinnedpubkey`. 下载的脚本只在最后一行才调用安装函数, 因此下载中途断开时不会安装任何东西.
+3. 没有 `curl` 时, 使用其下方的 `wget` 命令. 它会保存文件, 用对话框显示的 SHA-256 核对 (服务端在你打开对话框时计算了它, 你在信任该服务端的浏览器中读取它, 因此这项核对与安装所在的机器无关), 核对通过后才运行. 如果两者都没有, 在浏览器中下载 Linux 链接, 用 `scp` 把文件复制到机器上, 然后运行 `sh kaze-sync-client.sh`.
+4. 安装程序的其余步骤与 3.1 节相同. 最后它会检查 lingering. systemd 用户服务在该用户最后一个会话结束时停止; 在没有人以图形方式使用的机器上, 这一时刻就是 SSH 会话关闭时, 因此注销后 agent 会停止同步. 如果 lingering 未开启, 安装程序会打印 `loginctl enable-linger <user>`; 请以 root 运行一次 (`sudo loginctl enable-linger <user>`), 并用 `loginctl show-user <user> -p Linger` 检查, 它必须输出 `Linger=yes`.
+5. 回到 Web UI, 这台机器会出现在设备表中; 用这台机器上的本地路径为它添加文件夹映射 (见第 5 节).
+
+### 3.4 注册之后
+
+注册完成后, 你的电脑会出现在 Web UI 总览页的设备表中, 旁边有一个绿点, 表示它在线. 新注册的设备还不会同步任何文件; 你要在第 5 节把文件夹关联到它.
+
+如果需要重新注册同一台电脑 (例如重装了它的操作系统), 要么先吊销旧的设备条目, 要么用新的设备名称注册, 因为设备名称必须唯一; 然后生成新的注册码, 并使用它的安装包或命令.
+
 
 ## 4. Web UI
 
@@ -709,15 +786,59 @@ tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                  
 
 ## 15. 升级
 
-升级 kaze-sync 时, 请务必遵循**先升级服务端, 再升级客户端**的顺序.
+升级到较新的 kaze-sync 版本时, 始终先升级**服务端**, 再升级客户端. 使用安装包时, 每一项都只需一条命令: 服务端上运行服务端安装包, 每台客户端上运行 `kaze-syncc upgrade`. 两者都会保留你的设置 (端口, 证书, 管理员密码, 已注册的设备和文件夹映射).
 
-**为什么顺序重要.** 某些版本升级会改动同步协议 (当前协议版本为 6; 版本 6 新增了写入控制, 并将服务端要求的最低客户端协议版本也提升到了 6, 因此服务端升到该版本后所有客户端都必须跟着升级; 版本 5 新增的是符号链接支持). 如果反过来先升级了客户端, 新客户端向旧服务端发起成批下载时会失败. 而先升级服务端时, 比服务端最低要求更旧的客户端会收到 HTTP 426 并安全暂停同步: 客户端日志大约每分钟记录一条 `client too old, sync is stopped until kaze-syncc is upgraded`, 同时 Web UI 设备表中该设备的版本旁显示红色的 "过旧" (过旧到不上报发布版本的客户端, 版本显示为 `-`). 此时客户端本地数据毫发无损, 按下面步骤升级客户端二进制后即可自动恢复同步. (只有会让旧客户端无法正常工作的协议改动才会提高最低版本要求, 因此大多数升级并不强制同时升级客户端.)
+**为什么顺序重要.** 一些版本会更新同步协议 (当前协议版本是 6, 它加入了写入控制, 并把服务端要求的客户端最低协议版本提高到 6, 意味着升级服务端之后每台客户端都必须升级; 版本 5 加入了符号链接). 如果你先升级客户端, 新客户端在批量下载时会与旧服务端失败. 反过来, 先升级服务端时, 任何低于服务端最低协议版本的客户端都会被干净地以 HTTP 426 暂停: 客户端每分钟左右记录一次 `client too old, sync is stopped until kaze-syncc is upgraded`, Web UI 的设备表会在其版本旁用红色标出 "`过旧`" (如果客户端过旧而无法报告发布版本, 则显示 `-`). 它的本地数据不受影响, 你升级该客户端后同步会自动恢复. (只有会使旧客户端不兼容的协议变化才会提高最低版本, 因此大多数服务端升级不会立即强制升级客户端.)
 
-按以下四步完成升级:
+客户端安装程序也会替你检查顺序: 在替换已注册电脑上的任何文件之前, 它们会向服务端询问协议版本, 并拒绝安装协议比服务端更新的客户端 (`upgrade the server first, or use --force`). 比较依据是协议版本而不是发布编号, 因此协议没有变化的仅客户端版本无需先升级服务端即可安装. 如果无法连接服务端, 安装程序只给出警告并继续.
 
-1. **下载并校验新版本发布包**: 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 获取新版本的 `kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip` 和 `SHA256SUMS`, 按 [2.1 节](#21-下载并校验服务端发布包)和[第 3 节](#3-安装并注册客户端)的步骤校验并解压 (若自行从源码编译, 见[附录 A](#附录-a-从源码编译)).
-2. **升级服务端**: 把新的 `kaze-syncd` 复制到服务器上, 以 root 执行 `./kaze-syncd install` (OpenWrt 和普通 Linux 相同). 它会从已安装的服务定义中读取数据目录, 并保留当前的监听端口, TLS 设置, 管理员密码和 OpenWrt WAN 规则. 你也可以显式传入 `--data <同一个目录>`; 这样做时, 若要保留 OpenWrt 的 WAN 访问, 还需同时传入 `--wan`. `install` 会拒绝用更旧的服务端二进制替换更新的版本. 它会迁移数据库, 把新二进制复制进 `<data>/`, 并重启服务. 在 systemd 系统上它还会重新加载单元定义并重写 `/etc/systemd/system/kaze-sync.service`, 所以自定义的单元设置请放在 systemd drop-in 中. OpenWrt 的 `sysupgrade` 会保留数据盘和服务.
-3. **升级 Linux 客户端**: 停止用户级 agent, 覆盖原路径下的二进制文件, 再重新启动:
+### 升级服务端
+
+1. **下载并校验** 新的 `kaze-sync-server-<version>-linux-amd64.sh` 和 `SHA256SUMS` (来自 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases)), 放到服务器上, 方法同 [2.1 节](#21-用安装包安装服务端).
+2. **以 root 运行, 不加选项:**
+
+   ```bash
+   sudo sh kaze-sync-server-<version>-linux-amd64.sh        # server (在 OpenWrt 上: sh kaze-sync-server-<version>-linux-amd64.sh)
+   ```
+
+   它从已安装的服务定义中读取数据目录, 并保留当前的监听端口, TLS 设置, 管理员密码和 OpenWrt WAN 规则, 因此你不需要传入任何参数. `kaze-syncd install` 拒绝用旧版服务端二进制替换较新的版本. 它会迁移数据库, 把二进制复制到 `<数据目录>/`, 并重启服务. 在 systemd 上它还会重新加载守护进程并重写 `/etc/systemd/system/kaze-sync.service`, 因此请把自定义的单元设置放在 systemd drop-in 中. 安装包还会用它携带的版本替换服务端上的两个客户端安装包, 并以 `kaze-sync server <version> is installed` 结束; 升级时它不显示管理员密码. OpenWrt 的 `sysupgrade` 会保留数据盘和服务.
+
+   如果你确实传入了 `--data <同一目录>` (安装包会把所有选项交给 `kaze-syncd install`), **在 OpenWrt 上请同时加上 `--wan`**: 只给 `--data` 而不给 `--wan`, `install` 会删除名为 `kaze-sync` 的防火墙规则, 此时 WAN 侧无法访问服务端. 不给 `--data` 时该规则保留.
+
+### 升级客户端
+
+服务端升级之后, 在每台客户端上运行:
+
+```bash
+kaze-syncc upgrade                                    # client
+```
+
+(在 Linux 上 `kaze-syncc` 位于 `~/.local/bin`; 在 Windows 上, 除非你装在别处, 它位于 `%LOCALAPPDATA%\Programs\kaze-sync`, 在该目录的终端中运行 `kaze-syncc.exe upgrade`.) 该命令只询问你自己的服务端, 从不访问 GitHub: 它用设备自己的令牌, 通过固定证书的连接, 获取服务端保存的客户端安装包, 核对校验和, 并执行与安装包相同的安装过程. 它会停止 agent, 替换程序文件 (如果某一步失败, 会恢复旧文件), 重新启动 agent, 并保留 `device.json`, 注册信息和文件夹数据库. 它会打印旧版本和新版本. 如果服务端没有更新的版本, 它只会提示已是最新版本, 不做任何改动; `--force` 会强制安装 (它也会绕过上面的顺序检查). 它只在你运行时执行: 不会自动升级.
+
+在 Windows 上, 正在运行的程序无法替换自身, 因此 `upgrade` 会下载安装程序, 在一个**新的控制台窗口**中启动它, 然后自己退出; 请在新窗口中查看结果, 并按 Enter 关闭.
+
+如果客户端太旧, 没有 `upgrade` 命令 (它是用安装包出现之前的版本安装的), 请使用以下方法之一执行一次; 它们对任何客户端都适用:
+
+- **发布页的安装包文件**: Linux 上运行 `sh kaze-sync-client-<version>-linux-amd64.sh`, Windows 上双击 `kaze-sync-client-<version>-windows-amd64-setup.exe` (见 3.2 节的 SmartScreen 说明). 在已注册的电脑上, 安装包只执行升级, 不会重新注册.
+- **添加设备对话框中的下载链接** (第 3 节): 用一个未使用的设备名称打开对话框, 从那里获取文件, 然后运行它. 它同样只升级已注册的电脑; 未使用的注册码会在 15 分钟后自动过期.
+
+新安装包会从旧安装的自启动记录中找到安装目录, 因此程序会在原位置被替换.
+
+### 仅发布客户端的版本
+
+有时一个版本只修改了客户端. 此时服务端无需升级, 但它必须保存新的客户端安装包, 因为 `upgrade` 和添加设备对话框都从那里获取它们. 用 `client-pkg` 放置它们 (在服务端上以 root 运行, 该机器上有本版本的两个客户端文件, 且无需重启服务):
+
+```bash
+/var/lib/kaze-sync/kaze-syncd client-pkg kaze-sync-client-<version>-linux-amd64.sh kaze-sync-client-<version>-windows-amd64-setup.exe     # server
+```
+
+(把 `/var/lib/kaze-sync` 换成你自己的数据目录, 或传入 `--data DIR`.) 你可以只发布其中一个系统的安装包. 该命令会核对每个文件, 拒绝不是客户端安装包的文件, 并立即让安装包可用. 它还会拒绝需要比服务端所支持的更新的同步协议的安装包, 因为这样新的客户端无法与此服务端一起工作; 请先升级服务端 (`--force` 可以覆盖). 然后在各客户端上运行 `kaze-syncc upgrade`. Web UI 的添加设备对话框会显示服务端保存的安装包版本.
+
+### 手动升级 (不使用安装包)
+
+1. **下载并校验新的发布归档** (`kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip` 和 `SHA256SUMS`, 来自 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases), 方法遵循 [2.1 节](#21-用安装包安装服务端) 和 [第 3 节](#3-安装并注册客户端) 中的手动安装; 如果你改为从源码编译, 见[附录 A](#附录-a-从源码编译)).
+2. **升级服务端.** 把新的 `kaze-syncd` 二进制复制到服务器, 并以 root 运行 `./kaze-syncd install` (OpenWrt 和普通 Linux 都一样). 它从已安装的服务定义中读取数据目录, 并保留当前的监听端口, TLS 设置, 管理员密码和 OpenWrt WAN 规则. 你可以显式提供 `--data <同一目录>`; 如果这样做, 在 OpenWrt 上也要加 `--wan` 以保持 WAN 访问. 它执行与安装包相同的迁移和重启, 但不改动服务端上的客户端安装包: 用上面的 `client-pkg` 添加它们.
+3. **升级每台 Linux 客户端.** 停止用户 agent, 用新文件覆盖原路径上的二进制, 然后重新启动 agent:
 
 ```bash
 systemctl --user stop kaze-sync                    # client
@@ -725,13 +846,13 @@ cp kaze-syncc ~/.local/bin/kaze-syncc
 systemctl --user start kaze-sync
 ```
 
-4. **升级 Windows 客户端**: 如果 Windows 二进制是你自己从源码编译的 (或想在替换前再核对一次), 请先检查 `kaze-syncc-agent.exe` 确实带上了 `-ldflags -H=windowsgui`; 执行下面这行命令应输出 `2` (图形子系统), 如果输出 `3` (控制台子系统) 说明每次登录 Windows 都会弹出一个黑框窗口, 不能直接部署:
+4. **升级每台 Windows 客户端.** 如果你是从源码编译的 Windows 程序 (或想在复制前再核对一次二进制), 请验证 `kaze-syncc-agent.exe` 是用 `-ldflags -H=windowsgui` 编译的. 运行此检查 — 它必须输出 `2` (GUI 子系统), 绝不能输出 `3` (控制台子系统, 每次 Windows 登录时都会弹出可见的终端窗口). 发布工具会对安装包内的程序自行执行这项检查:
 
 ```
 python3 -c "import struct,sys; d=open(sys.argv[1],'rb').read(4096); print(struct.unpack_from('<H', d, struct.unpack_from('<I', d, 60)[0]+92)[0])" kaze-syncc-agent.exe
 ```
 
-   因为运行中的 `kaze-syncc-agent.exe` 会被 Windows 锁定而无法覆盖, 请先在 PowerShell 中停止进程, 复制两个 `.exe` 文件覆盖原文件, 再启动 agent:
+   由于 Windows 会锁定正在运行的 `.exe` 文件, 请在 PowerShell 中停止后台 agent, 把两个 `.exe` 文件覆盖到原有文件上, 然后重新启动 agent:
 
 ```powershell
 Stop-Process -Name kaze-syncc-agent
@@ -739,12 +860,13 @@ Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <安装目录>
 Start-Process "<安装目录>\kaze-syncc-agent.exe" -ArgumentList run
 ```
 
-**发布客户端安装包.** 如果你手上有某个版本的 Linux 和 Windows 客户端安装文件, 请以 root 身份在服务端执行 `kaze-syncd client-pkg <linux-installer.sh> <windows-setup.exe>`. 两个平台可以只发布其中一个. 该命令会检查每个安装包, 无需重启服务即可立即提供下载. 需要比服务端支持的同步协议更新的安装包会被拒绝. 要发布这些安装包, 请先升级服务端.
+### 数据库迁移与回滚
 
-**数据库自动迁移与回滚方法.**
-- **服务端数据库.** 服务端每次启动时 (包括执行 `install` 时) 都会自动把数据库升级到新版本的结构, 先迁移全局库 `meta.db`, 再逐个迁移文件夹库; 如果结构没有变化则什么也不做. 在修改任何一个数据库文件之前, 服务端会先把原文件完整备份到 `<data>/var/backups/` 下, 命名为 `meta-v<旧版本>-<UTC 时间>.db` 或 `folder-<id>-v<旧版本>-<UTC 时间>.db` (每个数据库最多保留最近 3 份备份; 删除文件夹时会一并清理它的备份). 因为备份文件与原数据库一样大, 升级前请确保磁盘上有同样大小的空闲空间. 如果备份或迁移过程中某一步失败, 服务端会中止启动并在报错中指明是哪个数据库以及具体原因; 该数据库保持原样未动, 排除故障 (例如腾出磁盘空间) 后重新启动服务即可.
-  如果数据库迁移完成之后你想**回退到旧版本服务端**, 旧版 `kaze-syncd` 遇到被新版迁移过的数据库会主动拒绝启动并打印原因, 而不会损坏数据库. 正确的回滚步骤是: 停止服务端, 换回旧版 `kaze-syncd` 二进制, 把 `var/backups/` 下升级时自动生成的最新一份备份复制回 `var/meta.db` 和各个 `var/folders/<id>.db` (同时删掉各库旁边的 `-wal` 和 `-shm` 文件), 然后按第 14 节的还原步骤执行 `install --data ... --new-epoch`.
-- **客户端数据库.** 客户端状态目录下的各文件夹状态库 (`folder-*.db`, Linux 在 `~/.local/state/kaze-sync`, Windows 在 `%LOCALAPPDATA%\kaze-sync`) 也会随某些版本升级而改变表结构. 如果你打算把客户端二进制降级回旧版本, 请在替换二进制前先停止 agent 并备份这些 `folder-*.db` 文件, 回滚时与旧二进制一起还原. 如果旧版客户端发现某个 `folder-*.db` 是由更新版本创建的, 它会停止同步该文件夹, 并在该文件夹的错误通知中说明原因, 而不会在每次扫描时反复报错失败.
+**数据库的自动迁移, 以及如何回滚.**
+- **服务端数据库.** 服务端每次启动时 (包括 `install` 期间), 都会自动把它的数据库迁移到新的结构 — 先是全局的 `meta.db`, 然后是每个文件夹的数据库. 如果结构没有变化, 启动会立即继续. 在修改任何数据库文件之前, 服务端会把未改动的文件复制到 `<数据目录>/var/backups/`, 命名为 `meta-v<旧版本>-<UTC 时间>.db` 或 `folder-<id>-v<旧版本>-<UTC 时间>.db` (每个数据库保留最新的 3 份备份, 删除某个文件夹时也删除它的备份). 由于每份备份都是完整的数据库副本, 升级前请确认磁盘至少有相应的可用空间. 如果备份或迁移某个数据库失败, 服务端会拒绝启动, 打印是哪个数据库失败以及原因, 并保持该数据库不变 — 请修复根本原因 (例如释放磁盘空间), 然后重新启动服务.
+  如果迁移运行之后你需要**把服务端回滚**到旧版本, 旧的 `kaze-syncd` 二进制在遇到较新的数据库结构时会拒绝启动, 并说明原因, 而不会损坏数据. 要安全回滚: 停止服务端, 放回旧的 `kaze-syncd` 二进制, 把每个已迁移数据库的最新升级前备份从 `var/backups/` 复制回 `var/meta.db` 和 `var/folders/<id>.db` (并删除它们旁边的 `-wal` 和 `-shm` 文件), 然后运行第 14 节中的还原命令, 并加上 `--new-epoch`.
+- **客户端数据库.** 客户端的每个文件夹状态数据库 (Linux 上在 `~/.local/state/kaze-sync` 内, Windows 上在 `%LOCALAPPDATA%\kaze-sync` 内, 名为 `folder-*.db`) 在某些版本中也会改变结构. 如果你可能想把客户端二进制回滚到旧版本, 请在升级前备份其 `folder-*.db` 文件 (先停止 agent; 安装包和 `kaze-syncc upgrade` 都不会备份它们), 回滚时把它们与旧二进制一起还原. 如果旧的客户端二进制遇到新客户端创建的 `folder-*.db`, 它会停止同步该文件夹, 并把版本不匹配报告为该文件夹的错误, 而不是每次扫描都失败.
+
 
 ## 16. 卸载
 
@@ -828,8 +950,10 @@ rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据�
 | 忘记管理员密码, 端口或指纹 | 重置密码见 2.5 节 (`admin-password`), 查看端口或指纹见 2.4 节 (重跑 `install` 或查服务端日志) |
 | 服务启动后马上退出, 日志里报证书或私钥 `permission denied` | 服务用户 `kaze-sync` 无权读取你指定的 `--cert`/`--key` 文件或无权进入其上层目录 (运行 `install` 时会就此给出警告), 请按 2.4 节修改权限 |
 | 服务器重启后服务端没有启动 | 开机时外接数据盘尚未挂载. 服务端此时会主动退出, 避免在未挂载目录里新建空库; 挂载数据盘后再启动服务即可 |
-| `sync is stopped, the server does not accept this device` | 该设备已在 Web UI 中被吊销. 请按 3.3 节把它作为新设备重新注册 |
-| `client too old` | 服务端升级后要求更高版本的客户端协议; 请按第 15 节升级该客户端的二进制文件 |
+| `sync is stopped, the server does not accept this device` | 该设备已在 Web UI 中被吊销. 请按 [3.4 节](#34-注册之后) 把它作为新设备重新注册 |
+| `client too old` | 服务端升级到了要求更新客户端的协议版本; 请按第 15 节用 `kaze-syncc upgrade` 升级该客户端 (客户端太旧而没有该命令时, 用安装包文件, 见第 15 节) |
+| 安装包或 `kaze-syncc upgrade` 停止并提示 `is newer than the server` | 新客户端使用的同步协议比服务端更新. 请先升级服务端 (见第 15 节); `--force` 可强制安装, 但在服务端升级之前该客户端无法同步 |
+| 安装包打印 `the program files are installed, but this device is not registered` | 安装包中的注册码已用完或已过期 (15 分钟). 请用 **添加设备** 生成新的注册码, 并运行新的安装包或命令 (见第 3 节) |
 | 某个文件夹显示有错误, 铃铛里有 `folder` 条目 | 本地目录或 `.syncroot` 缺失 (例如移动硬盘未挂载), 或者本地目录非空但没有在设备页勾选 **允许接管非空目录** (见第 5 节) |
 | 文件修改后过几秒才同步过去, 不是瞬间到达 | 属于正常设计: 客户端会先收集本地文件事件 2 秒 (文件持续变化时最多攒够 10 秒), 且要求文件修改时间已满 5 秒才上传, 对端再通过长轮询获知更新. 通常端到端延迟在 5 到 10 秒之间 |
 | 首次同步耗时很久 | 首次接管或同步时, 客户端需要把每个文件完整读一遍并计算哈希. 参考耗时: 一次含 19000 个文件, 共 1.6 GiB 的测试耗时约 4.5 分钟 |
@@ -850,7 +974,7 @@ rm -r /mnt/data/kaze-sync                          # 你传给 --data 的数据�
 - 没有双因素登录验证
 - 客户端在电脑桌面上不设通知弹窗或状态栏图标
 - 没有 macOS 和移动端客户端, 服务端不支持 x86-64 以外的架构
-- 没有自动更新
+- 没有自动更新 (`kaze-syncc upgrade` 只在你运行它时才执行)
 - 单个文件超过 128 GiB 时服务端会拒收 (因为服务端需要把单个文件的完整块列表放在内存中处理)
 
 以上各项取舍的设计原因见 [`docs/design.md`](../design.md).
@@ -869,5 +993,7 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o kaze-
 第四行命令用同一份客户端源码编译出无控制台窗口的版本, 供 Windows 登录自启动时在后台静默运行. 请务必把 `kaze-syncc-agent.exe` 与 `kaze-syncc.exe` 放在同一个目录下. 为非 x86-64 架构的客户端交叉编译 `kaze-syncc` 时请按目标 CPU 调整 `GOARCH`; 注意服务端 (`kaze-syncd`) 只支持 x86-64 架构 (因此非 x86-64 的 OpenWrt 路由器及其他非 x86-64 服务端主机不受支持).
 
 两个二进制文件都在构建时嵌入了发布版本号: 执行 `kaze-syncd --version` 和 `kaze-syncc --version` 会分别输出 `kaze-syncd 0.3.5` 和 `kaze-syncc 0.3.5` (以 `0.3.5` 版为例). 登录 Web UI 后, 左上角 `Kaze Sync` 旁也会显示当前服务端的版本号 (登录页不显示).
+
+`go run ./tools/release` 在源码树中构建发布包, 并生成三个安装包: 服务端安装包 `kaze-sync-server-<version>-linux-amd64.sh`, Linux 客户端安装包 `kaze-sync-client-<version>-linux-amd64.sh` 和 Windows 客户端安装包 `kaze-sync-client-<version>-windows-amd64-setup.exe`, 它们与 `SHA256SUMS` 一起列出. 如果 Windows 客户端没有 GUI 子系统, 构建会失败.
 
 编译完成后, 把 `kaze-syncd` 复制到服务器并按 [2.2 节](#22-openwrt) (OpenWrt) 或 [2.3 节](#23-普通-linux-systemd-或-openrc) (普通 Linux) 执行 `install`, 把客户端二进制复制到每台电脑的固定目录并按[第 3 节](#3-安装并注册客户端)执行注册.

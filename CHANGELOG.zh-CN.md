@@ -11,6 +11,10 @@ kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMA
 - 运行 `kaze-syncd install` 即可升级已安装的服务端: 沿用现有数据目录, TLS 设置和 OpenWrt WAN 规则. 安装程序会拒绝用旧版服务端二进制替换已安装的版本.
 - 用 `kaze-syncd client-pkg` 发布 Linux 和 Windows 客户端安装包, 无需重启服务端. 服务端可以为一次性注册码定制下载内容, 并通过已认证的 API 把原始安装包提供给已注册的设备.
 - Web UI 的注册对话框提供 Windows 和 Linux 安装包的下载链接 (带复制按钮); 没有桌面环境的 Linux 设备可以用一行 `curl ... | sh` 命令 (自签名或本地 CA 证书时加 `--pinnedpubkey`), 也可以用 `wget` 替代方案, 它会核对文件的 SHA-256. 对话框还会显示服务端上各客户端安装包的版本, 版本与服务端不同时发出警告, 服务端没有客户端安装包时也会说明.
+- `kaze-syncc install --from FILE` 从安装包文件安装或升级客户端: 停止 agent, 通过临时名称替换程序文件 (某一步失败则恢复旧文件), 从下载的安装包的注册信息中注册设备, 重新启动 agent, 并保留 `device.json` 和文件夹数据库. 它沿用已有自启动记录的目录; 协议比服务端更新的安装包会被拒绝, 除非给出 `--force`. 新的 `kaze-sync-setup` 程序 (Windows 的 `setup.exe`) 从自身文件完成相同的操作, 没有注册信息时会要求粘贴注册命令.
+- `kaze-syncc upgrade` 从设备注册的服务端获取客户端安装包 (通过固定证书的连接, 使用设备令牌), 核对后用与 `install` 相同的路径安装: 服务端没有更新版本时不做任何事, `--force` 强制安装. 在 Windows 上它把下载的安装程序交给一个新的控制台窗口后退出, 因为运行中的程序无法替换自身.
+- `go run ./tools/release` 还会构建三个安装包, 并列入 `SHA256SUMS`: 服务端安装包 `kaze-sync-server-X.Y.Z-linux-amd64.sh` (自解压的 sh 脚本, 自我核对 SHA-256, 内含两个客户端安装包, 并用 `kaze-syncd client-pkg` 发布它们), `kaze-sync-client-X.Y.Z-linux-amd64.sh` 和 `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe`; 只发布客户端时, 这两个客户端安装包也是交给 `kaze-syncd client-pkg` 的文件. 如果 Windows 客户端没有 GUI 子系统, 构建会失败, 且安装包可复现.
+- README 快速开始和用户手册 (安装服务端与客户端, 升级) 改用安装包: 服务端安装包, 添加设备对话框中的下载链接和 `curl` 命令, `kaze-syncc upgrade` 和 `kaze-syncd client-pkg`; 手动安装步骤保留. 手册新增 3.3 节, 说明无图形界面的 Linux 客户端, 并写明未签名的 Windows 安装程序的 SmartScreen 步骤. 第 15 节现在说明, 在 OpenWrt 上传入 `--data` 时也要加上 `--wan`.
 
 ## v0.5.3 - 2026-11-19
 
