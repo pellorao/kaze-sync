@@ -1299,7 +1299,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 7. Linux 上 agent 是用户级 systemd unit, 无图形界面的机器在 SSH 退出后默认会停掉整个用户服务: 安装程序检查 `loginctl show-user` 的 `Linger`, 未启用时只打印需要 root 执行的 `loginctl enable-linger <用户>` 提示, 不自己提权.
 - agent exe 的 PE 子系统 (必须是 2, 否则每次登录弹出控制台窗口) 由发版测试在构建后检查, 不再让用户检查.
 
-**客户端从服务端升级** (`kaze-syncc upgrade`, 只在用户运行时发生, 没有后台自动升级): 用设备令牌向 `GET /api/v1/client/package?os=` 取本机系统的安装包 (不带注册块, 校验载荷哈希), 版本不高于本机时说 "已是最新" (`--force` 越过), 否则运行取来的安装程序的 `install` (由新代码替换旧文件, 不由旧的 `kaze-syncc` 自己替换自己; Windows 上它先交接给安装程序再退出). 全程不访问 GitHub, 服务端旧于客户端时取不到更新的包, 先升服务端自然成立. 网页下载与 `upgrade` 是两条并行的路径, 走同一个 `install`.
+**客户端从服务端升级** (`kaze-syncc upgrade`, 只在用户运行时发生, 没有后台自动升级): 用设备令牌向 `GET /api/v1/client/package?os=` 取本机系统的安装包 (不带注册块, 校验载荷哈希), 版本不高于本机时说 "已是最新" (`--force` 越过), 否则走同一个 `install`. 包先流式写到状态目录下的临时目录 `upgrade-*` (权限 0700, 上限 256 MB), 校验清单和载荷哈希, 系统与架构必须与本机相同, 且清单版本 (不是响应头) 高于本机; 响应头 `Kaze-Package-Version` 只用来在没有新版时跳过下载. Linux 在本进程里调用 `install` (Linux 可以替换正在运行的文件), 装完删除临时目录. Windows 不能替换正在运行的程序: 取来的 `kaze-sync-setup.exe` 在新的控制台窗口里启动 (带 `--force` 时同带) 然后本进程退出, 由它安装; 它的文件留在临时目录里, 下一次升级开始时清理. `--force` 同时越过 "不比本机新" 和 `install` 的兼容检查. 这一步没有新的服务端路由, 也不读 `meta`: 只用已有的 `GET /client/package`. 全程不访问 GitHub, 服务端旧于客户端时取不到更新的包, 先升服务端自然成立. 网页下载与 `upgrade` 是两条并行的路径, 走同一个 `install`.
 
 **升级前的兼容检查** (按协议版本, 不按发布版本先后): 新客户端的 `agent_version` 必须不高于服务端的 `Kaze-Server-Agent-Version` (2.4); 取得方式是用 `device.json` 的令牌对 `HEAD /api/v1/client/package` 发一次请求 (它不受 426 约束). 没有这个头的旧服务端按 `proto.LastAgentVersionWithoutHeader` (常量, 取引入该头之前的最后一个 `AgentVersion`) 处理, 所以只升客户端而协议没变时不会被拦. 服务端够不着 (离线) 时只警告, 不阻止. 首次安装 (还没注册) 不检查: 注册时服务端自己会按 `MinAgentVersion` 拒绝过旧的客户端 (9.3).
 

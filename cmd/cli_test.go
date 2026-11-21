@@ -90,7 +90,7 @@ func TestCommandLines(t *testing.T) {
 		bin  string
 		cmds []string // subcommands taking part in the checks
 	}{
-		{"kaze-syncc", []string{"enroll", "run", "install"}},
+		{"kaze-syncc", []string{"enroll", "run", "install", "upgrade"}},
 		{"kaze-syncd", []string{"run", "install", "admin-password", "export"}},
 	}
 	for _, c := range cases {
@@ -175,5 +175,14 @@ func TestInstallCommand(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(home, ".local/bin/kaze-syncc")); !strings.Contains(string(b), "0.3.0") {
 		t.Fatalf("installed program: %q", b)
+	}
+}
+
+// upgrade on a machine that is not registered stops at once and leaves no file behind.
+func TestUpgradeCommandNeedsRegistration(t *testing.T) {
+	t.Parallel()
+	_, errOut, code := execute(t, binaries["kaze-syncc"], "upgrade")
+	if code != 1 || !strings.Contains(errOut, "not registered") {
+		t.Fatalf("code %d, stderr %q", code, errOut)
 	}
 }

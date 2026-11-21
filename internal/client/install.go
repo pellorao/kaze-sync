@@ -45,6 +45,7 @@ type InstallOptions struct {
 	Code        string
 	Fingerprint string
 	Out         io.Writer
+	Temporary   bool // From is a file the caller deletes itself: do not tell the user to
 	// Prompt asks for a registration when the machine is not enrolled and nothing came with the installer (an
 	// interactive setup program); nil prints a hint instead.
 	Prompt func() (server, code, fingerprint string, ok bool)
@@ -226,7 +227,9 @@ func install(ctx context.Context, o InstallOptions, env installEnv) error {
 			fmt.Fprintln(out, "on a machine without a graphical session the agent stops when your last session ends; run as root: loginctl enable-linger "+currentUserName())
 		}
 	}
-	fmt.Fprintf(out, "you can delete %s now\n", o.From)
+	if !o.Temporary {
+		fmt.Fprintf(out, "you can delete %s now\n", o.From)
+	}
 	return nil
 }
 
