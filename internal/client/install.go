@@ -63,6 +63,7 @@ type installEnv struct {
 	ServerAgent  func(ctx context.Context, dev Device) (int, error) // the server's protocol version
 	Linger       func() (enabled, known bool)
 	Sleep        func(time.Duration)
+	Self         func() string // the running program, which Windows cannot replace
 }
 
 func realInstallEnv() (installEnv, error) {
@@ -81,6 +82,7 @@ func realInstallEnv() (installEnv, error) {
 		ServerAgent:  serverAgentVersion,
 		Linger:       lingerEnabled,
 		Sleep:        time.Sleep,
+		Self:         func() string { p, _ := os.Executable(); return p },
 	}, nil
 }
 
@@ -164,6 +166,14 @@ func install(ctx context.Context, o InstallOptions, env installEnv) error {
 		}
 	}
 	names := payloadNames(env.GOOS)
+	if env.GOOS == "windows" && env.Self != nil {
+		self := env.Self()
+		for _, n := range names {
+			if strings.EqualFold(filepath.Clean(self), filepath.Join(dir, n)) {
+				return fmt.Errorf("%s is running and Windows cannot replace a running program: run the installer (kaze-sync-setup.exe) instead", self)
+			}
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

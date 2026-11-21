@@ -126,18 +126,18 @@ var (
 
 // Validate checks every field against its own format: the record comes from a file that may have been tampered
 // with. The fingerprint may be empty (a server whose certificate the system trusts); the name may be empty.
-func (g Registration) Validate() error {
-	u, err := url.Parse(g.Server)
+func (reg Registration) Validate() error {
+	u, err := url.Parse(reg.Server)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("invalid server address %q", g.Server)
+		return fmt.Errorf("invalid server address %q", reg.Server)
 	}
-	if !codeFormat.MatchString(g.Code) {
+	if !codeFormat.MatchString(reg.Code) {
 		return errors.New("invalid registration code")
 	}
-	if g.Fingerprint != "" && !fingerprintFormat.MatchString(g.Fingerprint) {
+	if reg.Fingerprint != "" && !fingerprintFormat.MatchString(reg.Fingerprint) {
 		return errors.New("invalid certificate fingerprint")
 	}
-	if g.Name != "" && !deviceNameFormat.MatchString(g.Name) {
+	if reg.Name != "" && !deviceNameFormat.MatchString(reg.Name) {
 		return errors.New("invalid device name")
 	}
 	return nil

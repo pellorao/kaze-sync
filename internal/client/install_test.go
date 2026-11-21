@@ -362,3 +362,14 @@ func TestServerAgentVersionFromTheHeader(t *testing.T) {
 		t.Fatal("bad token accepted")
 	}
 }
+
+func TestInstallWindowsRefusesToReplaceItself(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, "windows")
+	r.target = t.TempDir()
+	r.env.Self = func() string { return filepath.Join(r.target, "kaze-syncc.exe") }
+	err := r.run(InstallOptions{From: r.pkg("windows", 6, nil, "kaze-syncc.exe", "kaze-syncc-agent.exe")})
+	if err == nil || !strings.Contains(err.Error(), "kaze-sync-setup.exe") || r.seq() != "" {
+		t.Fatalf("%v: %s", err, r.seq())
+	}
+}
