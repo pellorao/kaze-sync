@@ -42,17 +42,31 @@ func readInstalledVersion(path string) (string, error) {
 	return v, nil
 }
 
+const (
+	lockTries = 100
+	lockWait  = 10 * time.Millisecond
+)
+
 // lockInstall serializes updates to an installation using its existing directory.
 func lockInstall(data string) (*os.File, error) {
 	f, err := os.Open(data)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("lock installation at %s: %w", data, err)
+	// A process that forks (exec.Command) keeps a copy of every open descriptor until it execs, and a flock lives
+	// as long as any copy does: a lock just released by Close can look held for a few milliseconds. Retry briefly
+	// before reporting a real second installer.
+	for i := 0; i < lockTries; i++ {
+		if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			return f, nil
+		}
+		if err != syscall.EWOULDBLOCK {
+			break
+		}
+		time.Sleep(lockWait)
 	}
-	return f, nil
+	f.Close()
+	return nil, fmt.Errorf("lock installation at %s: %w", data, err)
 }
 
 // SameDevice reports whether the nearest existing ancestor of p is on the

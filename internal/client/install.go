@@ -319,9 +319,12 @@ func stagePayload(payload io.Reader, dir string, names []string) (map[string]str
 		if staged[name] != "" {
 			return fail(fmt.Errorf("installer holds %s twice", name))
 		}
-		tmp := filepath.Join(dir, name+newSuffix)
-		staged[name] = tmp
-		if err := writeBinary(tmp, tr); err != nil {
+		f, err := os.CreateTemp(dir, name+"-*"+newSuffix) // unique: another install may run in this directory
+		if err != nil {
+			return fail(err)
+		}
+		staged[name] = f.Name()
+		if err := writeBinary(f, tr); err != nil {
 			return fail(err)
 		}
 	}
@@ -333,12 +336,12 @@ func stagePayload(payload io.Reader, dir string, names []string) (map[string]str
 	return staged, nil
 }
 
-func writeBinary(path string, r io.Reader) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
+// writeBinary fills the just created temporary file f, makes it executable and closes it.
+func writeBinary(f *os.File, r io.Reader) error {
 	n, err := io.Copy(f, io.LimitReader(r, maxBinarySize+1))
+	if err == nil {
+		err = f.Chmod(0o755)
+	}
 	if err == nil && n > maxBinarySize {
 		err = errors.New("a binary in the installer is too large")
 	}
