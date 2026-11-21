@@ -17,6 +17,16 @@ type File struct {
 // Build assembles an installer: the executable prefix, a gzip tar payload with the zero-timestamp header that
 // FindPayload looks for, the manifest (its digest is filled in) and, when reg is not nil, the registration trailer.
 func Build(prefix []byte, files []File, m Manifest, reg *Registration) ([]byte, error) {
+	payload, err := Payload(files)
+	if err != nil {
+		return nil, err
+	}
+	return Assemble(prefix, payload, m, reg)
+}
+
+// Payload packs files into the gzip tar payload of an installer. The result depends only on the files, so a
+// release tool can put its size and digest into the executable prefix before Assemble.
+func Payload(files []File) ([]byte, error) {
 	var payload bytes.Buffer
 	gz := gzip.NewWriter(&payload)
 	tw := tar.NewWriter(gz)
@@ -34,13 +44,19 @@ func Build(prefix []byte, files []File, m Manifest, reg *Registration) ([]byte, 
 	if err := gz.Close(); err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(payload.Bytes())
+	return payload.Bytes(), nil
+}
+
+// Assemble joins the prefix, a payload from Payload, the manifest (its digest is filled in) and, when reg is not
+// nil, the registration trailer.
+func Assemble(prefix, payload []byte, m Manifest, reg *Registration) ([]byte, error) {
+	sum := sha256.Sum256(payload)
 	m.PayloadSHA256 = hex.EncodeToString(sum[:])
 	mt, err := MarshalTrailer(m, ManifestMagic)
 	if err != nil {
 		return nil, err
 	}
-	out := append(append(append([]byte(nil), prefix...), payload.Bytes()...), mt...)
+	out := append(append(append([]byte(nil), prefix...), payload...), mt...)
 	if reg != nil {
 		rt, err := MarshalTrailer(reg, RegistrationMagic)
 		if err != nil {

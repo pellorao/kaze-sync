@@ -51,18 +51,19 @@ func release(source, out string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(".tmp", 0755); err != nil {
+	agent, err := agentVersion(source)
+	if err != nil {
 		return err
 	}
-	stage, err := os.MkdirTemp(".tmp", "release-")
+	// The stage sits next to the output directory so that publishing is a rename, not a second copy.
+	if err := os.MkdirAll(filepath.Dir(out), 0755); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(out), ".release-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(stage)
-	stage, err = filepath.Abs(stage)
-	if err != nil {
-		return err
-	}
 	var archives []string
 	for _, target := range []string{"linux", "windows"} {
 		var names []string
@@ -80,13 +81,8 @@ func release(source, out string) error {
 			if target == "windows" {
 				name += ".exe"
 			}
-			fmt.Printf("Building %s/amd64 %s\n", target, name)
-			cmd := exec.Command("go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", filepath.Join(stage, name), "./cmd/"+pkg)
-			cmd.Dir = source
-			cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+target, "GOARCH=amd64", "GOAMD64=v1", "GOFLAGS=", "GOEXPERIMENT=", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
-			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("build %s: %w", name, err)
+			if err := goBuild(source, stage, target, pkg, name, ldflags); err != nil {
+				return err
 			}
 			names = append(names, name)
 		}
@@ -98,6 +94,30 @@ func release(source, out string) error {
 			name += ".zip"
 		}
 		if err := pack(filepath.Join(stage, name), stage, names, target == "linux"); err != nil {
+			return err
+		}
+		archives = append(archives, name)
+	}
+	if err := goBuild(source, stage, "windows", "kaze-sync-setup", "kaze-sync-setup.exe", "-s -w -buildid="); err != nil {
+		return err
+	}
+	for name, want := range map[string]uint16{"kaze-syncc-agent.exe": subsystemGUI, "kaze-syncc.exe": subsystemConsole, "kaze-sync-setup.exe": subsystemConsole} {
+		if err := checkSubsystem(filepath.Join(stage, name), want); err != nil {
+			return err
+		}
+	}
+	var b binaries
+	for name, dst := range map[string]*[]byte{"kaze-syncd": &b.Syncd, "kaze-syncc": &b.Syncc, "kaze-syncc.exe": &b.WinSyncc, "kaze-syncc-agent.exe": &b.WinAgent, "kaze-sync-setup.exe": &b.WinSetup} {
+		if *dst, err = os.ReadFile(filepath.Join(stage, name)); err != nil {
+			return err
+		}
+	}
+	files, err := buildInstallers(version, agent, b)
+	if err != nil {
+		return err
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(stage, name), data, 0644); err != nil {
 			return err
 		}
 		archives = append(archives, name)
@@ -127,7 +147,7 @@ func release(source, out string) error {
 		return err
 	}
 	for _, name := range append(archives, "SHA256SUMS") {
-		if err := copyFile(filepath.Join(stage, name), filepath.Join(out, name)); err != nil {
+		if err := os.Rename(filepath.Join(stage, name), filepath.Join(out, name)); err != nil {
 			return err
 		}
 	}
@@ -140,27 +160,20 @@ func release(source, out string) error {
 	return nil
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+func goBuild(source, stage, target, pkg, name, ldflags string) error {
+	fmt.Printf("Building %s/amd64 %s\n", target, name)
+	cmd := exec.Command("go", "build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", filepath.Join(stage, name), "./cmd/"+pkg)
+	cmd.Dir = source
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+target, "GOARCH=amd64", "GOAMD64=v1", "GOFLAGS=", "GOEXPERIMENT=", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("build %s: %w", name, err)
+	}
+	return nil
 }
 
-func copyFile(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if e := out.Close(); err == nil {
-			err = e
-		}
-	}()
-	_, err = io.Copy(out, in)
-	return err
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func pack(path, dir string, names []string, linux bool) (err error) {
