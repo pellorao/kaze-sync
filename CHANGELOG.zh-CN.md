@@ -4,7 +4,9 @@
 
 kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMAJOR.MINOR.PATCH` 格式.
 
-## 未发布
+## v0.6.0 - 2026-11-22
+
+次版本: 服务端与客户端安装包, 以及 `kaze-syncc upgrade`.
 
 ### 新增
 
@@ -15,6 +17,11 @@ kaze-sync 的重要变更按发布版本分组列于下方, 版本号遵循 `vMA
 - `kaze-syncc upgrade` 从设备注册的服务端获取客户端安装包 (通过固定证书的连接, 使用设备令牌), 核对后用与 `install` 相同的路径安装: 服务端没有更新版本时不做任何事, `--force` 强制安装. 在 Windows 上它把下载的安装程序交给一个新的控制台窗口后退出, 因为运行中的程序无法替换自身.
 - `go run ./tools/release` 还会构建三个安装包, 并列入 `SHA256SUMS`: 服务端安装包 `kaze-sync-server-X.Y.Z-linux-amd64.sh` (自解压的 sh 脚本, 自我核对 SHA-256, 内含两个客户端安装包, 并用 `kaze-syncd client-pkg` 发布它们), `kaze-sync-client-X.Y.Z-linux-amd64.sh` 和 `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe`; 只发布客户端时, 这两个客户端安装包也是交给 `kaze-syncd client-pkg` 的文件. 如果 Windows 客户端没有 GUI 子系统, 构建会失败, 且安装包可复现.
 - README 快速开始和用户手册 (安装服务端与客户端, 升级) 改用安装包: 服务端安装包, 添加设备对话框中的下载链接和 `curl` 命令, `kaze-syncc upgrade` 和 `kaze-syncd client-pkg`; 手动安装步骤保留. 手册新增 3.3 节, 说明无图形界面的 Linux 客户端, 并写明未签名的 Windows 安装程序的 SmartScreen 步骤. 第 15 节现在说明, 在 OpenWrt 上传入 `--data` 时也要加上 `--wan`.
+
+### 修复
+
+- 冻结的范围不再重试 "链接未创建" 的记录, 已恢复的文件不会被过期的链接替换.
+- 安装包: 客户端二进制使用唯一的暂存名, 安装锁短暂重试; 对安装包探测返回 404 时按旧服务端处理; 在没有 systemd 的 Linux 机器上安装客户端时, 先拒绝再动手.
 
 ## v0.5.3 - 2026-11-19
 

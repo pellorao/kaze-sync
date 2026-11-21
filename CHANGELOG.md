@@ -4,7 +4,9 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.6.0 - 2026-11-22
+
+Minor release: installers for the server and the clients, and `kaze-syncc upgrade`.
 
 ### Added
 
@@ -15,6 +17,11 @@ Notable changes to kaze-sync are grouped by release below; versions follow `vMAJ
 - `kaze-syncc upgrade` fetches the client installer from the server the device is registered with (over its pinned connection, with the device token), verifies it and installs it through the same path as `install`: nothing happens when the server offers no newer version, and `--force` installs anyway. On Windows it hands the downloaded setup program over to a new console window and exits, because a running program cannot replace itself.
 - `go run ./tools/release` also builds three installers and lists them in `SHA256SUMS`: `kaze-sync-server-X.Y.Z-linux-amd64.sh` (a self-extracting sh that checks its own SHA-256, carries both client installers and publishes them with `kaze-syncd client-pkg`), `kaze-sync-client-X.Y.Z-linux-amd64.sh` and `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe`, which are also the files to hand to `kaze-syncd client-pkg` when only the client is released. The build fails unless the Windows agent has the GUI subsystem, and the installers are reproducible.
 - The README quick start and the user manual (installing the server and clients, upgrading) now use the installers: the server installer, the download links and `curl` line of the Add device dialog, `kaze-syncc upgrade` and `kaze-syncd client-pkg`; the manual steps stay as manual installation. New manual section 3.3 covers a Linux client without a graphical interface, and the SmartScreen steps for the unsigned Windows installer are written down. Section 15 now says to pass `--wan` on OpenWrt whenever `--data` is passed.
+
+### Fixed
+
+- A frozen scope no longer retries "link not created" rows, so a restored file is not replaced by a stale link.
+- Installers: unique staging names for client binaries and a short retry of the install lock; a 404 from the package probe is treated as an older server; a Linux client install refuses a machine without systemd before changing anything.
 
 ## v0.5.3 - 2026-11-19
 
