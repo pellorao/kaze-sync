@@ -644,7 +644,7 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	s.mu.Unlock()
 	return s.overviewPage(w, r, &dialogState{dialog: "dlg-enroll", extra: map[string]any{
 		"Code": code, "CodeName": name, "Expires": expires.Unix(),
-		"Downloads": s.enrollmentDownloads(r, code, name),
+		"Downloads": s.enrollmentDownloads(r, code, name), "ServerVersion": version.Version,
 	}})
 }
 

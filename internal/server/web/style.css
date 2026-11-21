@@ -312,6 +312,8 @@ details.glob pre { margin: 0; padding: 8px 12px; border-top: 1px solid var(--lin
 .okbar { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); border-radius: 6px; padding: 8px 12px; }
 .cmd { display: flex; align-items: flex-start; gap: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .cmd code { flex: 1; color: var(--code); font-size: var(--fs-sm); overflow-wrap: anywhere; line-height: 1.5; }
+.cmd code a { text-decoration: underline; } /* a link, not only coloured (WCAG 1.4.1) */
+.field .help code { white-space: nowrap; }
 .code-big { font-family: var(--mono); font-size: var(--fs-lg); letter-spacing: 2px; color: var(--code); }
 
 /* settings */
