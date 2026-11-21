@@ -409,3 +409,16 @@ func TestInstallStagesUnderUniqueNames(t *testing.T) {
 		t.Fatalf("mode %v", fi.Mode())
 	}
 }
+
+// A server older than the package endpoint answers 404 to the probe: it is an old server, not an unreachable one
+// (design 9.4), so the protocol check runs against LastAgentVersionWithoutHeader.
+func TestServerAgentVersionOfAServerWithoutThePackageRoute(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	sum := sha256.Sum256(srv.Certificate().Raw)
+	dev := Device{Server: srv.URL, Token: "tok", Fingerprint: fmt.Sprintf("sha256:%x", sum)}
+	if v, err := serverAgentVersion(context.Background(), dev); err != nil || v != proto.LastAgentVersionWithoutHeader {
+		t.Fatalf("404: %d %v", v, err)
+	}
+}
