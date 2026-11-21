@@ -4,6 +4,8 @@
 
 ## 部署
 
+默认用安装程序 (设计 9.5, 发布页): 服务端 `sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh --data <数据目录> [其他 install 参数]` (首次; OpenWrt 的 `--data` 指向挂载的数据盘, 要公网访问再加 `--wan`), 之后升级不带任何参数 (`sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh`, 沿用已装设置和 WAN 规则). 客户端: 在 Web UI 总览页 "添加设备", 在客户端上打开对话框里的下载链接 (Windows 双击 setup, Linux 用 `sh`; 无图形界面的 Linux 在 SSH 里粘贴对话框里的 curl 或 wget 行) 即完成安装和注册. 下面的是手动做法, 仍然可用.
+
 在开发机上构建 (静态链接, 无依赖):
 
 ```
@@ -126,13 +128,13 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 - 流程: 改 `VERSION` -> 把 `CHANGELOG.md` / `CHANGELOG.zh-CN.md` 的 "Unreleased" / "未发布" 一节改为 `## vX.Y.Z - YYYY-MM-DD` 并补全, 重写 `RELEASE-NOTES.md` / `RELEASE-NOTES.zh-CN.md` (标题 `# kaze-sync vX.Y.Z release notes` / `# kaze-sync vX.Y.Z 发布说明`; 旧版本的发布说明留在它的 tag 里) -> `go test ./internal/version` (核对 `VERSION` 与四份文档最新一条一致) 和相应的全部测试 -> 提交 -> 打 tag `vX.Y.Z` -> 构建并部署 (见 "部署" 和 "升级") -> 部署后核对 (服务状态, 日志, 抽查一次恢复, `.kaze-test` 双向同步; 登录后的页面左上角显示新版本号, 登录页不显示 (静态资源不含版本号), 不用登录就能核对的是服务端二进制的 sha256 和 `--version` 输出).
 - 两次发布之间的提交不改 `VERSION`; 它们的用户可见改动先记在 changelog 的 "Unreleased" 一节.
 
-每次发布在 tag 对应的源码根目录运行 `go run ./tools/release`, 按 `internal/version/VERSION` 生成 `dist/vX.Y.Z/` (Git 忽略): `kaze-sync-X.Y.Z-linux-amd64.tar.gz` 含服务端与客户端, `kaze-sync-X.Y.Z-windows-amd64.zip` 含客户端及无窗口 agent, 另附 `SHA256SUMS`. 使用本机 Go 工具链与已缓存模块, 缺依赖即停止, 不联网下载; 首次运行 `go run` 本身也可设置 `GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`.
+每次发布在 tag 对应的源码根目录运行 `go run ./tools/release`, 按 `internal/version/VERSION` 生成 `dist/vX.Y.Z/` (Git 忽略): `kaze-sync-X.Y.Z-linux-amd64.tar.gz` 含服务端与客户端, `kaze-sync-X.Y.Z-windows-amd64.zip` 含客户端及无窗口 agent, 以及三个安装程序 (设计 9.5): `kaze-sync-server-X.Y.Z-linux-amd64.sh` (服务端, 随带两个客户端安装包), `kaze-sync-client-X.Y.Z-linux-amd64.sh`, `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe`, 另附 `SHA256SUMS` (含全部五个文件). 构建顺序是先客户端二进制, 再客户端安装包, 最后服务端安装程序; 安装程序同样可重现. 发版测试检查 agent exe 的 PE 子系统为 2, 并在 dash 下用假载荷跑 sh 外壳. 使用本机 Go 工具链与已缓存模块, 缺依赖即停止, 不联网下载; 首次运行 `go run` 本身也可设置 `GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`.
 构建固定 `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false` 和链接参数, 归档按文件名排序并固定时间戳及权限; 同一源码与同一 Go 工具链可重编后比对 `SHA256SUMS` (校验用 `sha256sum -c SHA256SUMS`). 旧 tag 可用 `go run ./tools/release -source <源码目录> -out <产物目录>` 补包.
 命令最后仅打印带 `--verify-tag` 的 `gh release create` 上传命令, 不执行; 维护者核对后将包与校验和上传到公开 GitHub 仓库的 Releases, 本地 `dist/` 不提交. 部署使用这次打包的二进制.
 
 ## 升级
 
-服务端: 用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (可重复执行, 端口, 证书和密码不变); 它复制新二进制并重启服务. 库表迁移 (按 `schema_version` 逐库, 先全局库, 再每个文件夹库) 在服务启动时自动进行, `install` 也会在重启前执行同一迁移; 版本低于当前的库先被复制到 `var/backups/` (`<库>-v<旧版本>-<时间>.db`, 每个库留最近 3 份), 迁移失败时服务不启动, 日志和 `install` 输出指明原因, 库不被改动. 回滚见设计 9.3 "库表迁移"; 回滚客户端二进制前先备份该客户端的各 `folder-*.db` (在客户端的状态目录: Linux 是 `~/.local/state/kaze-sync`, Windows 是 `%LOCALAPPDATA%\kaze-sync`; 先停 agent 再复制), 回滚时和二进制一起还原. 先升级服务端, 再逐台升级客户端: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 服务端升级后, 版本过旧 (低于服务端的 `MinAgentVersion`, 设计 9.3) 的客户端不再同步: 它的日志 (Linux 在 `~/.local/state/kaze-sync/kaze-syncc.log`) 里每分钟一条 `client too old ... upgrade kaze-syncc`, 总览页该设备的版本列显示 "发布版本 (旧客户端不上报时为 `-`) 加红色 "过旧""; 按上面的步骤替换这台客户端的二进制并重启 agent 即可, 数据不受影响, 升级后自动继续同步. 只有协议变得不兼容的改动才会提高 `MinAgentVersion`, 其余升级不要求同步升级客户端. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1). 普通 Linux 上执行 `install` 同样会复制新二进制, 迁移数据库 (同上, 先备份) 并重启服务 (systemd 先 `daemon-reload`).
+服务端: 默认运行新版本的服务端安装程序 (设计 9.5), 不带参数, 它用新二进制执行 `kaze-syncd install` 按原设置升级 (数据目录取自已装的服务定义, OpenWrt 的 WAN 规则保留, 端口, 证书和密码不变), 并把随带的客户端安装包放进 `<data>/dl/`; 版本比已装的低时拒绝. 手动做法是用新二进制再执行一次 `kaze-syncd install --data <同一目录>` (OpenWrt 用过 `--wan` 时要再带上, 否则公网规则会被删); 它复制新二进制并重启服务. 库表迁移 (按 `schema_version` 逐库, 先全局库, 再每个文件夹库) 在服务启动时自动进行, `install` 也会在重启前执行同一迁移; 版本低于当前的库先被复制到 `var/backups/` (`<库>-v<旧版本>-<时间>.db`, 每个库留最近 3 份), 迁移失败时服务不启动, 日志和 `install` 输出指明原因, 库不被改动. 回滚见设计 9.3 "库表迁移"; 回滚客户端二进制前先备份该客户端的各 `folder-*.db` (在客户端的状态目录: Linux 是 `~/.local/state/kaze-sync`, Windows 是 `%LOCALAPPDATA%\kaze-sync`; 先停 agent 再复制), 回滚时和二进制一起还原. 先升级服务端, 再逐台升级客户端: 默认在客户端上运行 `kaze-syncc upgrade` (从服务端取与它配套的客户端安装包, 不访问 GitHub; 只在你运行时发生), 或重新在 Web UI 添加设备取下载链接装一次, 或运行发布页的客户端安装程序; 它们都会停 agent, 替换, 重启, 保留注册和映射. 升级前会检查服务端的协议版本不低于新客户端的 (只升客户端不升服务端而协议没变时不被拦, `--force` 越过). 只发布了新客户端而服务端不动时, 把发布页的两个客户端安装包用 `kaze-syncd client-pkg <文件>...` 放进服务端 (不重启服务), 客户端再 `upgrade`. 手动做法: 替换客户端二进制 (Windows 是两个 exe), 重启 agent (Linux: `systemctl --user restart kaze-sync`; Windows: 注销再登录, 或结束 `kaze-syncc-agent.exe` 后重新运行). 服务端升级后, 版本过旧 (低于服务端的 `MinAgentVersion`, 设计 9.3) 的客户端不再同步: 它的日志 (Linux 在 `~/.local/state/kaze-sync/kaze-syncc.log`) 里每分钟一条 `client too old ... upgrade kaze-syncc`, 总览页该设备的版本列显示 "发布版本 (旧客户端不上报时为 `-`) 加红色 "过旧""; 按上面的步骤替换这台客户端的二进制并重启 agent 即可, 数据不受影响, 升级后自动继续同步. 只有协议变得不兼容的改动才会提高 `MinAgentVersion`, 其余升级不要求同步升级客户端. OpenWrt 自身的 `sysupgrade` 不影响数据和服务 (设计 9.1). 普通 Linux 上执行 `install` 同样会复制新二进制, 迁移数据库 (同上, 先备份) 并重启服务 (systemd 先 `daemon-reload`).
 
 ### Web Push 的运维
 
