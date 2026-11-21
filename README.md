@@ -24,32 +24,30 @@ The Web UI speaks Simplified Chinese, Traditional Chinese, English, Japanese, an
 
 If kaze-sync fits what you need, you can get a server and your first client syncing in five steps. You need a server you can log in to as root (x86-64 Linux for the prebuilt package; for other CPUs, build from source with Go, see [Appendix A of the manual](docs/manuals/user-manual.md#appendix-a-building-from-source)).
 
-1. **Download and verify** (on any machine): from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page, download `kaze-sync-<version>-linux-amd64.tar.gz` (the server and the Linux client), `kaze-sync-<version>-windows-amd64.zip` (the Windows client) and `SHA256SUMS` into one directory, then check the checksums and unpack the Linux archive:
+1. **Download and verify** (on the server): from the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page, download `kaze-sync-server-<version>-linux-amd64.sh` (the server installer, about 36 MB, with both client installers inside) and `SHA256SUMS` into one directory, then check the checksum:
 
    ```bash
-   sha256sum -c SHA256SUMS
-   mkdir kaze-sync && tar -xzf kaze-sync-<version>-linux-amd64.tar.gz -C kaze-sync
+   grep ' kaze-sync-server-<version>-linux-amd64.sh$' SHA256SUMS | sha256sum -c -
    ```
 
-2. **Install the server.** Copy the unpacked `kaze-syncd` to your server and run these two commands as root:
+2. **Install the server.** Run the installer as root:
 
    ```bash
-   ./kaze-syncd install --data /var/lib/kaze-sync       # OpenWrt: a mounted data disk, e.g. /mnt/data/kaze-sync
-   /var/lib/kaze-sync/kaze-syncd admin-password         # shows the admin password once
+   sudo sh kaze-sync-server-<version>-linux-amd64.sh --data /var/lib/kaze-sync       # OpenWrt: no sudo, a mounted data disk, e.g. /mnt/data/kaze-sync
    ```
 
-   `install` starts the service and prints the listening port and the certificate fingerprint. Open that TCP port in your firewall or cloud security group so clients and your browser can reach it (on OpenWrt, `install --wan` does this for you; see [section 2.6 of the manual](docs/manuals/user-manual.md#26-ports-and-firewall-rules)).
+   It installs and starts the service, then prints the listening port, the certificate fingerprint and, once, the admin password. Open that TCP port in your firewall or cloud security group so clients and your browser can reach it (on OpenWrt, add `--wan` and the installer does this for you; see [section 2.6 of the manual](docs/manuals/user-manual.md#26-ports-and-firewall-rules)).
 
-   To upgrade later, run the new `kaze-syncd install` as root. It reuses the data directory and keeps the existing OpenWrt WAN rule. See [section 15 of the manual](docs/manuals/user-manual.md#15-upgrading).
+   To upgrade later, run the new installer as root without options. It reuses the data directory and keeps the existing OpenWrt WAN rule. See [section 15 of the manual](docs/manuals/user-manual.md#15-upgrading). If you would rather unpack the archive and run `kaze-syncd install` yourself, the manual describes that too ([section 2.1](docs/manuals/user-manual.md#21-install-with-the-server-installer)).
 
-3. **Sign in.** Open `https://<server>:<port>/` in your browser and log in with the password printed by `admin-password`. Because the certificate is self-signed by default, the browser will show a warning; compare the fingerprint with the one `install` printed, then accept it.
-4. **Enroll a client.** Now connect your first computer to the server. In the Web UI overview, press **Add device** (`添加设备`), enter a name, and copy the enrollment command from the dialog. Put `kaze-syncc` or `kaze-syncc.exe` in a permanent directory on that computer and run the command:
+3. **Sign in.** Open `https://<server>:<port>/` in your browser and log in with the password the installer printed (`kaze-syncd admin-password` makes a new one). Because the certificate is self-signed by default, the browser will show a warning; compare the fingerprint with the one the installer printed, then accept it.
+4. **Enroll a client.** Now connect your first computer to the server. In the Web UI overview, press **Add device** (`添加设备`), enter a name and press **Generate enrollment code** (`生成注册码`). The dialog offers a download link for Windows (download the file and double-click it; if SmartScreen warns about an unknown publisher, choose **More info**, then **Run anyway**) and, for Linux, a one-line command to paste into a terminal or an SSH session, which also works on a machine without a graphical interface:
 
    ```bash
-   kaze-syncc enroll https://<server>:<port> <CODE> --fingerprint sha256:<HEX>
+   curl -fsS 'https://<server>:<port>/dl/<CODE>/linux' | sh
    ```
 
-   This registers the device with the server and configures the background agent to start automatically at every login.
+   (For a self-signed certificate the dialog's line is longer and pins the server's key.) The installer puts the client in place, enrolls the device and starts the background agent at every login; you type nothing else. Later, `kaze-syncc upgrade` upgrades a client from your server.
 5. **Map a folder.** An enrolled device does not sync anything until you link a server folder to a local path. In the overview, press **New folder** (`新建文件夹`). Then open the device page, press **Add mapping** (`添加映射`), choose the folder, and type the local path on that computer. Tick **Allow adopting a non-empty directory** (`允许接管非空目录`) if the directory already holds files. Syncing starts at once. Repeat steps 4 and 5 for each additional computer.
 
 ## Where to go next
