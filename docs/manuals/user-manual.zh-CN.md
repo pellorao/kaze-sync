@@ -124,7 +124,7 @@ tar -xzf kaze-sync-0.3.5-linux-amd64.tar.gz -C kaze-sync-0.3.5
 | `--listen :PORT` | 指定监听地址以代替随机端口; 之后再次执行会自动沿用 |
 | `--cert FILE --key FILE` | 使用你自己的证书代替自签名证书 (2.4 节) |
 | `--ca [--san NAMES]` | 使用本地 CA 和由它签发的证书, 浏览器可以信任它 (2.4 节) |
-| `--wan` | 只用于 OpenWrt: 添加名为 `kaze-sync` 的防火墙规则, 允许从 WAN 区域访问该端口. 不带 `--wan` 时会删除之前留下的这条规则 |
+| `--wan` | 只用于 OpenWrt: 添加名为 `kaze-sync` 的防火墙规则, 允许从 WAN 区域访问该端口. 升级时既不带 `--data` 也不带 `--wan` 会保留已有的规则; 带上 `--data` 时, 除非同时带 `--wan`, 否则会删除该规则 |
 | `--new-epoch` | 只在从备份还原服务端之后使用 (第 14 节) |
 
 ### 2.3 普通 Linux (systemd 或 OpenRC)
@@ -187,7 +187,7 @@ Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程�
 
 无论在哪两种证书模式之间切换, 切换后所有客户端都必须重新注册 (如果你是切到 `--ca` 模式且能直接编辑客户端配置文件, 也可以把新的 CA 指纹直接填入客户端 `device.json` 的 `fingerprint` 字段并重启客户端).
 
-如果日后忘记了服务端的端口或证书指纹, 用同一个 `--data` 目录重新执行一次 `install` (可安全重复执行, 会再次打印这两项), 或者去服务端日志里查找带 `listening` 的那一行即可.
+如果日后忘记了服务端的端口或证书指纹, 请以 root 身份重新执行一次 `kaze-syncd install` (可安全重复执行, 会再次打印这两项), 或者去服务端日志里查找带 `listening` 的那一行即可.
 
 ### 2.5 首次登录与管理员密码
 
@@ -203,7 +203,7 @@ Web UI 与客户端同步协议共用同一个 HTTPS 端口, 所有通信全程�
 
 客户端 (Linux 和 Windows 上的 `kaze-syncc`) 完全不开启任何监听套接字. 所有连接都由客户端主动向外发起到服务端, 因此客户端电脑不需要任何入站防火墙规则, 在 NAT 之后无需端口转发即可工作. 如果你还限制出站流量, 客户端只需要到服务端端口的出站 TCP 连接; 此外只有当你启用 Web Push (9.1 节) 时, 服务端才需要向浏览器厂商的推送服务发起出站 HTTPS 连接 (还需要 DNS); 两个程序都不会发起任何其他出站连接.
 
-**开放哪个端口以及如何查看端口.** 首次执行时, `install` 会在 20000 到 59999 之间随机选定一个 TCP 端口并保存在服务端数据库中, 后续再次执行 `install` 时保持该端口不变. 如果想自己指定端口, 请传入 `--listen :<port>` (或指定具体地址和端口, 如 `--listen 127.0.0.1:<port>`). 使用默认的 `:<port>` 形式时, 服务端会在所有网卡接口上同时绑定 IPv4 和 IPv6, 因此如果客户端或浏览器通过 IPv6 连接, 请在 IPv4 和 IPv6 防火墙中都放行该端口. 因为 `kaze-syncd` 没有 `status` 子命令, 日后要查看端口可通过以下任一方式: 用同一个 `--data` 目录重新执行一次 `install` (可安全重复执行, 会打印 `installed in <data>, listening on :<port>` 以及证书指纹), 查看服务端日志中的 `listening addr=... fingerprint=...` 行 (systemd 下用 `journalctl -u kaze-sync`, OpenRC/Alpine 下看 `/var/log/messages` 中标签为 `kaze-sync` 的 syslog, OpenWrt 下用 `logread`), 在服务端执行 `ss -ltnp`, 或查看已注册客户端上使用的 `https://<server>:<port>` 地址.
+**开放哪个端口以及如何查看端口.** 首次执行时, `install` 会在 20000 到 59999 之间随机选定一个 TCP 端口并保存在服务端数据库中, 后续再次执行 `install` 时保持该端口不变. 如果想自己指定端口, 请传入 `--listen :<port>` (或指定具体地址和端口, 如 `--listen 127.0.0.1:<port>`). 使用默认的 `:<port>` 形式时, 服务端会在所有网卡接口上同时绑定 IPv4 和 IPv6, 因此如果客户端或浏览器通过 IPv6 连接, 请在 IPv4 和 IPv6 防火墙中都放行该端口. 因为 `kaze-syncd` 没有 `status` 子命令, 日后要查看端口可通过以下任一方式: 以 root 身份重新执行一次 `kaze-syncd install` (可安全重复执行, 会打印 `installed in <data>, listening on :<port>` 以及证书指纹), 查看服务端日志中的 `listening addr=... fingerprint=...` 行 (systemd 下用 `journalctl -u kaze-sync`, OpenRC/Alpine 下看 `/var/log/messages` 中标签为 `kaze-sync` 的 syslog, OpenWrt 下用 `logread`), 在服务端执行 `ss -ltnp`, 或查看已注册客户端上使用的 `https://<server>:<port>` 地址.
 
 **放行端口.** 如果服务器运行在云平台上, 请在云厂商的安全组中添加一条入站规则, 允许你的客户端和浏览器所使用的地址访问 TCP `<port>` (如果客户端和浏览器的来源地址固定, 可以限制来源 IP, 不过该端口本身已有 TLS 证书指纹固定, 设备令牌, 随机管理员密码和失败后 IP 锁定多重保护). 对于服务器本机上的防火墙, 请在对应平台的命令中把 `<port>` 替换为你的监听端口:
 
@@ -230,7 +230,7 @@ rc-update add ip6tables
 
 如果 `INPUT` 链中已经有 `REJECT` 或 `DROP` 规则, `-A` 会把新规则追加在它后面而永远不会命中; 此时请改用 `iptables -I INPUT -p tcp --dport <port> -j ACCEPT` (以及 `ip6tables -I INPUT -p tcp --dport <port> -j ACCEPT`), 把规则插入到链的顶部. `rc-service iptables save` (以及 `rc-service ip6tables save`) 可以在服务尚未启动时执行: 用 `iptables` 添加的规则已经生效, 保存下来的规则集会在开机时由 `rc-update add` 启用的服务自动恢复.
 
-**OpenWrt**: 执行 `install` 时加上 `--wan` 会自动创建 WAN 防火墙规则, 也可以用 `uci` 手动创建同一条 `kaze-sync` 规则 (注意后续如果执行 `install` 时不带 `--wan`, 会删除 `firewall.kaze_sync`):
+**OpenWrt**: 执行 `install` 时加上 `--wan` 会自动创建 WAN 防火墙规则. 也可以用 `uci` 手动创建同一条 `kaze-sync` 规则. 不带 `--data` 的升级会保留已有的规则; 如果带上了 `--data`, 请再加 `--wan` 以保留 WAN 访问.
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync --wan    # server: 自动配置
@@ -716,7 +716,7 @@ tar xf /backup/ca.tar    -C /var/lib/kaze-sync                                  
 按以下四步完成升级:
 
 1. **下载并校验新版本发布包**: 从 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 获取新版本的 `kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip` 和 `SHA256SUMS`, 按 [2.1 节](#21-下载并校验服务端发布包)和[第 3 节](#3-安装并注册客户端)的步骤校验并解压 (若自行从源码编译, 见[附录 A](#附录-a-从源码编译)).
-2. **升级服务端**: 把新的 `kaze-syncd` 复制到服务器上, 以 root 执行 `./kaze-syncd install --data <同一个目录>` (OpenWrt 和普通 Linux 相同). 原有的监听端口, 证书和管理员密码都保持不变. `install` 会把新二进制复制进 `<data>/`, 重启服务, 并自动迁移数据库结构 (见下文); 在 systemd 系统上还会重新加载单元定义并重写 `/etc/systemd/system/kaze-sync.service`, 所以自定义的单元修改请务必放在 drop-in 中. (OpenWrt 系统自身的 `sysupgrade` 固件升级不会影响数据盘和 kaze-sync 服务.)
+2. **升级服务端**: 把新的 `kaze-syncd` 复制到服务器上, 以 root 执行 `./kaze-syncd install` (OpenWrt 和普通 Linux 相同). 它会从已安装的服务定义中读取数据目录, 并保留当前的监听端口, TLS 设置, 管理员密码和 OpenWrt WAN 规则. 你也可以显式传入 `--data <同一个目录>`; 这样做时, 若要保留 OpenWrt 的 WAN 访问, 还需同时传入 `--wan`. `install` 会拒绝用更旧的服务端二进制替换更新的版本. 它会迁移数据库, 把新二进制复制进 `<data>/`, 并重启服务. 在 systemd 系统上它还会重新加载单元定义并重写 `/etc/systemd/system/kaze-sync.service`, 所以自定义的单元设置请放在 systemd drop-in 中. OpenWrt 的 `sysupgrade` 会保留数据盘和服务.
 3. **升级 Linux 客户端**: 停止用户级 agent, 覆盖原路径下的二进制文件, 再重新启动:
 
 ```bash
@@ -738,6 +738,8 @@ Stop-Process -Name kaze-syncc-agent
 Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <安装目录>
 Start-Process "<安装目录>\kaze-syncc-agent.exe" -ArgumentList run
 ```
+
+**发布客户端安装包.** 如果你手上有某个版本的 Linux 和 Windows 客户端安装文件, 请以 root 身份在服务端执行 `kaze-syncd client-pkg <linux-installer.sh> <windows-setup.exe>`. 两个平台可以只发布其中一个. 该命令会检查每个安装包, 无需重启服务即可立即提供下载. 需要比服务端支持的同步协议更新的安装包会被拒绝. 要发布这些安装包, 请先升级服务端.
 
 **数据库自动迁移与回滚方法.**
 - **服务端数据库.** 服务端每次启动时 (包括执行 `install` 时) 都会自动把数据库升级到新版本的结构, 先迁移全局库 `meta.db`, 再逐个迁移文件夹库; 如果结构没有变化则什么也不做. 在修改任何一个数据库文件之前, 服务端会先把原文件完整备份到 `<data>/var/backups/` 下, 命名为 `meta-v<旧版本>-<UTC 时间>.db` 或 `folder-<id>-v<旧版本>-<UTC 时间>.db` (每个数据库最多保留最近 3 份备份; 删除文件夹时会一并清理它的备份). 因为备份文件与原数据库一样大, 升级前请确保磁盘上有同样大小的空闲空间. 如果备份或迁移过程中某一步失败, 服务端会中止启动并在报错中指明是哪个数据库以及具体原因; 该数据库保持原样未动, 排除故障 (例如腾出磁盘空间) 后重新启动服务即可.
