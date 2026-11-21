@@ -283,6 +283,9 @@ func serverAgentVersion(ctx context.Context, dev Device) (int, error) {
 		return 0, err
 	}
 	resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return proto.LastAgentVersionWithoutHeader, nil // a server older than this route
+	}
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("server answered %s", resp.Status)
 	}
