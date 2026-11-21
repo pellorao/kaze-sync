@@ -170,7 +170,7 @@ HTTP/1.1 + JSON, 全部位于 `/api/v1/`, 除 `enroll` 外每个请求带 `Autho
 - 下载链接 (2026-11-21, 轻量原则 11): 同一个 "注册命令" 对话框还给出两个下载链接 `https://<管理员当前访问的地址>/dl/<注册码>/windows` 与 `/dl/<注册码>/linux`, 对应客户端安装包 (9.5), 服务端在流出时把注册信息 (服务器地址, 指纹, 注册码, 设备名) 填进文件尾部的注册块, 装好即自动注册, 不必再粘贴命令.
   - 不要求登录, 注册码就是凭据 (所以链接可以发到另一台电脑的浏览器, 也可以在没有浏览器的客户端上用命令行取). 码仍是一次性, 15 分钟有效, 只存哈希; 下载本身不消耗码 (下载中断可以重试), 注册成功后码失效, 链接随之 404; 服务端重启后失效.
   - 泄露面: 拿到链接的人在 15 分钟内能下载同一个包, 也能抢先用码注册, 与注册码泄露等价 (现状同样如此). 包里除码和指纹 (本来就公开) 外没有别的秘密; 装好后留在磁盘上的安装程序里的码已失效. `/dl` 的每次失败 (码不存在, 已过期, 已用, 系统名不对) 与注册码的失败共用按 IP 的失败锁定 (4.4); 访问日志不记 `/dl/` 之后的路径; 响应带 `Cache-Control: no-store`, 不支持 `Range`.
-  - 无图形界面的 Linux 客户端: 对话框给出可在客户端的 SSH 里整行粘贴的命令. 自签名模式和本地 CA 模式 (客户端所在的电脑不信任 CA) 用 `curl -fsSk --pinnedpubkey 'sha256//<服务端公钥的 SHA-256, base64>' -o kaze-sync-client.sh <链接> && sh kaze-sync-client.sh`: `-k` 只是跳过系统根证书校验, 由 `--pinnedpubkey` 固定服务端证书的公钥 (SPKI) 防中间人 (curl 在 `-k` 下是否仍检查固定公钥要验证, 见 9.5 的验证项); 没有 curl 时用 wget 一行: `wget -q --no-check-certificate -O kaze-sync-client.sh <链接> && echo '<SHA-256>  kaze-sync-client.sh' | sha256sum -c - && sh kaze-sync-client.sh`, 其中 SHA-256 是这次带注册块的整个文件的哈希, 由服务端在打开对话框时流式算出 (只在内存里按码缓存, 15 分钟), 管理员在已信任服务端证书的浏览器里看到它, 即带外核对. 证书文件模式 (系统根证书可校验) 两条命令都去掉 `-k`, `--pinnedpubkey` 与 `--no-check-certificate`. 公钥哈希随当前服务端证书现算, 不存.
+  - 无图形界面的 Linux 客户端: 对话框给出可在客户端的 SSH 里整行粘贴的命令. 自签名模式和本地 CA 模式 (客户端所在的电脑不信任 CA) 用 `curl -fsSk --pinnedpubkey 'sha256//<服务端公钥的 SHA-256, base64>' '<链接>' | sh`: `-k` 只是跳过系统根证书校验, 由 `--pinnedpubkey` 固定服务端证书的公钥 (SPKI) 防中间人 (curl 在 `-k` 下是否仍检查固定公钥要验证, 见 9.5 的验证项); 没有 curl 时用 wget 一行: `wget -q --no-check-certificate -O kaze-sync-client.sh <链接> && echo '<SHA-256>  kaze-sync-client.sh' | sha256sum -c - && sh kaze-sync-client.sh`, 其中 SHA-256 是这次带注册块的整个文件的哈希, 由服务端在打开对话框时流式算出 (只在内存里按码缓存, 15 分钟), 管理员在已信任服务端证书的浏览器里看到它, 即带外核对. 证书文件模式 (系统根证书可校验) 两条命令都去掉 `-k`, `--pinnedpubkey` 与 `--no-check-certificate`. 公钥哈希随当前服务端证书现算, 不存.
 - TLS 三种模式, 由 `kaze-syncd install` 的参数决定:
   - 自签名 (默认, 公网与局域网通用): 首次安装生成 ECDSA P-256 自签名证书, 有效期 100 年, 不需要续期. `install` 打印其 SHA-256 指纹, 注册命令附带 `--fingerprint`, 客户端只接受该证书, 与地址和主机名无关. 浏览器第一次访问时手动接受一次例外 (可对照打印的指纹).
   - 证书文件 (`--cert <file> --key <file>`): 例如用 acme.sh 的 DNS 验证取得的正式证书. 浏览器和客户端都按系统根证书校验, 注册命令不带指纹. 证书续期后由续期工具执行 `/etc/init.d/kaze-sync restart` (acme.sh 的 `--reloadcmd`), 服务端不监视证书文件.
@@ -1273,8 +1273,10 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 
 **文件布局 (三个安装程序同一种)**: `[可执行部分][载荷][清单 JSON][8 字节清单长度, 小端]["KZPAYLD1"]`, 后面可以再有 `[注册块 JSON][8 字节长度, 小端]["KZSYNC01"]`.
 - 载荷是 gzip 的 tar. 清单有 `version`, `agent_version` (这个包说的协议版本), `os`, `arch`, `payload_sha256`. sh 的头里另有常量 `KS_PAYLOAD_SIZE` 与 `KS_PAYLOAD_SHA256`, 外壳用 `tail -c`, `head -c`, `gunzip`, `sha256sum` 取出并校验载荷 (busybox ash 可跑, 防截断和损坏; 防篡改靠 HTTPS, 固定的公钥或带外的 SHA-256).
-- 注册块只在服务端下载响应里出现 (2.5): JSON `{server, fingerprint, code, name}`, 所以 Windows 与 Linux 是同一种做法, 文件长度只增加块的大小, `Content-Length` 相应算好. 块在 PE 的证书表之后, 将来若做代码签名, Authenticode 只覆盖证书表之前的内容 (未在 Windows 上验证, 目前不签名, 没有影响). 安装程序把注册块当不可信输入: 名称, 码, 指纹和地址都按各自的格式校验后才使用.
+- 注册块只在服务端下载响应里出现 (2.5): JSON `{server, fingerprint, code, name}`. Windows 直接追加该块, Linux 保留相同的包字节与尾块, 再由下述 shell 外壳传送; `Content-Length` 按实际响应算好. 块在 PE 的证书表之后, 将来若做代码签名, Authenticode 只覆盖证书表之前的内容 (未在 Windows 上验证, 目前不签名, 没有影响). 安装程序把注册块当不可信输入: 名称, 码, 指纹和地址都按各自的格式校验后才使用.
 - Linux 的 sh 把载荷解到临时目录后运行 `kaze-syncc install --from "$0"`, 由 Go 解析注册块 (sh 不解析任何块); 服务端 sh 解出后运行 `kaze-syncd install "$@"`.
+
+- 无图形界面的 Linux 客户端用 `curl -fsS '<链接>' | sh`; 自签名和本地 CA 模式改用 `curl -fsSk --pinnedpubkey 'sha256//<服务端公钥哈希>' '<链接>' | sh` (2.5). 下载路由用 base64 把原脚本和注册块一起流式放进 shell 函数的 here document, 函数解码到临时文件后用 `sh` 执行. 下载脚本只有最后一行调用该函数, 下载中断时不会执行半截安装. 浏览器与 wget 下载同一个脚本, wget 先核对整个响应的 SHA-256 再执行.
 
 **服务端安装程序** (`sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh [install 的参数]`):
 1. 要求 root; 校验载荷 SHA-256; 解到临时目录 (OpenWrt 上 `/tmp` 占内存, 载荷约 20 MB 以内).

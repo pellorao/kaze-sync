@@ -204,7 +204,7 @@ func (e *env) api(token, path string, body any) (int, []byte) {
 func (e *env) enrollDevice(name, osName string) (int64, string) {
 	e.t.Helper()
 	code := "ABCD-EFGH-IJKL"
-	e.s.codes[sha(normalizeSecret(code))] = pendingCode{name, e.clk.Now().Add(codeLife)}
+	e.s.codes[sha(normalizeSecret(code))] = pendingCode{name: name, expires: e.clk.Now().Add(codeLife)}
 	status, out := e.api("", "enroll", proto.EnrollReq{Code: code, OS: osName})
 	if status != 200 {
 		e.t.Fatalf("enroll: %d %s", status, out)

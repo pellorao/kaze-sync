@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base32"
 	"encoding/json"
@@ -60,8 +61,9 @@ type Server struct {
 
 	boot string // identifies this run of the server (proto.PollResp.Boot)
 
-	// Fingerprint is shown in the enrollment commands in self-signed mode; "" otherwise.
-	Fingerprint string
+	// Fingerprint is the self-signed certificate or local CA fingerprint shown during enrollment.
+	Fingerprint       string
+	serverCertificate func() *tls.Certificate // current leaf, including after local CA renewal
 
 	// PollTimeout is how long a poll hangs without news.
 	PollTimeout time.Duration
@@ -97,8 +99,9 @@ type Server struct {
 }
 
 type pendingCode struct {
-	name    string
-	expires time.Time
+	name      string
+	expires   time.Time
+	linuxHash *enrollmentChecksum
 }
 
 // report is the last state a device sent with a poll.
@@ -250,6 +253,7 @@ func (s *Server) Handler() http.Handler {
 	s.deviceRoutes(mux)
 	s.webRoutes(mux)
 	s.pushRoutes(mux)
+	mux.HandleFunc("GET /dl/", s.enrollmentDownload)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
 	var h http.Handler = http.NewCrossOriginProtection().Handler(mux)
 	return securityHeaders(h)

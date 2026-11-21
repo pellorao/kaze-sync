@@ -96,27 +96,40 @@ func serial() *big.Int {
 // owns and can fill with links: the temporary file is created new (O_EXCL, random name) and the final rename
 // replaces a link at path itself, so nothing is ever written through one.
 func writeAtomic(path string, b []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a symbolic link", dir)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	tmp, err := stageFile(path, mode, func(f *os.File) error {
+		_, err := f.Write(b)
 		return err
-	}
-	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-")
+	})
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmp)
+	return os.Rename(tmp, path)
+}
+
+// stageFile writes a complete replacement on the same filesystem before it is made visible at path.
+func stageFile(path string, mode os.FileMode, write func(*os.File) error) (string, error) {
+	dir := filepath.Dir(path)
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s is a symbolic link", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-")
+	if err != nil {
+		return "", err
+	}
 	tmp := f.Name()
-	fail := func(err error) error {
+	fail := func(err error) (string, error) {
 		f.Close()
 		os.Remove(tmp)
-		return err
+		return "", err
 	}
 	if err := f.Chmod(mode); err != nil {
 		return fail(err)
 	}
-	if _, err := f.Write(b); err != nil {
+	if err := write(f); err != nil {
 		return fail(err)
 	}
 	if err := f.Sync(); err != nil {
@@ -124,13 +137,9 @@ func writeAtomic(path string, b []byte, mode os.FileMode) error {
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
-		return err
+		return "", err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return tmp, nil
 }
 
 // ServerSANs lists the names the server certificate must cover: loopback, the host name, the host in the

@@ -124,7 +124,7 @@ You can customize the installation with these options:
 | `--listen :PORT` | Listen address to use instead of the random port; remembered for later runs |
 | `--cert FILE --key FILE` | Use your own certificate instead of the self-signed one (section 2.4) |
 | `--ca [--san NAMES]` | Use a local CA and a certificate signed by it, which browsers can trust (section 2.4) |
-| `--wan` | OpenWrt only: add a firewall rule named `kaze-sync` that accepts the port from the WAN zone. Without `--wan`, any rule left over from an earlier run is removed |
+| `--wan` | OpenWrt only: add a firewall rule named `kaze-sync` that accepts the port from the WAN zone. An upgrade with neither `--data` nor `--wan` keeps the existing rule. When you pass `--data`, the rule is removed unless you also pass `--wan` |
 | `--new-epoch` | Used only after restoring a server backup (section 14) |
 
 ### 2.3 Plain Linux (systemd or OpenRC)
@@ -187,7 +187,7 @@ For TLS certificates, you can choose among three modes depending on how you use 
 
 Whenever you switch between certificate modes, every client must enroll again (or, if you can edit a client's files directly when switching to `--ca`, you can put the CA fingerprint into the `fingerprint` field of its `device.json` and restart the client).
 
-If you ever forget the server's listening port or certificate fingerprint, either run `install` again with the same `--data` directory (which is safe to repeat and prints both values) or check the `listening` line in the server log.
+If you ever forget the server's listening port or certificate fingerprint, either run `kaze-syncd install` again as root (which is safe to repeat and prints both values) or check the `listening` line in the server log.
 
 ### 2.5 First login and the admin password
 
@@ -203,7 +203,7 @@ Because the server (`kaze-syncd`) serves both the Web UI and the client sync pro
 
 Clients (`kaze-syncc` on Linux and Windows) do not open any listening socket at all. Because every connection is initiated outbound from the client to the server, client computers need no inbound firewall rules and work behind NAT without port forwarding. If you also filter outbound traffic, clients only need outbound TCP to the server's port, and only the server also needs outbound HTTPS (plus DNS) to the push services of your browsers' vendors when you turn on Web Push (section 9.1); neither program makes any other outbound connections.
 
-**Which port to open and how to find it.** On the first run, `install` picks a random TCP port between 20000 and 59999, saves it in the server database, and keeps that same port on later `install` runs. To choose the port yourself, pass `--listen :<port>` (or a specific address and port such as `--listen 127.0.0.1:<port>`). With the default `:<port>` form, the server binds both IPv4 and IPv6 on all interfaces, so if your clients or browsers connect over IPv6, open the port in both your IPv4 and IPv6 firewalls. Because `kaze-syncd` has no `status` subcommand, you can check the port later by re-running `install` with the same `--data` directory (which is safe to repeat and prints `installed in <data>, listening on :<port>` along with the fingerprint), by reading the `listening addr=... fingerprint=...` line in the server log (`journalctl -u kaze-sync` on systemd, syslog tag `kaze-sync` in `/var/log/messages` on OpenRC/Alpine, or `logread` on OpenWrt), by running `ss -ltnp` on the server, or by checking the `https://<server>:<port>` URL on an enrolled client.
+**Which port to open and how to find it.** On the first run, `install` picks a random TCP port between 20000 and 59999, saves it in the server database, and keeps that same port on later `install` runs. To choose the port yourself, pass `--listen :<port>` (or a specific address and port such as `--listen 127.0.0.1:<port>`). With the default `:<port>` form, the server binds both IPv4 and IPv6 on all interfaces, so if your clients or browsers connect over IPv6, open the port in both your IPv4 and IPv6 firewalls. Because `kaze-syncd` has no `status` subcommand, you can check the port later by re-running `kaze-syncd install` as root (which is safe to repeat and prints `installed in <data>, listening on :<port>` along with the fingerprint), by reading the `listening addr=... fingerprint=...` line in the server log (`journalctl -u kaze-sync` on systemd, syslog tag `kaze-sync` in `/var/log/messages` on OpenRC/Alpine, or `logread` on OpenWrt), by running `ss -ltnp` on the server, or by checking the `https://<server>:<port>` URL on an enrolled client.
 
 **Opening the port.** If your server runs in the cloud, add an inbound rule for TCP `<port>` in your provider's security group from the addresses your clients and browsers use (you can restrict the source to known addresses if they are fixed, though the port is already protected by TLS certificate pinning, device tokens, a random admin password, and IP lockout after failed attempts). For a firewall on the server itself, replace `<port>` with your listening port in the commands for your platform:
 
@@ -230,7 +230,7 @@ rc-update add ip6tables
 
 If the `INPUT` chain already contains a `REJECT` or `DROP` rule, `-A` appends the new rule after it so it never matches; use `iptables -I INPUT -p tcp --dport <port> -j ACCEPT` (and likewise `ip6tables -I INPUT -p tcp --dport <port> -j ACCEPT`) instead, which inserts the rule at the top of the chain. `rc-service iptables save` (and `rc-service ip6tables save`) can be run while the service is not started: the rules you added with `iptables` are already active, and the saved ruleset is restored at boot by the service enabled with `rc-update add`.
 
-On **OpenWrt**, passing `--wan` to `install` creates the WAN firewall rule automatically, or you can create the same `kaze-sync` rule manually with `uci` (note that running `install` later without `--wan` removes `firewall.kaze_sync`):
+On **OpenWrt**, passing `--wan` to `install` creates the WAN firewall rule automatically. You can also create the same `kaze-sync` rule manually with `uci`. An upgrade without `--data` keeps the existing rule. If you pass `--data`, pass `--wan` again to keep WAN access.
 
 ```bash
 ./kaze-syncd install --data /mnt/data/kaze-sync --wan    # server: automatic
@@ -716,7 +716,7 @@ When upgrading to a newer version of kaze-sync, always upgrade the **server firs
 Follow these four steps to upgrade:
 
 1. **Download and verify the new release packages** (`kaze-sync-<version>-linux-amd64.tar.gz`, `kaze-sync-<version>-windows-amd64.zip`, and `SHA256SUMS` from [GitHub Releases](https://github.com/pellorao/kaze-sync/releases), following [section 2.1](#21-download-and-verify-the-server-package) and [section 3](#3-installing-and-enrolling-clients); if you build from source instead, see [Appendix A](#appendix-a-building-from-source)).
-2. **Upgrade the server.** Copy the new `kaze-syncd` binary to the server and run `./kaze-syncd install --data <same directory>` as root (on both OpenWrt and plain Linux). Your listening port, certificate, and admin password remain unchanged. `install` copies the new binary into `<data>/`, restarts the service, and automatically migrates the databases (see below). On systemd, `install` also reloads the daemon and rewrites `/etc/systemd/system/kaze-sync.service`, so keep any custom unit settings in a systemd drop-in. (On OpenWrt, running a system firmware upgrade via `sysupgrade` leaves both the data disk and the kaze-sync service intact.)
+2. **Upgrade the server.** Copy the new `kaze-syncd` binary to the server and run `./kaze-syncd install` as root (on both OpenWrt and plain Linux). It reads the data directory from the installed service definition and keeps the current listening port, TLS settings, admin password and OpenWrt WAN rule. You can provide `--data <same directory>` explicitly. If you do, pass `--wan` as well to keep OpenWrt WAN access. `install` refuses to replace a newer server binary with an older one. It migrates the databases, copies the binary into `<data>/`, and restarts the service. On systemd it also reloads the daemon and rewrites `/etc/systemd/system/kaze-sync.service`, so keep custom unit settings in a systemd drop-in. OpenWrt's `sysupgrade` preserves the data disk and service.
 3. **Upgrade each Linux client.** Stop the user agent, overwrite the binary at its existing path, and start the agent again:
 
 ```bash
@@ -738,6 +738,8 @@ Stop-Process -Name kaze-syncc-agent
 Copy-Item kaze-syncc.exe, kaze-syncc-agent.exe <install directory>
 Start-Process "<install directory>\kaze-syncc-agent.exe" -ArgumentList run
 ```
+
+**Publish client installers.** If you have the Linux and Windows installer files for a release, run `kaze-syncd client-pkg <linux-installer.sh> <windows-setup.exe>` as root on the server. You can publish either platform on its own. The command checks each payload and makes the packages available immediately without restarting the service. It rejects packages that require a newer sync protocol than the server supports. To publish them, upgrade the server first.
 
 **Automatic database migration and how to roll back.**
 - **Server databases.** Whenever the server starts (including during `install`), it automatically migrates its databases to the new schema—first the global `meta.db`, then each folder database. If the schema has not changed, startup proceeds immediately. Before modifying any database file, the server copies the untouched file to `<data>/var/backups/` as `meta-v<old version>-<UTC time>.db` or `folder-<id>-v<old version>-<UTC time>.db` (keeping the newest 3 backups per database, and removing a folder's backups if that folder is deleted). Because each backup is a full copy of the database, make sure your disk has at least that much free space before upgrading. If backing up or migrating a database fails, the server refuses to start, prints which database failed and why, and leaves that database unchanged—fix the underlying issue (such as freeing disk space) and start the service again.

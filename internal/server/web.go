@@ -640,9 +640,12 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	}
 	code := group(randomBase32(12), 4)
 	expires := s.now().Add(codeLife)
-	s.codes[sha(normalizeSecret(code))] = pendingCode{name, expires}
+	s.codes[sha(normalizeSecret(code))] = pendingCode{name: name, expires: expires}
 	s.mu.Unlock()
-	return s.overviewPage(w, r, &dialogState{dialog: "dlg-enroll", extra: map[string]any{"Code": code, "CodeName": name, "Expires": expires.Unix()}})
+	return s.overviewPage(w, r, &dialogState{dialog: "dlg-enroll", extra: map[string]any{
+		"Code": code, "CodeName": name, "Expires": expires.Unix(),
+		"Downloads": s.enrollmentDownloads(r, code, name),
+	}})
 }
 
 func (s *Server) newFolder(w http.ResponseWriter, r *http.Request) error {

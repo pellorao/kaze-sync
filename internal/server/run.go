@@ -18,6 +18,7 @@ func Run(ctx context.Context, data string) error {
 		return err
 	}
 	defer s.Close()
+	s.checkClientPackages()
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
 	caMode := false
 	if certFile, keyFile := MetaString(s.db, "cert"), MetaString(s.db, "key"); certFile != "" {
@@ -32,6 +33,7 @@ func Run(ctx context.Context, data string) error {
 			return err
 		}
 		tlsConf.GetCertificate = cs.GetCertificate
+		s.serverCertificate = cs.Current
 		s.Fingerprint = CAFingerprint(cs.Current())
 		caMode = true
 	} else {
@@ -40,6 +42,7 @@ func Run(ctx context.Context, data string) error {
 			return err
 		}
 		tlsConf.Certificates = []tls.Certificate{cert}
+		s.serverCertificate = func() *tls.Certificate { return &cert }
 		s.Fingerprint = Fingerprint(cert)
 	}
 	ln, err := net.Listen("tcp", MetaString(s.db, "listen"))

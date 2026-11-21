@@ -34,6 +34,7 @@ func (s *Server) deviceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/held", s.auth(s.heldHandler))
 	mux.HandleFunc("POST /api/v1/blocks", s.auth(s.blocks))
 	mux.HandleFunc("POST /api/v1/blocks/get", s.auth(s.blocksGet))
+	mux.HandleFunc("GET /api/v1/client/package", s.authDevice(s.devicePackage, false))
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -60,6 +61,10 @@ func versionOK(w http.ResponseWriter, r *http.Request) (int, bool) {
 }
 
 func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.HandlerFunc {
+	return s.authDevice(h, true)
+}
+
+func (s *Server) authDevice(h func(http.ResponseWriter, *http.Request, device), requireCurrent bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		var d device
@@ -77,9 +82,12 @@ func (s *Server) auth(h func(http.ResponseWriter, *http.Request, device)) http.H
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if v, ok := versionOK(w, r); !ok {
-			s.noteTooOld(d.id, v)
-			return
+		w.Header().Set(proto.ServerAgentVersionHeader, strconv.Itoa(proto.AgentVersion))
+		if requireCurrent {
+			if v, ok := versionOK(w, r); !ok {
+				s.noteTooOld(d.id, v)
+				return
+			}
 		}
 		h(w, r, d)
 	}
