@@ -46,23 +46,23 @@ server() {
 		fi
 		set -- --data "$data" "$@"
 	fi
-	"$x/kaze-syncd" install "$@" || fail "kaze-syncd install failed"
+	"$unpacked/kaze-syncd" install "$@" || fail "kaze-syncd install failed"
 	if [ -n "$data" ]; then
 		set -- --data "$data"
 	else
 		set --
 	fi
-	"$x/kaze-syncd" client-pkg "$@" "$x/client-linux-amd64.sh" "$x/client-windows-amd64-setup.exe" ||
+	"$unpacked/kaze-syncd" client-pkg "$@" "$unpacked/client-linux-amd64.sh" "$unpacked/client-windows-amd64-setup.exe" ||
 		fail "the server is installed but the client installers were not published; run kaze-syncd client-pkg with the two client installer files of this release"
 	if [ -z "$installed" ]; then
-		"$x/kaze-syncd" admin-password "$@" || fail "kaze-syncd admin-password failed"
+		"$unpacked/kaze-syncd" admin-password "$@" || fail "kaze-syncd admin-password failed"
 	fi
 	echo "kaze-sync server $KS_VERSION is installed. Upgrade the clients one by one with: kaze-syncc upgrade"
 }
 
 # client: sh FILE [kaze-syncc install options]
 client() {
-	"$x/kaze-syncc" install --from "$self" "$@"
+	"$unpacked/kaze-syncc" install --from "$self" "$@"
 }
 
 # payload writes the compressed payload to the standard output.
@@ -83,9 +83,9 @@ main() {
 	# memory on OpenWrt.
 	sum=$(payload | sha256sum)
 	[ "${sum%% *}" = "$KS_PAYLOAD_SHA256" ] || fail "the payload SHA-256 does not match: the file is damaged or incomplete, download it again"
-	x=$tmp/x
-	mkdir "$x" || fail "cannot create $x"
-	payload | gunzip -c | tar -xf - -C "$x" || fail "cannot unpack the payload"
+	unpacked=$tmp/x
+	mkdir "$unpacked" || fail "cannot create $unpacked"
+	payload | gunzip -c | tar -xf - -C "$unpacked" || fail "cannot unpack the payload"
 	"$KS_KIND" "$@"
 	rc=$?
 	exit "$rc"
