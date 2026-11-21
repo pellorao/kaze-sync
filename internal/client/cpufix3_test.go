@@ -36,6 +36,7 @@ func cpufix3Pair(t *testing.T, extra []proto.WCRule) (a, b *engine) {
 // clearDirty / sinceHeldBack map an unsent directory d to the scope of the made-up file "d/x". When d has a
 // subdirectory "x" (or "X": keys fold case) with its own setting, d's unsent change is taken for that scope.
 // a edits d/u (too fresh, unsent), then pulls b's write in the root scope: the root since must stay old.
+// Over 100 ms (serial run): four cases, each with two devices on real SQLite state databases.
 func TestCpufix3UnsentDirNamedX(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"", "y", "x", "X"} {

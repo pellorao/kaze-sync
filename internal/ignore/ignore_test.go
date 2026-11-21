@@ -94,6 +94,7 @@ func TestLineErrors(t *testing.T) {
 	}
 }
 
+// Over 100 ms (serial run): the test is itself a timing check over a large rule and path set.
 func TestPerformance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("performance test")

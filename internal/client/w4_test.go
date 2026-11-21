@@ -151,6 +151,7 @@ func TestHandlePollBootAndActions(t *testing.T) {
 
 // The whole way: a device holds a change, the user decides in the Web UI, the poll brings the decision, the device
 // carries it out and reports the list empty.
+// Over 100 ms (serial run): two real agents and the Web UI path end to end, on real retry and debounce timers (50 ms each).
 func TestAgentCarriesOutAWebDecision(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)
@@ -217,6 +218,7 @@ func (e *cenv) get(path string) (int, string) {
 
 // The server keeps the held lists in memory only. After a restart (a new boot id in the poll answer) a real agent
 // sends its list again, so the Web UI shows the held change without anyone touching the file.
+// Over 100 ms (serial run): real server restart; the old long poll ends only on PollTimeout (300 ms).
 func TestAgentSendsHeldListAgainAfterServerRestart(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)

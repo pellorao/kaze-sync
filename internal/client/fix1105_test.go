@@ -43,6 +43,7 @@ func (c *pullCounter) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // The agent starts before the server is reachable (the cached configuration lets the folder run): the pull
 // that fails must be retried with growing delays, not in a loop (11-04: 190000 lines in 33 seconds).
+// Over 100 ms (serial run): counts real retries with growing delays over a 300 ms window.
 func TestAgentDoesNotSpinWhileTheServerIsUnreachable(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)

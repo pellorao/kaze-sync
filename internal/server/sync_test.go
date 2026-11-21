@@ -45,6 +45,7 @@ func (e *env) changes(tok string, folder, since int64) proto.ChangesResp {
 	return r
 }
 
+// Over 100 ms (serial run): needs more than proto.MaxChangesPage (5001) committed entries to reach a second page.
 func TestChangesPagesBySeqAndChecksMapping(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

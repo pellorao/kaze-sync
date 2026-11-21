@@ -127,6 +127,7 @@ func TestAgentUsesCachedConfigurationOffline(t *testing.T) {
 	})
 }
 
+// Over 100 ms (serial run): two real agents syncing through a real server on real debounce and retry timers.
 func TestAgentsPropagateChangesBothWays(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)
@@ -174,6 +175,7 @@ func (c *pollCounter) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // A folder that cannot be synced (non-empty directory, not adopted) must not make the long poll return at once.
+// Over 100 ms (serial run): counts polls over a 250 ms window to prove the poll does not spin.
 func TestUnusableFolderDoesNotSpinThePoll(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)
@@ -238,6 +240,7 @@ func (b *busyFS) Open(p string) (io.ReadCloser, error) {
 }
 
 // A locked file is retried on the slow schedule (design 5.7): as often as it has steps, then left to the periodic scan.
+// Over 100 ms (serial run): each case waits 100 ms after the slow schedule to show no extra retry.
 func TestAgentRetriesLockedFilesOnTheSlowSchedule(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -300,6 +303,7 @@ func TestDebounceIsCappedByMaxWait(t *testing.T) {
 
 // A scan that leaves a too-young file for later must not lose that retry when the next task is a pull
 // (the peer's commit wakes the poll): the file still goes up soon after it becomes stable.
+// Over 100 ms (serial run): wall-clock Stable of 600 ms must pass before the file may go up.
 func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)
@@ -340,6 +344,7 @@ func TestUnstableFileIsNotForgottenAfterAPullOnlyTask(t *testing.T) {
 }
 
 // A folder whose state database cannot be opened has no runner; the poll must not wait for it and spin.
+// Over 100 ms (serial run): counts polls over a 250 ms window to prove the poll does not spin.
 func TestUnopenableFolderStateDoesNotSpinThePoll(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)

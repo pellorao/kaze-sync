@@ -45,6 +45,7 @@ func TestOldClientRefusalBecomesUpgradeError(t *testing.T) {
 }
 
 // The idle timer runs only while a Read waits: a slow consumer must not get the download cancelled.
+// Over 100 ms (serial run): a consumer busy for 120 ms must outlast the 40 ms idle timer to prove it is not counted.
 func TestIdleBodyDoesNotCountTheConsumersTime(t *testing.T) {
 	old := idleTimeout
 	idleTimeout = 40 * time.Millisecond

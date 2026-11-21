@@ -126,6 +126,7 @@ func TestAgentDropsStateOfUnmappedFolders(t *testing.T) {
 
 // After the server rejected the token, the agent asks again only after AuthRetry, not at the usual backoff of a
 // second (poll.go): nothing more arrives for a while longer than that backoff.
+// Over 100 ms (serial run): must wait past the default 1 s backoff hard-coded in poll.go to prove it is not used.
 func TestAgentBacksOffWhenTheTokenIsRejected(t *testing.T) {
 	t.Parallel()
 	var polls atomic.Int32
@@ -149,6 +150,7 @@ func TestAgentBacksOffWhenTheTokenIsRejected(t *testing.T) {
 
 // A server that accepts a request and then says nothing must not hold the client for good (the timeouts of
 // NewHTTPClient and GetBlocks).
+// Over 100 ms (serial run): real HTTP timeouts against a silent server, several 60 ms response/idle timeouts in a row.
 func TestSilentServerTimesOut(t *testing.T) {
 	oldResp, oldIdle := responseTimeout, idleTimeout
 	responseTimeout, idleTimeout = 60*time.Millisecond, 60*time.Millisecond
@@ -281,6 +283,7 @@ func TestRootHintDoesNotWalkKnownDirectories(t *testing.T) {
 }
 
 // Lost events (or a watcher that stopped) make the agent start a new watcher, which keeps working.
+// Over 100 ms (serial run): real agent with a real watcher restart; waits for poll (300 ms) and debounce timing.
 func TestAgentRestartsTheWatcherAfterLostEvents(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)
@@ -342,6 +345,7 @@ func (h *holdCommits) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // A folder stuck in a long upload does not hold up the others: new files, retries and configuration changes of
 // the rest go on (design 3).
+// Over 100 ms (serial run): real agent and server; the held upload and the other folder's changes run on real poll and debounce timers.
 func TestFoldersAreIndependentDuringALongUpload(t *testing.T) {
 	t.Parallel()
 	e := newCEnv(t)

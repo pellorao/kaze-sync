@@ -210,6 +210,7 @@ func readEvents(t *testing.T, e *env, c *http.Client) (<-chan [2]any, func()) {
 	return out, func() { resp.Body.Close() }
 }
 
+// Over 100 ms (serial run): measures real event pushes against the 40 ms gap over several rounds.
 func TestEventsPushOnChangeNoMoreOftenThanTheGap(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

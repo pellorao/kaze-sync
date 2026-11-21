@@ -89,6 +89,7 @@ func diffRules(rng *rand.Rand) []string {
 	return lines
 }
 
+// Over 100 ms (serial run): compares at least 5000 pairs against a real git process (check-ignore), per case.
 func TestDifferentialAgainstGit(t *testing.T) {
 	if testing.Short() || runtime.GOOS == "windows" {
 		t.Skip("differential test runs on Linux only")

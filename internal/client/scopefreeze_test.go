@@ -75,6 +75,7 @@ func TestAdoptSameContentIsNotHeld(t *testing.T) {
 
 // A list of held changes longer than the report may be is cut to what fits, the cut is counted, and the report of a
 // full-size list stays within the request limit of the server.
+// Over 100 ms (serial run): builds proto.MaxHeldItems+50 held rows; the size is set by that product constant.
 func TestHeldReportIsCutToFit(t *testing.T) {
 	t.Parallel()
 	a, _ := singlePair(t)
