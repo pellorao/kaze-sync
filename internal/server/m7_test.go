@@ -252,6 +252,7 @@ func TestRestoreDirToPointInTime(t *testing.T) {
 }
 
 // More than a thousand files deleted together come back, across two commits of at most 1000 operations.
+// Over 100 ms (serial run): needs 1100 files, more than one commit of 1000 operations.
 func TestRestoreDirManyFiles(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

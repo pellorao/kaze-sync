@@ -101,6 +101,7 @@ func TestScanSkipsBinaryAndIgnoredDirs(t *testing.T) {
 }
 
 // The repository itself must be clean: this is the regression check that runs with go test ./...
+// Over 100 ms (serial run): scans the whole repository; time grows with the repository.
 func TestRepositoryIsClean(t *testing.T) {
 	hits, err := scan(filepath.Join("..", ".."))
 	if err != nil {

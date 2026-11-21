@@ -118,6 +118,7 @@ rest:
 }
 
 // The held report is sized by its encoded length: "&" is 6 bytes in JSON.
+// Over 100 ms (serial run): builds proto.MaxHeldItems held rows; the size is set by that product constant.
 func TestCpufix2HeldReportCountsEscapes(t *testing.T) {
 	t.Parallel()
 	a, _ := singlePair(t)

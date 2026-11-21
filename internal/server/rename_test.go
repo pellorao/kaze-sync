@@ -117,6 +117,7 @@ func TestRenameDevice(t *testing.T) {
 	}
 }
 
+// Over 100 ms (serial run): holds a real SQLite write transaction long enough for an unguarded rename to show.
 func TestConcurrentRenamesWaitForCurrentWriterUpdate(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

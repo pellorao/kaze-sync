@@ -790,6 +790,7 @@ func simSeeds() int {
 	return 16 // a quick random sample; SIM_SEEDS=1000 SIM_STEPS=300 is the deep run
 }
 
+// Over 100 ms (serial run): random simulation of 16 seeds; some seeds run longer than 100 ms each.
 func TestSimulation(t *testing.T) {
 	oneWorker(t)
 	steps := 60

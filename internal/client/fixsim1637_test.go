@@ -57,6 +57,7 @@ func TestDeletedFileReplacedByDirectoryIsHeldForTheNewerVersion(t *testing.T) {
 	}
 }
 
+// Over 100 ms (serial run): regression seed, kept at its full 300 steps.
 func TestSimulationSeed1637(t *testing.T) {
 	oneWorker(t)
 	s := newSim(t, 1637)

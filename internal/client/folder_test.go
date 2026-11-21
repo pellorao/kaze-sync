@@ -122,6 +122,7 @@ func TestChunkedUploadSendsOnlyChangedBlocks(t *testing.T) {
 	}
 }
 
+// Over 100 ms (serial run): uploads a 6 MiB file in real blocks twice (cut, then resumed).
 func TestKilledUploadResumesWithRemainingBlocks(t *testing.T) {
 	t.Parallel()
 	e, f, api, g := setup(t)
