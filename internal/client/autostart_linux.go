@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,4 +53,20 @@ func configureAutostart(exe, configDir string, systemctl func(args ...string) er
 	}
 	// restart, not "enable --now": an agent that is already running would go on with the old device.json.
 	return systemctl("restart", "kaze-sync.service")
+}
+
+// AutostartDir returns the directory of the program the user unit starts, or "" when there is no unit.
+func AutostartDir() (string, error) {
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(filepath.Join(cfg, "systemd", "user", "kaze-sync.service"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return unitExecDir(string(b)), nil
 }

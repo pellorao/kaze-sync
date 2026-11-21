@@ -2,11 +2,7 @@ package server
 
 import (
 	"archive/tar"
-	"bufio"
-	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -68,49 +64,13 @@ func openClientPackage(path string) (*clientPackage, error) {
 	return nil, err
 }
 
-// verifyPayload finds the release's fixed gzip header and verifies the compressed bytes up to the manifest.
-// The marker may also occur inside the executable or the compressed stream, so the digest selects the payload.
+// verifyPayload verifies the compressed bytes up to the manifest against its digest and checks their kind.
 func (p *clientPackage) verifyPayload() error {
-	header := []byte{0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0} // deflate, no optional fields, zero timestamp
-	want, _ := hex.DecodeString(p.manifest.PayloadSHA256)
-	scan := bufio.NewReaderSize(io.NewSectionReader(p.File, 0, p.payloadEnd), 32*1024)
-	offset := int64(0)
-	candidates := 0
-	for {
-		segment, err := scan.Peek(scan.Size())
-		for pos := 0; pos+len(header) <= len(segment); {
-			i := bytes.Index(segment[pos:], header)
-			if i < 0 {
-				break
-			}
-			start := offset + int64(pos+i)
-			pos += i + 1
-			if start == 0 {
-				continue // the installer starts with an executable prefix
-			}
-			candidates++
-			if candidates > 16 {
-				return errors.New("too many possible installer payload offsets")
-			}
-			h := sha256.New()
-			if _, err := io.Copy(h, io.NewSectionReader(p.File, start, p.payloadEnd-start)); err != nil {
-				return err
-			}
-			if bytes.Equal(h.Sum(nil), want) {
-				return p.checkPayloadKind(start)
-			}
-		}
-		if err != nil {
-			if err != io.EOF {
-				return err
-			}
-			break
-		}
-		step := len(segment) - len(header) + 1
-		scan.Discard(step)
-		offset += int64(step)
+	start, err := installer.FindPayload(p.File, p.payloadEnd, p.manifest.PayloadSHA256)
+	if err != nil {
+		return err
 	}
-	return errors.New("installer payload SHA-256 mismatch")
+	return p.checkPayloadKind(start)
 }
 
 // The Linux server and client installers have the same platform in their manifests.

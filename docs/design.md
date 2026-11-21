@@ -1266,7 +1266,7 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 |---|---|---|
 | `kaze-sync-server-X.Y.Z-linux-amd64.sh` | 自解压 sh: `kaze-syncd` 加下面两个客户端安装包 | 服务端的 root (OpenWrt, systemd, OpenRC 通用) |
 | `kaze-sync-client-X.Y.Z-linux-amd64.sh` | 自解压 sh: `kaze-syncc` | Linux 客户端的普通用户 |
-| `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe` | Go 控制台程序 (不是 Inno Setup 或 MSI), 载荷为 `kaze-syncc.exe` 和无窗口的 `kaze-syncc-agent.exe` | Windows 客户端的当前用户, 不需要管理员权限 |
+| `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe` | Go 控制台程序 (源码 `cmd/kaze-sync-setup`, 发版工具把载荷和清单接在它的 exe 后面; 不是 Inno Setup 或 MSI), 载荷为 `kaze-syncc.exe` 和无窗口的 `kaze-syncc-agent.exe` | Windows 客户端的当前用户, 不需要管理员权限 |
 | `kaze-sync-X.Y.Z-linux-amd64.tar.gz`, `...-windows-amd64.zip`, `SHA256SUMS` | 与以前相同 (手动安装), `SHA256SUMS` 加上面三个文件 | |
 
 只发 amd64. 不做 `.deb`, `.apk`, `.ipk`, MSI, Inno Setup: 包管理器格式至少三四种, 每种的安装后脚本都要再调一次 `install`, OpenWrt 必须先指定数据盘, 包的无交互模型装不下; 后两者的构建工具只在 Windows 上, 打破 Linux 上可重现的构建. 安装逻辑全在 Go 里 (`install` 与 `kaze-syncc install`, 可用假系统做单元测试), sh 外壳只负责校验和解包, 不另写一套逻辑.
@@ -1289,12 +1289,12 @@ kaze-syncc enroll https://sync.example.org:41873 K7QF-M2XD-9PLA --fingerprint sh
 - 只换客户端包: `kaze-syncd client-pkg [--data DIR] <包文件>...` (不带 `--data` 时同 9.1 从服务定义读), 取发布页的两个客户端文件, 校验载荷后放入 `dl/`, 不重启服务. 拒绝 `agent_version` 高于服务端自己的包 (`--force` 越过), 因为这样的包会让后来升级的客户端比服务端新.
 - 服务端比客户端先升级是常态, 客户端比服务端先升级 (只改了客户端) 也常见, 所以两者各自可单独发布和替换; 对话框显示 `dl/` 中包的版本, 与服务端版本不同时提示.
 
-**客户端安装** (`kaze-syncc install [--from FILE] [SERVER CODE --fingerprint F] [--dir DIR] [--force]`, 两个客户端安装程序都调用它, 首次与升级同一条路径):
+**客户端安装** (`kaze-syncc install --from FILE [SERVER CODE --fingerprint F] [--dir DIR] [--force]`, 两个客户端安装程序都调用它, 首次与升级同一条路径):
 1. 目标目录: 已有自动启动记录 (9.2) 时用其中的目录; 否则默认 Linux `~/.local/bin`, Windows `%LOCALAPPDATA%\Programs\kaze-sync`.
 2. 已注册时做升级前的兼容检查 (见下); 通不过就停下, 提示先升级服务端 (`--force` 越过).
 3. 停 agent: Linux `systemctl --user stop kaze-sync` (unit 若带 `Restart=`, 只杀进程会被拉起旧版); Windows 用现有 `StopAgent`.
 4. 先写临时名再改名替换 (Windows 上短重试, 因为刚停的进程可能还没释放文件).
-5. 首次安装: 有注册块或命令行参数就注册 (同 `enroll` 的函数), 注册码过期等失败时仍装好文件, 只提示在 Web UI 重新添加设备; 都没有 (例如从发布页直接下载的包, Windows 上双击) 时提示粘贴 Web UI 里的整行手动注册命令. 升级: 重写自动启动记录并启动 agent. 都不碰 `device.json` 和各 `folder-*.db`.
+5. 首次安装: 有命令行参数就注册 (同 `enroll` 的函数); 没有参数时, 本机还没注册才用注册块 (已注册的机器上留着的旧安装程序不会重新注册, 只当升级); 注册码过期等失败时仍装好文件, 以非零状态退出并提示在 Web UI 重新添加设备; 都没有 (例如从发布页直接下载的包) 时, `kaze-sync-setup` (Windows 双击) 在终端里提示粘贴 Web UI 里的整行手动注册命令, 空行跳过, `kaze-syncc install` 只打印提示. 注册块和粘贴的命令都按各字段的格式校验后才使用. 没有 `--from` 时报错: 载荷只从安装程序文件取. 升级: 重写自动启动记录并启动 agent. 都不碰 `device.json` 和各 `folder-*.db`.
 6. 打印旧版本到新版本和被替换的文件; Windows 的 setup 结束前等回车; 提示删除下载来的安装程序 (注册块里的码已失效, 无害).
 7. Linux 上 agent 是用户级 systemd unit, 无图形界面的机器在 SSH 退出后默认会停掉整个用户服务: 安装程序检查 `loginctl show-user` 的 `Linger`, 未启用时只打印需要 root 执行的 `loginctl enable-linger <用户>` 提示, 不自己提权.
 - agent exe 的 PE 子系统 (必须是 2, 否则每次登录弹出控制台窗口) 由发版测试在构建后检查, 不再让用户检查.

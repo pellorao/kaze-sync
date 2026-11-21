@@ -2,12 +2,17 @@
 package installer
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"regexp"
 
 	"kaze-sync/internal/version"
 )
@@ -81,4 +86,135 @@ func ReadManifest(r io.ReaderAt, size int64) (Manifest, int64, error) {
 		return m, 0, errors.New("invalid installer version, agent_version or payload_sha256")
 	}
 	return m, end, nil
+}
+
+// ReadRegistration reads the optional registration trailer at the end of a downloaded installer. It returns nil
+// and the unchanged size when there is none, otherwise the record and the size without the trailer. The record is
+// untrusted input: callers use it only after Validate.
+func ReadRegistration(r io.ReaderAt, size int64) (*Registration, int64, error) {
+	var footer [footerSize]byte
+	if size < int64(len(footer)) {
+		return nil, size, nil
+	}
+	if _, err := r.ReadAt(footer[:], size-int64(len(footer))); err != nil {
+		return nil, size, err
+	}
+	if string(footer[8:]) != RegistrationMagic {
+		return nil, size, nil
+	}
+	n := binary.LittleEndian.Uint64(footer[:8])
+	if n == 0 || n > maxTrailerSize || n >= uint64(size-int64(len(footer))) {
+		return nil, size, errors.New("invalid installer registration length")
+	}
+	end := size - int64(len(footer)) - int64(n)
+	body := make([]byte, n)
+	if _, err := r.ReadAt(body, end); err != nil {
+		return nil, size, err
+	}
+	var reg Registration
+	if err := json.Unmarshal(body, &reg); err != nil {
+		return nil, size, fmt.Errorf("invalid installer registration: %w", err)
+	}
+	return &reg, end, nil
+}
+
+var (
+	codeFormat        = regexp.MustCompile(`^[A-Za-z0-9-]{4,64}$`)
+	fingerprintFormat = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
+	deviceNameFormat  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+)
+
+// Validate checks every field against its own format: the record comes from a file that may have been tampered
+// with. The fingerprint may be empty (a server whose certificate the system trusts); the name may be empty.
+func (g Registration) Validate() error {
+	u, err := url.Parse(g.Server)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("invalid server address %q", g.Server)
+	}
+	if !codeFormat.MatchString(g.Code) {
+		return errors.New("invalid registration code")
+	}
+	if g.Fingerprint != "" && !fingerprintFormat.MatchString(g.Fingerprint) {
+		return errors.New("invalid certificate fingerprint")
+	}
+	if g.Name != "" && !deviceNameFormat.MatchString(g.Name) {
+		return errors.New("invalid device name")
+	}
+	return nil
+}
+
+// Package is a parsed installer file: the manifest, the optional registration and where the payload lies.
+type Package struct {
+	Manifest     Manifest
+	Registration *Registration // nil when the file carries none
+	PayloadStart int64
+	PayloadEnd   int64
+}
+
+// Open parses the trailers of an installer file and locates its payload (a gzip tar of the binaries).
+func Open(r io.ReaderAt, size int64) (*Package, error) {
+	reg, rest, err := ReadRegistration(r, size)
+	if err != nil {
+		return nil, err
+	}
+	m, end, err := ReadManifest(r, rest)
+	if err != nil {
+		return nil, err
+	}
+	start, err := FindPayload(r, end, m.PayloadSHA256)
+	if err != nil {
+		return nil, err
+	}
+	return &Package{Manifest: m, Registration: reg, PayloadStart: start, PayloadEnd: end}, nil
+}
+
+// Payload returns the compressed payload.
+func (p *Package) Payload(r io.ReaderAt) *io.SectionReader {
+	return io.NewSectionReader(r, p.PayloadStart, p.PayloadEnd-p.PayloadStart)
+}
+
+// FindPayload finds the release's fixed gzip header and verifies the compressed bytes up to end against the
+// manifest digest. The marker may also occur inside the executable or the compressed stream, so the digest
+// selects the payload. It returns the payload's start offset.
+func FindPayload(r io.ReaderAt, end int64, wantHex string) (int64, error) {
+	header := []byte{0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0} // deflate, no optional fields, zero timestamp
+	want, _ := hex.DecodeString(wantHex)
+	scan := bufio.NewReaderSize(io.NewSectionReader(r, 0, end), 32*1024)
+	offset := int64(0)
+	candidates := 0
+	for {
+		segment, err := scan.Peek(scan.Size())
+		for pos := 0; pos+len(header) <= len(segment); {
+			i := bytes.Index(segment[pos:], header)
+			if i < 0 {
+				break
+			}
+			start := offset + int64(pos+i)
+			pos += i + 1
+			if start == 0 {
+				continue // the installer starts with an executable prefix
+			}
+			candidates++
+			if candidates > 16 {
+				return 0, errors.New("too many possible installer payload offsets")
+			}
+			h := sha256.New()
+			if _, err := io.Copy(h, io.NewSectionReader(r, start, end-start)); err != nil {
+				return 0, err
+			}
+			if bytes.Equal(h.Sum(nil), want) {
+				return start, nil
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				return 0, err
+			}
+			break
+		}
+		step := len(segment) - len(header) + 1
+		scan.Discard(step)
+		offset += int64(step)
+	}
+	return 0, errors.New("installer payload SHA-256 mismatch")
 }

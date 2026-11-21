@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"kaze-sync/internal/installer"
 	"kaze-sync/internal/version"
 )
 
@@ -88,7 +90,7 @@ func TestCommandLines(t *testing.T) {
 		bin  string
 		cmds []string // subcommands taking part in the checks
 	}{
-		{"kaze-syncc", []string{"enroll", "run"}},
+		{"kaze-syncc", []string{"enroll", "run", "install"}},
 		{"kaze-syncd", []string{"run", "install", "admin-password", "export"}},
 	}
 	for _, c := range cases {
@@ -133,5 +135,45 @@ func TestVersionFlag(t *testing.T) {
 		if code != 0 || strings.TrimSpace(out) != bin+" "+version.Version {
 			t.Errorf("%s --version: code %d, %q", bin, code, out)
 		}
+	}
+}
+
+// install runs end to end as a process: first installation, then an upgrade that finds the old version. The
+// machine is not enrolled and has no autostart record, so no service is touched.
+func TestInstallCommand(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fake program is a shell script")
+	}
+	home := t.TempDir()
+	pkg := func(v string) string {
+		prog := "#!/bin/sh\necho kaze-syncc " + v + "\n"
+		b, err := installer.Build([]byte("#!/bin/sh\n"), []installer.File{{Name: "kaze-syncc", Data: []byte(prog)}},
+			installer.Manifest{Version: v, AgentVersion: 6, OS: "linux", Arch: "amd64"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(t.TempDir(), "kaze-sync-client.sh")
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	install := func(v string) string {
+		cmd := exec.Command(binaries["kaze-syncc"], "install", "--from", pkg(v))
+		cmd.Env = append(os.Environ(), "HOME="+home, "XDG_STATE_HOME="+home+"/state", "XDG_CONFIG_HOME="+home+"/config")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("install %s: %v\n%s", v, err, out)
+		}
+		return string(out)
+	}
+	if out := install("0.2.0"); !strings.Contains(out, "none -> 0.2.0") {
+		t.Fatalf("first install: %s", out)
+	}
+	if out := install("0.3.0"); !strings.Contains(out, "0.2.0 -> 0.3.0") {
+		t.Fatalf("upgrade: %s", out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, ".local/bin/kaze-syncc")); !strings.Contains(string(b), "0.3.0") {
+		t.Fatalf("installed program: %q", b)
 	}
 }

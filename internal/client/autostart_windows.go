@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,4 +27,24 @@ func ConfigureAutostart(exe string) error {
 	cmd := exec.Command(agent, "run")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x00000008 | 0x00000200} // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
 	return cmd.Start()
+}
+
+// AutostartDir returns the directory of the program the Run value starts, or "" when there is no such value.
+func AutostartDir() (string, error) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE)
+	if err != nil {
+		return "", err
+	}
+	defer k.Close()
+	v, _, err := k.GetStringValue("kaze-sync")
+	if errors.Is(err, registry.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if p := quotedCommandPath(v); p != "" {
+		return filepath.Dir(p), nil
+	}
+	return "", nil
 }

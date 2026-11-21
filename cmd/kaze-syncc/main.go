@@ -21,7 +21,8 @@ import (
 
 const usage = `usage:
   kaze-syncc enroll SERVER CODE [--fingerprint sha256:HEX] [--no-autostart]
-  kaze-syncc run`
+  kaze-syncc run
+  kaze-syncc install --from FILE [--dir DIR] [--force] [SERVER CODE [--fingerprint sha256:HEX]]`
 
 // Tunables.
 const (
@@ -46,7 +47,7 @@ func main() {
 		fmt.Println(usage)
 		return
 	}
-	if args[0] != "enroll" && args[0] != "run" {
+	if args[0] != "enroll" && args[0] != "run" && args[0] != "install" {
 		exitUsage("unknown command " + args[0])
 	}
 	dir, err := client.StateDir()
@@ -54,6 +55,13 @@ func main() {
 		switch args[0] {
 		case "enroll":
 			err = enroll(dir, args[1:])
+		case "install":
+			o, perr := client.ParseInstallArgs(args[1:], "")
+			if perr != nil {
+				exitUsage(perr.Error())
+			}
+			o.Out = os.Stdout
+			err = client.Install(context.Background(), o)
 		case "run":
 			if len(args) > 1 {
 				exitUsage("run takes no arguments")
