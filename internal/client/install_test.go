@@ -373,3 +373,39 @@ func TestInstallWindowsRefusesToReplaceItself(t *testing.T) {
 		t.Fatalf("%v: %s", err, r.seq())
 	}
 }
+
+// Two installs into one directory at the same time must not stage into the same file: the second would overwrite
+// (or, after the first one's rename, recreate) the first one's staged binary.
+func TestInstallStagesUnderUniqueNames(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, "linux")
+	dir := t.TempDir()
+	stage := func(string) map[string]string {
+		f, err := os.Open(r.pkg("linux", 6, nil, "kaze-syncc"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		fi, _ := f.Stat()
+		pkg, err := installer.Open(f, fi.Size())
+		if err != nil {
+			t.Fatal(err)
+		}
+		staged, err := stagePayload(pkg.Payload(f), dir, []string{"kaze-syncc"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return staged
+	}
+	a, b := stage("a"), stage("b")
+	if a["kaze-syncc"] == b["kaze-syncc"] {
+		t.Fatalf("both installs stage into %s", a["kaze-syncc"])
+	}
+	removeAll(a)
+	if _, err := os.Stat(b["kaze-syncc"]); err != nil {
+		t.Fatalf("cleaning up one install removed the other's file: %v", err)
+	}
+	if fi, _ := os.Stat(b["kaze-syncc"]); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("mode %v", fi.Mode())
+	}
+}
