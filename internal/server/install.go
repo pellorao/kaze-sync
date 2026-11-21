@@ -20,19 +20,21 @@ import (
 	"time"
 
 	"kaze-sync/internal/blobstore"
+	"kaze-sync/internal/version"
 )
 
 // Installer installs and maintains the server on OpenWrt, systemd and OpenRC systems. Its fields are the
 // seams that tests replace; New fills in the real ones.
 type Installer struct {
-	Root       string                                      // "/" on a router; the prefix of /etc paths
-	Self       string                                      // path of the running binary
-	Out        io.Writer                                   // messages for the administrator
-	Run        func(name string, args ...string) error     // runs a command
-	SameDevice func(path string) (bool, error)             // is path on the root file system?
-	Lookup     func(name string) (uid, gid int, err error) // the service user's ids
-	Chown      func(path string, uid, gid int) error       // must not follow symbolic links: the service user can plant them below var/
-	Groups     func(name string) []int                     // the user's supplementary group ids; nil means none
+	Root             string                                  // "/" on a router; the prefix of /etc paths
+	Self             string                                  // path of the running binary
+	Out              io.Writer                               // messages for the administrator
+	Run              func(name string, args ...string) error // runs a command
+	InstalledVersion func(path string) (string, error)
+	SameDevice       func(path string) (bool, error)             // is path on the root file system?
+	Lookup           func(name string) (uid, gid int, err error) // the service user's ids
+	Chown            func(path string, uid, gid int) error       // must not follow symbolic links: the service user can plant them below var/
+	Groups           func(name string) []int                     // the user's supplementary group ids; nil means none
 }
 
 type InstallOptions struct {
@@ -60,6 +62,7 @@ func NewInstaller() *Installer {
 	self, _ := os.Executable()
 	return &Installer{
 		Root: "/", Self: self, Out: os.Stdout, SameDevice: SameDevice, Chown: os.Lchown,
+		InstalledVersion: readInstalledVersion,
 		Run: func(name string, args ...string) error {
 			out, err := exec.Command(name, args...).CombinedOutput()
 			if err != nil {
@@ -99,11 +102,15 @@ var safePath = regexp.MustCompile(`^/[A-Za-z0-9._/-]*$`)
 // the data directory, %[2]s the systemd ProtectHome value), and the commands that enable and restart the service.
 type service struct {
 	probe, file, text string
+	dataLine          *regexp.Regexp
 	enable, restart   [][]string
 }
 
 var (
-	procd = service{probe: "/etc/openwrt_release", file: initPath, text: `#!/bin/sh /etc/rc.common
+	dataArg = `(/[A-Za-z0-9._/-]*)`
+	procd   = service{probe: "/etc/openwrt_release", file: initPath,
+		dataLine: regexp.MustCompile(`(?m)^\s*procd_set_param command [^\s]+/kaze-syncd run --data ` + dataArg + `[ \t]*$`),
+		text: `#!/bin/sh /etc/rc.common
 START=99
 USE_PROCD=1
 start_service() {
@@ -116,7 +123,9 @@ start_service() {
 }
 `, enable: [][]string{{initPath, "enable"}}, restart: [][]string{{initPath, "restart"}}}
 
-	systemd = service{probe: "/run/systemd/system", file: "/etc/systemd/system/" + serviceName + ".service", text: `[Unit]
+	systemd = service{probe: "/run/systemd/system", file: "/etc/systemd/system/" + serviceName + ".service",
+		dataLine: regexp.MustCompile(`(?m)^ExecStart=[^\s]+/kaze-syncd run --data ` + dataArg + `[ \t]*$`),
+		text: `[Unit]
 Description=kaze-sync server
 After=network-online.target
 Wants=network-online.target
@@ -157,7 +166,9 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 `, enable: [][]string{{"systemctl", "daemon-reload"}, {"systemctl", "enable", serviceName}}, restart: [][]string{{"systemctl", "restart", serviceName}}}
 
-	openrc = service{probe: "/sbin/openrc-run", file: initPath, text: `#!/sbin/openrc-run
+	openrc = service{probe: "/sbin/openrc-run", file: initPath,
+		dataLine: regexp.MustCompile(`(?m)^command_args="run --data ` + dataArg + `"[ \t]*$`),
+		text: `#!/sbin/openrc-run
 description="kaze-sync server"
 supervisor=supervise-daemon
 command=%[1]s/` + binName + `
@@ -182,8 +193,64 @@ func (in *Installer) detect() (*service, error) {
 	return nil, errors.New("no supported service manager found (OpenWrt, systemd or OpenRC)")
 }
 
+func (in *Installer) installedData(svc *service) (string, error) {
+	path := in.path(svc.file)
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("no installed kaze-sync service; specify --data for the first install")
+	}
+	if err != nil {
+		return "", err
+	}
+	matches := svc.dataLine.FindAllSubmatch(b, 2)
+	if len(matches) != 1 {
+		return "", fmt.Errorf("cannot determine --data from %s; specify --data explicitly", svc.file)
+	}
+	return string(matches[0][1]), nil
+}
+
+func (in *Installer) checkInstalledVersion(data string) error {
+	dst := filepath.Join(data, binName)
+	if sameFile(in.Self, dst) {
+		return nil
+	}
+	fi, err := os.Lstat(dst)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", dst)
+	}
+	old, err := in.InstalledVersion(dst)
+	if err != nil {
+		return fmt.Errorf("cannot read installed kaze-syncd version: %w", err)
+	}
+	order, err := version.Compare(version.Version, old)
+	if err != nil {
+		return err
+	}
+	if order < 0 {
+		return fmt.Errorf("refusing to downgrade kaze-syncd from %s to %s; follow the rollback steps in docs/design.md section 9.3", old, version.Version)
+	}
+	return nil
+}
+
 // Install installs or upgrades the server (design 9.1); it can run repeatedly.
 func (in *Installer) Install(o InstallOptions) error {
+	svc, err := in.detect()
+	if err != nil {
+		return err
+	}
+	useInstalled := o.Data == ""
+	if useInstalled {
+		o.Data, err = in.installedData(svc)
+		if err != nil {
+			return err
+		}
+	}
 	data := filepath.Clean(o.Data)
 	if !safePath.MatchString(data) {
 		return fmt.Errorf("--data must be an absolute path of letters, digits and ._-/ (got %q)", o.Data)
@@ -202,10 +269,6 @@ func (in *Installer) Install(o InstallOptions) error {
 			return fmt.Errorf("certificate: %w", err)
 		}
 	}
-	svc, err := in.detect()
-	if err != nil {
-		return err
-	}
 	if svc != &procd && o.WAN {
 		return errors.New("--wan only configures the OpenWrt firewall; open the port yourself")
 	}
@@ -216,20 +279,26 @@ func (in *Installer) Install(o InstallOptions) error {
 			return fmt.Errorf("%s is on the root file system; mount the data disk first", data)
 		}
 	}
-	if err := os.MkdirAll(data, 0o755); err != nil {
+	if !useInstalled {
+		if err := os.MkdirAll(data, 0o755); err != nil {
+			return err
+		}
+	}
+	lock, err := lockInstall(data)
+	if err != nil {
 		return err
 	}
-	if err := in.copySelf(data); err != nil {
-		return err
-	}
-	if err := in.createUser(svc); err != nil {
+	defer lock.Close()
+	if err := in.checkInstalledVersion(data); err != nil {
 		return err
 	}
 	state := filepath.Join(data, VarDir)
-	if err := os.MkdirAll(state, 0o700); err != nil {
-		return err
+	if !useInstalled {
+		if err := os.MkdirAll(state, 0o700); err != nil {
+			return err
+		}
 	}
-	db, err := OpenDB(filepath.Join(state, DBFile), true)
+	db, err := OpenDB(filepath.Join(state, DBFile), !useInstalled)
 	if err != nil {
 		return err
 	}
@@ -238,6 +307,12 @@ func (in *Installer) Install(o InstallOptions) error {
 	caMode := MetaString(db, "tls") == "ca"
 	db.Close()
 	if err != nil {
+		return err
+	}
+	if err := in.createUser(svc); err != nil {
+		return err
+	}
+	if err := in.copySelf(data); err != nil {
 		return err
 	}
 	if err := in.chownData(data); err != nil {
@@ -253,8 +328,18 @@ func (in *Installer) Install(o InstallOptions) error {
 		if err := in.keepAcrossSysupgrade(); err != nil {
 			return err
 		}
-		if err := in.firewall(listen, o.WAN); err != nil {
-			return err
+		if !useInstalled || o.WAN {
+			if err := in.firewall(listen, o.WAN); err != nil {
+				return err
+			}
+		} else if o.Listen != "" && in.Run("uci", "-q", "get", fwSection) == nil {
+			_, port, _ := net.SplitHostPort(listen)
+			if err := in.Run("uci", "set", fwSection+".dest_port="+port); err != nil {
+				return err
+			}
+			if err := in.reloadFirewall(); err != nil {
+				return err
+			}
 		}
 	}
 	if err := in.runAll(append(svc.enable, svc.restart...)); err != nil {

@@ -4,6 +4,13 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Added
+
+- Run `kaze-syncd install` to upgrade an installed server using its existing data directory, TLS settings and OpenWrt WAN rule. The installer refuses older server binaries before replacing the installed copy.
+- Publish Linux and Windows client installers with `kaze-syncd client-pkg` without restarting the server. The server can personalize downloads for a one-time enrollment code and serve the original packages to enrolled devices over the authenticated API.
+
 ## v0.5.3 - 2026-11-19
 
 Patch release: held deletions clear by themselves once the server has deleted the path too.

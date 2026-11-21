@@ -1,4 +1,4 @@
-// Command kaze-syncd is the kaze-sync server: run, install, ca, admin-password, export.
+// Command kaze-syncd is the kaze-sync server.
 package main
 
 import (
@@ -19,7 +19,8 @@ import (
 
 const usage = `usage:
   kaze-syncd run --data DIR
-  kaze-syncd install --data DIR [--listen :PORT] [--cert FILE --key FILE | --ca [--san NAMES]] [--wan] [--new-epoch]
+  kaze-syncd install [--data DIR] [--listen :PORT] [--cert FILE --key FILE | --ca [--san NAMES]] [--wan] [--new-epoch]
+  kaze-syncd client-pkg [--data DIR] [--force] FILE...
   kaze-syncd ca [--data DIR] [--san NAMES] [--export FILE|-]
   kaze-syncd admin-password [--data DIR]
   kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "YYYY-MM-DD HH:MM[:SS]" (UTC)]`
@@ -40,19 +41,23 @@ func main() {
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
-	case "run", "install", "admin-password", "export", "ca":
+	case "run", "install", "client-pkg", "admin-password", "export", "ca":
 	default:
 		exitUsage("unknown command " + cmd)
 	}
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	exe, _ := os.Executable()
-	def := "" // run and install need an explicit directory; admin-password defaults to the binary's
+	def := "" // install and client-pkg can look up the installed directory
 	if cmd == "admin-password" || cmd == "export" || cmd == "ca" {
 		def = filepath.Dir(exe)
 	}
 	data := fs.String("data", def, "data directory")
 	var o server.InstallOptions
+	var force bool
+	if cmd == "client-pkg" {
+		fs.BoolVar(&force, "force", false, "allow a client package with a newer agent protocol")
+	}
 	if cmd == "install" {
 		fs.StringVar(&o.Listen, "listen", "", "listen address, kept from the first install when omitted")
 		fs.StringVar(&o.Cert, "cert", "", "certificate file (instead of the self-signed one)")
@@ -79,10 +84,13 @@ func main() {
 	if err := fs.Parse(args); err != nil {
 		exitUsage(err.Error())
 	}
-	if fs.NArg() > 0 {
+	if cmd == "client-pkg" && fs.NArg() == 0 {
+		exitUsage("client-pkg needs at least one package file")
+	}
+	if cmd != "client-pkg" && fs.NArg() > 0 {
 		exitUsage("unexpected argument " + fs.Arg(0))
 	}
-	if *data == "" && (cmd == "run" || cmd == "install") {
+	if *data == "" && cmd == "run" {
 		exitUsage("--data is required")
 	}
 
@@ -95,6 +103,8 @@ func main() {
 	case "install":
 		o.Data = *data
 		err = server.NewInstaller().Install(o)
+	case "client-pkg":
+		err = server.NewInstaller().ClientPackages(*data, fs.Args(), force)
 	case "export":
 		export.Data = *data
 		if export.Dir == "" {

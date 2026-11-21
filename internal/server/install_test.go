@@ -16,9 +16,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"kaze-sync/internal/version"
 )
 
 type fakeSystem struct {
@@ -43,6 +46,7 @@ func newFakeSystem(t *testing.T) *fakeSystem {
 	f.useManager(&procd)
 	f.in = &Installer{
 		Root: f.root, Self: self, Out: &f.out,
+		InstalledVersion: func(string) (string, error) { return version.Version, nil },
 		Run: func(name string, args ...string) error {
 			line := name + " " + strings.Join(args, " ")
 			f.cmds = append(f.cmds, line)
@@ -766,5 +770,85 @@ func TestInstallWithoutCertificateFilesDoesNotWarn(t *testing.T) {
 	}
 	if strings.Contains(f.out.String(), "warning") {
 		t.Fatalf("self-signed install:\n%s", f.out.String())
+	}
+}
+
+func TestInstallUsesInstalledService(t *testing.T) {
+	for _, svc := range []*service{&procd, &systemd, &openrc} {
+		t.Run(svc.probe, func(t *testing.T) {
+			f := newFakeSystem(t)
+			f.useManager(svc)
+			err := f.in.Install(InstallOptions{})
+			if err == nil || !strings.Contains(err.Error(), "specify --data") || len(f.cmds) != 0 {
+				t.Fatalf("missing service: %v, commands %v", err, f.cmds)
+			}
+			if err := f.install(InstallOptions{WAN: svc == &procd, Listen: ":41873"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.in.Self, []byte("upgrade"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f.cmds = nil
+			if err := f.in.Install(InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			b, err := os.ReadFile(filepath.Join(f.data, binName))
+			if err != nil || string(b) != "upgrade" || f.hasCmd("uci ") || !f.hasCmd("restart") {
+				t.Fatalf("upgrade: binary %q, error %v, commands %v", b, err, f.cmds)
+			}
+			db, err := OpenDB(filepath.Join(f.data, VarDir, DBFile), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if listen := MetaString(db, "listen"); listen != ":41873" {
+				t.Fatalf("existing listen address changed to %s", listen)
+			}
+		})
+	}
+}
+
+func TestInstallRefusesToReplaceNewerBinary(t *testing.T) {
+	for _, dataProvided := range []bool{false, true} {
+		t.Run(strconv.FormatBool(dataProvided), func(t *testing.T) {
+			f := newFakeSystem(t)
+			if err := f.install(InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			f.in.InstalledVersion = func(string) (string, error) { return "999.0.0", nil }
+			if err := os.WriteFile(f.in.Self, []byte("older binary"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f.cmds = nil
+			o := InstallOptions{}
+			if dataProvided {
+				o.Data = f.data
+			}
+			err := f.in.Install(o)
+			if err == nil || !strings.Contains(err.Error(), "refusing to downgrade") {
+				t.Fatalf("downgrade: %v", err)
+			}
+			b, err := os.ReadFile(filepath.Join(f.data, binName))
+			if err != nil || string(b) != "binary v1" || len(f.cmds) != 0 {
+				t.Fatalf("changed installation: binary %q, error %v, commands %v", b, err, f.cmds)
+			}
+		})
+	}
+}
+
+func TestInstallRequiresExistingDatabaseWhenDataInferred(t *testing.T) {
+	f := newFakeSystem(t)
+	if err := f.install(InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	dbFile := filepath.Join(f.data, VarDir, DBFile)
+	if err := os.Remove(dbFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.in.Install(InstallOptions{}); err == nil {
+		t.Fatal("upgrade recreated missing database")
+	}
+	if _, err := os.Stat(dbFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("database path after failed upgrade: %v", err)
 	}
 }

@@ -72,6 +72,12 @@ const (
 	AgentVersion    = 6
 	MinAgentVersion = 6
 	VersionHeader   = "Kaze-Agent-Version"
+
+	// LastAgentVersionWithoutHeader is the newest protocol an older server without ServerAgentVersionHeader supports.
+	LastAgentVersionWithoutHeader = 6
+	ServerAgentVersionHeader      = "Kaze-Server-Agent-Version"
+	PackageVersionHeader          = "Kaze-Package-Version"
+	PackageAgentVersionHeader     = "Kaze-Package-Agent-Version"
 )
 
 type EnrollReq struct {

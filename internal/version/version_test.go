@@ -6,11 +6,27 @@ import (
 	"testing"
 )
 
-var semver = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
-
 func TestVersionIsSemver(t *testing.T) {
-	if !semver.MatchString(Version) {
+	if !Valid(Version) {
 		t.Fatalf("Version %q is not MAJOR.MINOR.PATCH", Version)
+	}
+}
+
+func TestCompareOrdersReleaseComponentsNumerically(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want int
+	}{
+		{"0.10.0", "0.9.99", 1},
+		{"1.0.0", "2.0.0", -1},
+		{"1.10.3", "1.10.3", 0},
+	} {
+		if got, err := Compare(tc.a, tc.b); err != nil || got != tc.want {
+			t.Errorf("Compare(%q, %q) = %d, %v", tc.a, tc.b, got, err)
+		}
+	}
+	if _, err := Compare("1.02.3", Version); err == nil {
+		t.Error("accepted a version with a leading zero")
 	}
 }
 

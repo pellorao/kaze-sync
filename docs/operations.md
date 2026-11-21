@@ -4,7 +4,7 @@
 
 ## 部署
 
-默认用安装程序 (设计 9.5, 发布页): 服务端 `sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh --data <数据目录> [其他 install 参数]` (首次; OpenWrt 的 `--data` 指向挂载的数据盘, 要公网访问再加 `--wan`), 之后升级不带任何参数 (`sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh`, 沿用已装设置和 WAN 规则). 客户端: 在 Web UI 总览页 "添加设备", 在客户端上打开对话框里的下载链接 (Windows 双击 setup, Linux 用 `sh`; 无图形界面的 Linux 在 SSH 里粘贴对话框里的 curl 或 wget 行) 即完成安装和注册. 下面的是手动做法, 仍然可用.
+默认用安装程序 (设计 9.5, 发布页): 服务端 `sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh --data <数据目录> [其他 install 参数]` (首次; OpenWrt 的 `--data` 指向挂载的数据盘, 要公网访问再加 `--wan`), 之后升级不带任何参数 (`sudo sh kaze-sync-server-X.Y.Z-linux-amd64.sh`, 沿用已装设置和 WAN 规则). 客户端: 在 Web UI 总览页 "添加设备", 在客户端上打开对话框里的下载链接 (Windows 双击 setup, Linux 用 `sh`; 无图形界面的 Linux 在 SSH 里粘贴对话框里的 `curl ... | sh` 一行, 自签名和本地 CA 模式用 `-k --pinnedpubkey` 固定服务端公钥; 只有 wget 时先下载并核对对话框给出的 SHA-256 再运行) 即完成安装和注册. 下面的是手动做法, 仍然可用.
 
 在开发机上构建 (静态链接, 无依赖):
 
