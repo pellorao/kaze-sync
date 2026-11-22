@@ -4,6 +4,12 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Added
+
+- The overview's device table has a **Download client** button: a signed-in admin downloads the Windows and Linux installers that the server holds, under their Releases page names and without an enrollment code, and runs one on an enrolled device to upgrade it. A device whose reported release is older than the server's installer for its system shows an **Upgrade available** button that opens the same dialog. Requests to `/dl/windows` or `/dl/linux` without a session count towards the IP lockout.
+
 ## v0.6.0 - 2026-11-22
 
 Minor release: installers for the server and the clients, and `kaze-syncc upgrade`.

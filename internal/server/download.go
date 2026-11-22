@@ -17,6 +17,7 @@ import (
 
 	"kaze-sync/internal/installer"
 	"kaze-sync/internal/proto"
+	"kaze-sync/internal/version"
 )
 
 func (s *Server) packageFor(platform string) (*clientPackage, error) {
@@ -71,6 +72,69 @@ func (s *Server) devicePackage(w http.ResponseWriter, r *http.Request, _ device)
 	if r.Method == http.MethodGet {
 		io.CopyN(w, p.File, p.size)
 	}
+}
+
+// adminDownload serves a client installer of dl/ as it is to a signed-in admin, so that an enrolled device can be
+// upgraded from the browser (design 9.5 "管理页下载"). A request without a session is a failed authentication, like
+// a wrong enrollment code; a session is not subject to the lockout, as on the other admin pages.
+func (s *Server) adminDownload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !s.hasSession(r) {
+		if s.locked(r) {
+			http.Error(w, "too many failures", http.StatusTooManyRequests)
+			return
+		}
+		s.authFailed(r, "client installer download")
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	p, err := s.packageFor(r.PathValue("os"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer p.Close()
+	packageHeaders(w, p, p.size)
+	w.Header().Set("Content-Disposition", "attachment; filename="+releaseFilename(p.manifest))
+	if r.Method == http.MethodGet {
+		io.CopyN(w, p.File, p.size)
+	}
+}
+
+// releaseFilename is the name of the package on the releases page; ReadManifest has checked the version.
+func releaseFilename(m installer.Manifest) string {
+	name := "kaze-sync-client-" + m.Version + "-" + m.OS + "-" + m.Arch
+	if m.OS == "windows" {
+		return name + "-setup.exe"
+	}
+	return name + ".sh"
+}
+
+// clientDownloads describes the packages of dl/ for the download dialog and the upgrade hint (design 4.2). An empty
+// Version means that dl/ has no usable package of that system.
+type clientDownloads struct{ Linux, Windows clientDownload }
+
+type clientDownload struct{ Version, File string }
+
+func (s *Server) clientDownloads() clientDownloads {
+	var d clientDownloads
+	for platform, out := range map[string]*clientDownload{"linux": &d.Linux, "windows": &d.Windows} {
+		if p, err := s.packageFor(platform); err == nil {
+			*out = clientDownload{Version: p.manifest.Version, File: releaseFilename(p.manifest)}
+			p.Close()
+		}
+	}
+	return d
+}
+
+// upgradable reports whether dl/ holds a newer package for a device of system osName that reported release.
+func (d clientDownloads) upgradable(osName, release string) bool {
+	pkg := map[string]string{"linux": d.Linux.Version, "windows": d.Windows.Version}[osName]
+	if pkg == "" || !version.Valid(release) {
+		return false
+	}
+	n, err := version.Compare(pkg, release)
+	return err == nil && n > 0
 }
 
 func (s *Server) downloadRegistration(r *http.Request, code, name string) ([]byte, error) {

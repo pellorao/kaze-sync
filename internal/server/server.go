@@ -254,6 +254,7 @@ func (s *Server) Handler() http.Handler {
 	s.webRoutes(mux)
 	s.pushRoutes(mux)
 	mux.HandleFunc("GET /dl/", s.enrollmentDownload)
+	mux.HandleFunc("GET /dl/{os}", s.adminDownload)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok\n") })
 	var h http.Handler = http.NewCrossOriginProtection().Handler(mux)
 	return securityHeaders(h)
