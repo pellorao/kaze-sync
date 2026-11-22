@@ -306,6 +306,7 @@ input.pv-filter[hidden] { display: none; }
 .note { font-size: var(--fs-sm); color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
 .note svg { margin-top: 2px; }
 .note.warn { color: var(--warn); }
+.note code { white-space: nowrap; }
 .warnbox { font-size: var(--fs-sm); color: var(--warn); }
 details.glob { border: 1px solid var(--line); border-radius: 6px; }
 details.glob summary { cursor: pointer; padding: 8px 12px; font-size: var(--fs-sm); color: var(--muted); }
