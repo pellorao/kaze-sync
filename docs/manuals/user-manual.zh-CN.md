@@ -338,7 +338,7 @@ kaze-syncc enroll https://sync.example.org:41873 <CODE> --fingerprint sha256:<HE
 
 在 x86-64 (`amd64`) Windows 电脑上, 用浏览器打开对话框中的 Windows 链接. 它会下载 `kaze-sync-setup.exe` (约 22 MB), 这是内含你注册信息的 Windows 安装程序. 双击运行即可, 不需要管理员权限.
 
-**SmartScreen.** 安装程序没有代码签名, 因此第一次运行时, Windows SmartScreen 会显示 "Windows 已保护你的电脑" 并提示发布者未知. 点 **更多信息** (More info), 再点 **仍要运行** (Run anyway). 由于这个警告无法区分本文件和有害文件, 请先确认文件来源: 从对话框下载的文件是通过 HTTPS 从你自己的服务器获取的, 也就是你第一次登录时核对过证书的那台服务器. 如果你使用的是 GitHub Releases 页面上的副本, 请在 PowerShell 中计算哈希, 并与 `SHA256SUMS` 中该文件的那一行对照 (PowerShell 输出大写十六进制, `SHA256SUMS` 使用小写; 大小写不影响比较):
+**警告提示.** 安装程序没有代码签名, 因此 Windows 可能提示两次. 第一次在下载后: Edge 提示该文件 "isn't commonly downloaded" (不常被下载), 请打开该下载项的 **...** 菜单选择 **Keep** (保留), 再在 "Make sure you trust" 对话框中展开下拉菜单, 选择 **Keep anyway** (仍然保留). 第二次在运行文件时: Windows SmartScreen 可能显示 "Windows 已保护你的电脑" 并提示发布者未知, 点 **更多信息** (More info), 再点 **仍要运行** (Run anyway). 第二次提示不一定出现: 它取决于浏览器是否把文件标记为来自互联网, Edge 保存的文件若没有这个标记, 会直接运行.  由于这个警告无法区分本文件和有害文件, 请先确认文件来源: 从对话框下载的文件是通过 HTTPS 从你自己的服务器获取的, 也就是你第一次登录时核对过证书的那台服务器. 如果你使用的是 GitHub Releases 页面上的副本, 请在 PowerShell 中计算哈希, 并与 `SHA256SUMS` 中该文件的那一行对照 (PowerShell 输出大写十六进制, `SHA256SUMS` 使用小写; 大小写不影响比较):
 
 ```powershell
 Get-FileHash .\kaze-sync-client-<version>-windows-amd64-setup.exe -Algorithm SHA256
@@ -819,7 +819,7 @@ kaze-syncc upgrade                                    # client
 
 如果客户端太旧, 没有 `upgrade` 命令 (它是用安装包出现之前的版本安装的), 请使用以下方法之一执行一次; 它们对任何客户端都适用:
 
-- **发布页的安装包文件**: Linux 上运行 `sh kaze-sync-client-<version>-linux-amd64.sh`, Windows 上双击 `kaze-sync-client-<version>-windows-amd64-setup.exe` (见 3.2 节的 SmartScreen 说明). 在已注册的电脑上, 安装包只执行升级, 不会重新注册.
+- **发布页的安装包文件**: Linux 上运行 `sh kaze-sync-client-<version>-linux-amd64.sh`, Windows 上双击 `kaze-sync-client-<version>-windows-amd64-setup.exe` (见 3.2 节的警告提示说明). 在已注册的电脑上, 安装包只执行升级, 不会重新注册.
 - **Web UI 的下载客户端按钮** (总览设备表上的 **下载客户端**; 设备版本旁的 **可升级** 按钮打开同一个对话框): 下载服务端保存的安装包, 文件名与发布页相同, 不用生成注册码. 按上一条在客户端上运行. 这些文件不带注册信息, 只能升级; 新电脑请用添加设备 (第 3 节).
 
 新安装包会从旧安装的自启动记录中找到安装目录, 因此程序会在原位置被替换.
