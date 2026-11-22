@@ -330,7 +330,7 @@ func renameDevice(c *http.Client, base string, rep *report, spec string) error {
 var (
 	fieldErrRe = regexp.MustCompile(`<span class="err-msg">([^<]+)</span>`)
 	verRe      = regexp.MustCompile(`<span class="ver">([^<]*)</span>`)
-	rowRe      = regexp.MustCompile(`(?s)<tr><td class="top"><span class="dot( ok)?"></span><a class="dn" href="/devices/(\d+)">(.*?)</a></td><td class="top hide-sm">(.*?)</td>\s*<td class="top">(.*?)</td>.*?<td class="top hide-sm"><span class="num">(.*?)</span>(.*?)</td>`)
+	rowRe      = regexp.MustCompile(`(?s)<tr><td class="top"><span class="dot( ok)?"></span><a class="dn" href="/devices/(\d+)">(.*?)</a></td><td class="top hide-sm">(.*?)</td>\s*<td class="top">(.*?)</td>.*?<td class="top hide-sm">(?:<span class="vline">)?<span class="num">(.*?)</span>(.*?)</td>`)
 	seenRe     = regexp.MustCompile(`<span class="muted num">(.*?)</span>`)
 )
 
