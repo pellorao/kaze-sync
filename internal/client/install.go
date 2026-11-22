@@ -99,7 +99,7 @@ func Install(ctx context.Context, o InstallOptions) error {
 	return install(ctx, o, env)
 }
 
-// preflight refuses a Linux machine without systemd: the agent runs as a systemd user unit and there is no other
+// preflight refuses a Linux machine without systemd (or without a running user manager): the agent runs as a systemd user unit and there is no other
 // supported way to run it (design 9.5), so installing would only leave a registered device with no agent.
 func preflight() error {
 	if runtime.GOOS != "linux" {
@@ -107,6 +107,10 @@ func preflight() error {
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return errors.New("the Linux client needs systemd (systemctl was not found); other init systems are not supported, nothing was installed")
+	}
+	// systemctl can exist while no user manager runs (a container, WSL without systemd): probe it before any change.
+	if out, err := exec.Command("systemctl", "--user", "show-environment").CombinedOutput(); err != nil {
+		return fmt.Errorf("the Linux client needs a running systemd user manager (systemctl --user failed: %v: %s); nothing was installed", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
