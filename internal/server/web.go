@@ -524,7 +524,7 @@ type ovDevice struct {
 	ID                             int64
 	Name, OS, Version, ConfigState string
 	LastSeen                       int64
-	Online                         bool
+	Online, Upgrade                bool // Upgrade: dl/ has a newer package for the device's system
 	TooOld                         int
 	Status                         []deviceStatus
 }
@@ -570,6 +570,7 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 		}
 	}
 	cfgVersion := metaInt(s.db, "config_version")
+	pkgs := s.clientDownloads()
 	devs, err := queryAll(s.db, func(rows *sql.Rows, d *ovDevice) error {
 		var seen int64
 		if err := rows.Scan(&d.ID, &d.Name, &d.OS, &seen); err != nil {
@@ -594,12 +595,14 @@ func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request, ds *dialog
 		}
 		s.mu.Unlock()
 		d.LastSeen = seen
+		d.Upgrade = pkgs.upgradable(d.OS, d.Version)
 		return nil
 	}, `SELECT id, name, os, last_seen FROM devices ORDER BY name`)
 	if err != nil {
 		return err
 	}
-	data := map[string]any{"Devices": devs, "Folders": fols, "Notif": nv, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint}
+	data := map[string]any{"Devices": devs, "Folders": fols, "Notif": nv, "Server": "https://" + r.Host, "Fingerprint": s.Fingerprint,
+		"Packages": pkgs, "ServerVersion": version.Version}
 	s.show(w, r, ds, "overview", trOf(r).T("nav.overview"), data)
 	return nil
 }
@@ -644,7 +647,7 @@ func (s *Server) addDevice(w http.ResponseWriter, r *http.Request) error {
 	s.mu.Unlock()
 	return s.overviewPage(w, r, &dialogState{dialog: "dlg-enroll", extra: map[string]any{
 		"Code": code, "CodeName": name, "Expires": expires.Unix(),
-		"Downloads": s.enrollmentDownloads(r, code, name), "ServerVersion": version.Version,
+		"Downloads": s.enrollmentDownloads(r, code, name),
 	}})
 }
 

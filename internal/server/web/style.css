@@ -129,6 +129,9 @@ tr:hover .more, .more:hover, .more.on { color: var(--fg); background: var(--hove
 .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .tag.dev { color: var(--fg); background: var(--hover); border-color: transparent; }
 .tag.dev.off { color: var(--muted); background: none; border-color: var(--line); }
+.vline { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+button.tag.upg { cursor: pointer; background: none; font: inherit; font-size: var(--fs-sm); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+button.tag.upg:hover { text-decoration: underline; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--danger); }
 .cnt { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); margin-right: 8px; }
@@ -313,6 +316,8 @@ details.glob pre { margin: 0; padding: 8px 12px; border-top: 1px solid var(--lin
 .cmd { display: flex; align-items: flex-start; gap: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .cmd code { flex: 1; color: var(--code); font-size: var(--fs-sm); overflow-wrap: anywhere; line-height: 1.5; }
 .cmd code a { text-decoration: underline; } /* a link, not only coloured (WCAG 1.4.1) */
+.pkg { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pkg .mono { overflow-wrap: anywhere; min-width: 0; }
 .field .help code { white-space: nowrap; }
 .code-big { font-family: var(--mono); font-size: var(--fs-lg); letter-spacing: 2px; color: var(--code); }
 

@@ -414,14 +414,14 @@ Every page shares the same top navigation bar: the **kaze-sync** logo (which tak
 | Page | Address | What it is for |
 |---|---|---|
 | Sign-in | `/login` | Enter the admin password |
-| Overview (`总览`) | `/` | View the folder table and device table; **New folder** (`新建文件夹`) and **Add device** (`添加设备`) buttons |
+| Overview (`总览`) | `/` | View the folder table and device table; **New folder** (`新建文件夹`), **Download client** (`下载客户端`) and **Add device** (`添加设备`) buttons |
 | Folder | `/folders/<id>` | Browse files, restore old versions, set write control (section 5.1), decide held changes (section 8), edit folder exclusion rules, or delete the folder |
 | Device | `/devices/<id>` | Add, edit, or delete the device's folder mappings, rename or revoke the device |
 | Settings (`设置`) | `/settings` | Configure time zone, language, version retention, the single-writer time window, and global exclusion rules |
 
 On the **Overview** page, the two tables give you the status of your entire setup at a glance:
 - The **folder table** shows each folder's current state (Synced `已同步`, Syncing `同步中` along with the number of pending uploads, Errors `有错误`, Unmapped `未映射`, or Device offline `设备离线`), which devices map it, its total file count and size, and its count of errors and warnings.
-- The **device table** shows each device's operating system, last connection time, the state of each folder mapped on that device, the client release version (`x.y.z`, or `-` for a client that does not report one; highlighted in red with "`过旧`" next to it when a client is too old; see section 15), and whether the device has received the latest configuration.
+- The **device table** shows each device's operating system, last connection time, the state of each folder mapped on that device, the client release version (`x.y.z`, or `-` for a client that does not report one; highlighted in red with "`过旧`" next to it when a client is too old, and with an **Upgrade available** (`可升级`) button when the server holds a newer client installer for that device's system; see section 15), and whether the device has received the latest configuration.
 
 **How pages update.** Status indicators update automatically: within a few seconds of any change (at most once every 5 seconds), the notification bell and the overview tables refresh themselves. The file list on a folder page, however, does not auto-refresh, so a large ongoing sync will not constantly reload the table while you are browsing it. Instead, when something changes directly inside the directory you are viewing (a file in that directory, or a subdirectory appearing or disappearing—not changes deep inside a subdirectory), a prompt appears saying **Content changed, refresh** (`内容有更新, 刷新`). Similarly, to avoid visual flicker during brief rescans after a file rewrite, a folder flips to **Syncing** only when sync work takes longer than about 3 seconds.
 
@@ -836,13 +836,13 @@ On Windows a running program cannot replace itself, so `upgrade` downloads the s
 If a client is too old to have the `upgrade` command (it was installed by a release from before the installers), use one of these once; they also work for any client:
 
 - **The installer file from the Releases page**: on Linux `sh kaze-sync-client-<version>-linux-amd64.sh`, on Windows double-click `kaze-sync-client-<version>-windows-amd64-setup.exe` (see the SmartScreen note in section 3.2). On an already enrolled computer an installer only upgrades; it does not enroll again.
-- **A download link from the Add device dialog** (section 3): open the dialog with an unused device name and fetch the file from there, then run it. It also only upgrades an enrolled computer; the unused code expires by itself after 15 minutes.
+- **The Download client button in the Web UI** (`下载客户端`, in the device table of the overview; the **Upgrade available** button beside a device's version opens the same dialog): it downloads the installers that the server holds, under their Releases page names, without generating an enrollment code. Run the file on the client as above. These files carry no enrollment, so they only upgrade; for a new computer use Add device (section 3).
 
 The new installer finds the installation directory from the autostart record of the old one, so the program is replaced where it is.
 
 ### Client-only releases
 
-Sometimes a release changes only the client. The server then needs no upgrade, but it must hold the new client installers, because that is where `upgrade` and the Add device dialog fetch them. Put them there with `client-pkg` (as root on the server, with the two client files of the release on that machine, without restarting the service):
+Sometimes a release changes only the client. The server then needs no upgrade, but it must hold the new client installers, because that is where `upgrade`, the Add device dialog and the Download client dialog fetch them. Put them there with `client-pkg` (as root on the server, with the two client files of the release on that machine, without restarting the service):
 
 ```bash
 /var/lib/kaze-sync/kaze-syncd client-pkg kaze-sync-client-<version>-linux-amd64.sh kaze-sync-client-<version>-windows-amd64-setup.exe     # server
