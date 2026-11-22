@@ -18,11 +18,11 @@ const overview = `<a class="logo" href="/">Kaze Sync <span class="ver">0.4.0</sp
 <tr><td class="top"><span class="dot ok"></span><a class="dn" href="/devices/1">wsl &amp; one</a></td><td class="top hide-sm">linux</td>
 <td class="top"><span class="st-ok">Online</span></td>
 <td class="top"></td>
-<td class="top hide-sm"><span class="num">0.4.0</span></td><td class="top hide-sm">ok</td>
+<td class="top hide-sm"><span class="vline"><span class="num">0.4.0</span><button type="button" class="tag upg" data-dialog="dlg-client">Upgrade available</button></span></td><td class="top hide-sm">ok</td>
 </tr><tr><td class="top"><span class="dot"></span><a class="dn" href="/devices/2">win</a></td><td class="top hide-sm">windows</td>
 <td class="top"><span class="muted num">2026-11-17 09:00</span></td>
 <td class="top"><div class="status-lines"><div class="stl"><span class="f">x</span> <span class="st-ok">ok</span></div></div></td>
-<td class="top hide-sm"><span class="num">0.3.0</span> <span class="st-err">too old</span></td><td class="top hide-sm">-</td>
+<td class="top hide-sm"><span class="vline"><span class="num">0.3.0</span><span class="st-err">too old</span></span></td><td class="top hide-sm">-</td>
 </tr></tbody>`
 
 func TestParseAndCheck(t *testing.T) {
