@@ -1,16 +1,15 @@
-# kaze-sync v0.6.0 发布说明
+# kaze-sync v0.7.0 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.6.0` (发布于 2026-11-22) 加入安装包: 下载一个文件运行一次, 即可安装或升级服务端, Linux 与 Windows 客户端也一样, 端口, 证书, 密码, 设备注册和映射都保留. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.6.0-linux-amd64.tar.gz`, `kaze-sync-0.6.0-windows-amd64.zip`, `kaze-sync-server-0.6.0-linux-amd64.sh`, `kaze-sync-client-0.6.0-linux-amd64.sh`, `kaze-sync-client-0.6.0-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.6.0` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
+`v0.7.0` (发布于 2026-11-23) 让已登录的管理员在总览页下载 Windows 和 Linux 客户端安装包, 在已注册的设备上运行即可升级; 版本较低的设备显示 **可升级** 按钮. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.0-linux-amd64.tar.gz`, `kaze-sync-0.7.0-windows-amd64.zip`, `kaze-sync-server-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.0` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
 
 ## 主要更新
 
-- **安装包.** 自解压的服务端安装包 (同时带有客户端安装包), Linux 客户端安装包和 Windows `setup.exe`; 添加设备对话框提供下载链接, 没有桌面环境的 Linux 设备可用一行 `curl` 命令. 详见[更新日志](CHANGELOG.zh-CN.md).
-- **`kaze-syncc upgrade`.** 客户端从自己的服务端取得安装包并升级自己.
-- 修复: 冻结的范围不再重试 "链接未创建" 的记录.
+- **下载客户端.** 总览的设备表新增 **下载客户端** 按钮 (不用注册码) 和针对低于服务端安装包版本的设备的 **可升级** 按钮. 下载要求管理员会话, 并计入按 IP 锁定. 详见[更新日志](CHANGELOG.zh-CN.md).
+- 修复: 提示框里的 `kaze-syncd client-pkg` 不再断行.
 
 ## 升级
 
