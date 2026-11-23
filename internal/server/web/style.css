@@ -28,6 +28,8 @@ option[lang=ko] { font-family: "Kaze Sans", "Kaze Name KR", "Source Han Sans KR"
 option[lang=en] { font-family: var(--sans); }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
+/* The reserved scrollbar gutter shows the page background; where the page has a header bar, paint the gutter beside it in the bar's colours so the bar spans the full width when there is no scrollbar (a scrollbar covers it otherwise). 48px is the bar height in .bar-in. */
+html:has(.bar) { background: var(--bg) linear-gradient(var(--bar) 0 48px, var(--line) 48px 49px, transparent 49px) no-repeat; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: var(--fs-md)/1.6 var(--sans); }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
