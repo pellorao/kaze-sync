@@ -27,9 +27,7 @@ option[lang=ja] { font-family: "Kaze Sans", "Kaze Name JP", "Source Han Sans JP"
 option[lang=ko] { font-family: "Kaze Sans", "Kaze Name KR", "Source Han Sans KR", "Noto Sans CJK KR", sans-serif; }
 option[lang=en] { font-family: var(--sans); }
 * { box-sizing: border-box; }
-html { scrollbar-gutter: stable; }
-/* The reserved scrollbar gutter shows the page background; where the page has a header bar, paint the gutter beside it in the bar's colours so the bar spans the full width when there is no scrollbar (a scrollbar covers it otherwise). 48px is the bar height in .bar-in. */
-html:has(.bar) { background: var(--bg) linear-gradient(var(--bar) 0 48px, var(--line) 48px 49px, transparent 49px) no-repeat; }
+/* No scrollbar-gutter: a reserved gutter beside the sticky header bar paints only the root background colour (never an image), so it showed as a gap in the bar; without it the bar spans the full width and a scrollbar, when there is one, covers the bar's right end as on any page. */
 body { margin: 0; background: var(--bg); color: var(--fg); font: var(--fs-md)/1.6 var(--sans); }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
