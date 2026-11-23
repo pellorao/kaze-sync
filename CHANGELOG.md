@@ -4,6 +4,15 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.7.2 - 2026-11-23
+
+Patch release: Web UI header bar and refresh flash fix.
+
+### Fixed
+
+- The header bar spans the full page width again when the page has no scrollbar. The 0.7.1 fix did not work in Chrome (a reserved scrollbar gutter is painted with the root background colour only), so it is removed; when the page scrolls, the scrollbar covers the right end of the bar as on any web page.
+- Refreshing a page no longer starts with a white frame: the page declares a dark colour scheme, so the first frame is dark.
+
 ## v0.7.1 - 2026-11-23
 
 Patch release: Web UI header bar fix.

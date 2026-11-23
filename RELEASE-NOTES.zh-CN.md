@@ -1,14 +1,14 @@
-# kaze-sync v0.7.1 发布说明
+# kaze-sync v0.7.2 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.7.1` (发布于 2026-11-23) 修复管理页标题栏: 页面没有滚动条时, 标题栏右侧会出现缺口. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.1-linux-amd64.tar.gz`, `kaze-sync-0.7.1-windows-amd64.zip`, `kaze-sync-server-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.1` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
+`v0.7.2` (发布于 2026-11-23) 修复管理页标题栏 (页面没有滚动条时右侧出现缺口) 和刷新时的白色首帧. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.2-linux-amd64.tar.gz`, `kaze-sync-0.7.2-windows-amd64.zip`, `kaze-sync-server-0.7.2-linux-amd64.sh`, `kaze-sync-client-0.7.2-linux-amd64.sh`, `kaze-sync-client-0.7.2-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.2` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
 
 ## 主要更新
 
-- 修复: 页面不滚动时标题栏铺满整个页面宽度. 只改服务端 Web UI, 详见[更新日志](CHANGELOG.zh-CN.md).
+- 修复: 页面不滚动时标题栏铺满整个页面宽度, 刷新后首帧为深色而不是白色. 只改服务端 Web UI, 详见[更新日志](CHANGELOG.zh-CN.md).
 
 ## 升级
 
