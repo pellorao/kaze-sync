@@ -4,6 +4,14 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.7.1 - 2026-11-23
+
+Patch release: Web UI header bar fix.
+
+### Fixed
+
+- The header bar now spans the full page width when the page has no scrollbar; the reserved scrollbar gutter beside it used to show the page background as a gap.
+
 ## v0.7.0 - 2026-11-23
 
 Minor release: download the client installers from the Web UI.

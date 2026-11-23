@@ -1,15 +1,14 @@
-# kaze-sync v0.7.0 发布说明
+# kaze-sync v0.7.1 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.7.0` (发布于 2026-11-23) 让已登录的管理员在总览页下载 Windows 和 Linux 客户端安装包, 在已注册的设备上运行即可升级; 版本较低的设备显示 **可升级** 按钮. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.0-linux-amd64.tar.gz`, `kaze-sync-0.7.0-windows-amd64.zip`, `kaze-sync-server-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.0` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
+`v0.7.1` (发布于 2026-11-23) 修复管理页标题栏: 页面没有滚动条时, 标题栏右侧会出现缺口. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.1-linux-amd64.tar.gz`, `kaze-sync-0.7.1-windows-amd64.zip`, `kaze-sync-server-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.1` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
 
 ## 主要更新
 
-- **下载客户端.** 总览的设备表新增 **下载客户端** 按钮 (不用注册码) 和针对低于服务端安装包版本的设备的 **可升级** 按钮. 下载要求管理员会话, 并计入按 IP 锁定. 详见[更新日志](CHANGELOG.zh-CN.md).
-- 修复: 提示框里的 `kaze-syncd client-pkg` 不再断行.
+- 修复: 页面不滚动时标题栏铺满整个页面宽度. 只改服务端 Web UI, 详见[更新日志](CHANGELOG.zh-CN.md).
 
 ## 升级
 

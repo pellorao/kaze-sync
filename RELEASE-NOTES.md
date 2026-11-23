@@ -1,15 +1,14 @@
-# kaze-sync v0.7.0 release notes
+# kaze-sync v0.7.1 release notes
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## What this release is
 
-`v0.7.0` (released on 2026-11-23) lets a signed-in admin download the Windows and Linux client installers from the overview page and run one on an enrolled device to upgrade it; devices running an older release get an **Upgrade available** button. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.0-linux-amd64.tar.gz`, `kaze-sync-0.7.0-windows-amd64.zip`, `kaze-sync-server-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-linux-amd64.sh`, `kaze-sync-client-0.7.0-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.0`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
+`v0.7.1` (released on 2026-11-23) fixes the header bar of the Web UI, which showed a gap on its right when the page had no scrollbar. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.1-linux-amd64.tar.gz`, `kaze-sync-0.7.1-windows-amd64.zip`, `kaze-sync-server-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-linux-amd64.sh`, `kaze-sync-client-0.7.1-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.1`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
 
 ## Highlights
 
-- **Download client.** The overview's device table has a **Download client** button (no enrollment code needed) and an **Upgrade available** button for devices older than the server's installer. Downloads need an admin session and count towards the IP lockout. Details in the [changelog](CHANGELOG.md).
-- Fix: the `kaze-syncd client-pkg` hint in notes no longer breaks across lines.
+- Fix: the header bar spans the full page width when the page does not scroll. Server-side Web UI change only; details in the [changelog](CHANGELOG.md).
 
 ## Upgrading
 
