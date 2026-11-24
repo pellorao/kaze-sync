@@ -113,26 +113,30 @@ test("the button is aria-disabled, not disabled, while the question is on its wa
   assert.strictEqual(s.doc.activeElement, s.go);
 });
 
-test("the link to the settings in a rule dialog asks before it leaves with unsaved changes", () => {
-  const a = src.indexOf("// the link to the settings is a third way out");
-  const b = src.indexOf("dlg.addEventListener(\"cancel\"", a);
+test("a link out of the rule box asks before it leaves with unsaved changes (dialog link, settings header and crumbs)", () => {
+  const a = src.indexOf("// a link out of the page is a way out too");
+  const b = src.indexOf("if (dlg && box.dataset.saved !== undefined)", a);
   assert.ok(a > 0 && b > a, "the link handler of app.js was not found");
-  const run = (dirty) => {
-    let handler = null, asked = null;
+  const run = (dirty, dlg) => {
+    let handler = null, asked = null, sel = null;
     const link = { href: "http://x/settings", addEventListener: (t, f) => { handler = f; } };
-    const $$ = () => [link];
+    const $$ = (s) => { sel = s; return [link]; };
     const ask = (...x) => { asked = x; };
     const loc = {};
-    new Function("$$", "dlg", "dirty", "ask", "rt", "location", src.slice(a, b))($$, {}, () => dirty, ask, (k) => k, loc);
+    new Function("$$", "dlg", "dirty", "ask", "rt", "location", "document", "box", "{" + src.slice(a, b))($$, dlg, () => dirty, ask, (k) => k, loc, {}, { dataset: { saved: "" } });
     let prevented = false;
     handler({ defaultPrevented: false, button: 0, preventDefault() { prevented = true; } });
-    return { prevented, asked, loc };
+    return { prevented, asked, loc, sel };
   };
-  const d = run(true);
-  assert.ok(d.prevented && d.asked, "dirty: the click is held and the question is put");
-  assert.strictEqual(d.loc.href, undefined, "not gone yet");
-  d.asked[2]();
-  assert.strictEqual(d.loc.href, "http://x/settings", "yes goes on");
-  const c = run(false);
-  assert.ok(!c.prevented && !c.asked, "clean: the link just works");
+  for (const dlg of [{}, null]) {
+    const d = run(true, dlg);
+    assert.ok(d.prevented && d.asked, "dirty: the click is held and the question is put");
+    assert.strictEqual(d.asked[0], "js.discardLeave", "the question is about leaving");
+    assert.strictEqual(d.loc.href, undefined, "not gone yet");
+    d.asked[2]();
+    assert.strictEqual(d.loc.href, "http://x/settings", "yes goes on");
+    const c = run(false, dlg);
+    assert.ok(!c.prevented && !c.asked, "clean: the link just works");
+  }
+  assert.match(run(true, null).sel, /\.bar a\[href\].*\.crumbs a\[href\]/, "settings page: header bar and breadcrumb");
 });

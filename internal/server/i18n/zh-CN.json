@@ -283,6 +283,7 @@
  "js.previewFail": "无法预览, 请检查规则后重试",
  "js.discard": "有未保存的修改, 放弃它们并关闭吗?",
  "js.discardOk": "放弃",
+ "js.discardLeave": "有未保存的修改, 放弃它们并离开吗?",
  "js.copied": "已复制",
  "js.expired": "已过期",
  "js.ruleLine": "第 {n} 行: {msg}",

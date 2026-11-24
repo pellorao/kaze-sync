@@ -283,6 +283,7 @@
  "js.previewFail": "無法預覽, 請檢查規則後重試",
  "js.discard": "有未儲存的修改, 放棄它們並關閉嗎?",
  "js.discardOk": "放棄",
+ "js.discardLeave": "有未儲存的修改, 放棄它們並離開嗎?",
  "js.copied": "已複製",
  "js.expired": "已過期",
  "js.ruleLine": "第 {n} 行: {msg}",

@@ -283,6 +283,7 @@
  "js.previewFail": "プレビューできません。ルールを確認してもう一度お試しください",
  "js.discard": "未保存の変更があります。破棄して閉じますか?",
  "js.discardOk": "破棄",
+ "js.discardLeave": "未保存の変更があります。破棄して移動しますか?",
  "js.copied": "コピーしました",
  "js.expired": "期限切れ",
  "js.ruleLine": "{n} 行目: {msg}",

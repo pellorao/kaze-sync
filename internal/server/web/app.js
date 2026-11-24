@@ -1166,15 +1166,18 @@
     // is the saved one: after a refused save the textarea holds the refused text, not the saved one. A textarea
     // drops one leading newline of its source, the attribute does not.
     const dlg = box.closest("dialog"), saved = (box.dataset.saved || "").replace(/^\n/, "");
-    if (dlg && box.dataset.saved !== undefined) {
-      const dirty = () => ta.value !== saved;
-      dlg.leave = () => { if (dirty()) ask(rt("js.discard"), rt("js.discardOk"), () => dlg.close()); else dlg.close(); };
-      // the link to the settings is a third way out: it asks like Esc does, and goes on when the answer is yes
-      $$("a[href]", dlg).forEach((a) => a.addEventListener("click", (e) => {
+    const dirty = () => ta.value !== saved;
+    if (box.dataset.saved !== undefined) {
+      // a link out of the page is a way out too (in the dialog the link to the settings; on the settings page the header
+      // bar and the breadcrumb): it asks like Esc does, and goes on when the answer is yes
+      $$(dlg ? "a[href]" : ".bar a[href], .crumbs a[href]", dlg || document).forEach((a) => a.addEventListener("click", (e) => {
         if (!dirty() || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
-        ask(rt("js.discard"), rt("js.discardOk"), () => { location.href = a.href; });
+        ask(rt("js.discardLeave"), rt("js.discardOk"), () => { location.href = a.href; });
       }));
+    }
+    if (dlg && box.dataset.saved !== undefined) {
+      dlg.leave = () => { if (dirty()) ask(rt("js.discard"), rt("js.discardOk"), () => dlg.close()); else dlg.close(); };
       dlg.addEventListener("cancel", (e) => { if (dirty()) { e.preventDefault(); dlg.leave(); } });
       dlg.addEventListener("close", () => {
         seq++; // a validation still under way would show errors of the discarded text

@@ -308,6 +308,7 @@
  "js.previewFail": "Cannot preview; check the rules and try again",
  "js.discard": "There are unsaved changes. Discard them and close?",
  "js.discardOk": "Discard",
+ "js.discardLeave": "There are unsaved changes. Discard them and leave?",
  "js.copied": "Copied",
  "js.expired": "Expired",
  "js.ruleLine": "Line {n}: {msg}",

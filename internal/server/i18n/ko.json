@@ -283,6 +283,7 @@
  "js.previewFail": "미리보기를 할 수 없습니다. 규칙을 확인한 뒤 다시 시도하세요",
  "js.discard": "저장하지 않은 변경 사항이 있습니다. 버리고 닫을까요?",
  "js.discardOk": "버리기",
+ "js.discardLeave": "저장하지 않은 변경 사항이 있습니다. 버리고 나갈까요?",
  "js.copied": "복사됨",
  "js.expired": "만료됨",
  "js.ruleLine": "{n}번째 줄: {msg}",
