@@ -23,7 +23,7 @@ func Run(ctx context.Context, data string) error {
 	// keep a connection open, so the WAL files are removed after Run has returned.
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
-	defer func() { cancel(); wg.Wait(); s.gcWG.Wait() }()
+	defer func() { cancel(); wg.Wait() }()
 	s.checkClientPackages()
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
 	caMode := false
