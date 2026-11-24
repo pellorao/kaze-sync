@@ -136,10 +136,10 @@
 <div class="dlg-b">
 {{if .Restored}}<div class="okbar">{{icon "check"}}{{tm "ver.restoredTo" "time" (time .Restored)}}</div>{{end}}
 <div class="tscroll"><table class="vers">
-<thead><tr><th scope="col">{{t "rs.time"}} <span class="tzn" data-tzname>(UTC)</span></th><th scope="col" class="r">{{t "fo.size"}}</th><th scope="col">{{t "ver.device"}}</th><th scope="col" class="r"></th></tr></thead>
+<thead><tr><th scope="col">{{t "rs.time"}} <span class="tzn" data-tzname>(UTC)</span></th><th scope="col" class="r">{{t "fo.size"}}</th><th scope="col" class="dev">{{t "ver.device"}}</th><th scope="col" class="r"></th></tr></thead>
 <tbody>
 {{range .Versions}}<tr>
-<td class="num">{{time .Time}}</td><td class="r num">{{if not .Deleted}}{{size .Size}}{{end}}</td><td>{{.Device}}</td>
+<td class="num">{{time .Time}}<div class="sm-meta">{{.Device}}</div></td><td class="r num">{{if not .Deleted}}{{size .Size}}{{end}}</td><td class="dev">{{.Device}}</td>
 <td class="r">{{if .Current}}{{if .Deleted}}<span class="tag">{{t "fo.deleted"}}</span>{{else}}<span class="tag ok">{{t "ver.current"}}</span>{{end}}{{else}}<button type="button" class="btn sm" data-ask="{{.ID}}" aria-expanded="false" aria-controls="ask-{{.ID}}">{{icon "restore"}}{{t "common.restore"}}</button>{{end}}</td>
 </tr>{{else}}<tr><td colspan="4" class="muted">{{t "ver.none"}}</td></tr>{{end}}
 </tbody></table></div>

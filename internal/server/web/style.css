@@ -478,6 +478,12 @@ table.held-rows tr.dir .dn svg.i { width: 16px; height: 16px; color: var(--muted
 /* version history: a time never breaks inside itself; a narrow dialog scrolls the table in its own box */
 table.vers { min-width: 27rem; }
 table.vers td.num, table.vers th .tzn { white-space: nowrap; }
+/* narrow: the source device moves under the time, so the table needs no sideways scroll (like the file list) */
+@media (max-width: 640px) {
+  table.vers { min-width: 0; }
+  table.vers .dev { display: none; }
+  table.vers .sm-meta { display: block; padding-left: 0; overflow-wrap: anywhere; white-space: normal; }
+}
 /* links of the notice list, device names and group heads are targets of their own */
 td > a.dn { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; }
 .nitem a { display: inline-block; min-height: 24px; line-height: 24px; }

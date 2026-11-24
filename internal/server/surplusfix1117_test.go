@@ -48,3 +48,24 @@ func TestDialogBodyColumnMayShrink(t *testing.T) {
 		t.Errorf(".dlg-b lets its content widen the dialog: %s", r)
 	}
 }
+
+// Version history on a narrow screen: the source device sits on a second line of the time cell and its own column is
+// hidden, so the table needs no minimum width and no sideways scroll (like the file list).
+func TestVersionDeviceMovesUnderTheTimeOnNarrowScreens(t *testing.T) {
+	t.Parallel()
+	l := newLockEnv(t)
+	l.apiCommit(l.ta, l.f, l.op("d/a.txt", 0, "one"))
+	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?dir=d&file=d%2Fa.txt")
+	if !regexp.MustCompile(`(?s)<td class="num">.*?<div class="sm-meta">[^<]+</div></td>.*?<td class="dev">[^<]+</td>`).MatchString(page) {
+		t.Error("the time cell has no second line with the device, or the device column is not marked")
+	}
+	if !strings.Contains(page, `<th scope="col" class="dev">`) {
+		t.Error("the device header is not marked as the narrow-hidden column")
+	}
+	css := styleCSS(t)
+	for _, re := range []string{`table\.vers \.dev[^{]*\{[^}]*display: *none`, `table\.vers \.sm-meta[^{]*\{[^}]*display: *block`, `table\.vers \{ *min-width: *0`} {
+		if !regexp.MustCompile(re).MatchString(css) {
+			t.Errorf("style.css lacks %s", re)
+		}
+	}
+}
