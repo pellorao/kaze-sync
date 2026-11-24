@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,11 @@ func Run(ctx context.Context, data string) error {
 		return err
 	}
 	defer s.Close()
+	// Run returns only after its goroutines have ended: Close runs last, and a loop still inside a database call would
+	// keep a connection open, so the WAL files are removed after Run has returned.
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	defer func() { cancel(); wg.Wait(); s.gcWG.Wait() }()
 	s.checkClientPackages()
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12}
 	caMode := false
@@ -55,24 +61,24 @@ func Run(ctx context.Context, data string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-	go func() {
+	wg.Go(func() {
 		<-ctx.Done()
 		s.StopEvents() // Shutdown would wait for the streams
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(sctx)
 		srv.Close()
-	}()
+	})
 	if _, err := os.Stat(filepath.Join(data, "ntfy.json")); err == nil {
 		slog.Info("ntfy.json is not used any more, see the user manual 9.1")
 	}
 	if caMode {
-		go s.certLoop(ctx, data)
+		wg.Go(func() { s.certLoop(ctx, data) })
 	}
 	stopResources := s.resources.Start(ctx)
 	defer stopResources()
-	go s.gcLoop(ctx)
-	go s.pushLoop(ctx)
+	wg.Go(func() { s.gcLoop(ctx) })
+	wg.Go(func() { s.pushLoop(ctx) })
 	slog.Info("listening", "addr", ln.Addr().String(), "fingerprint", s.Fingerprint)
 	if err := srv.ServeTLS(ln, "", ""); err != http.ErrServerClosed {
 		return err

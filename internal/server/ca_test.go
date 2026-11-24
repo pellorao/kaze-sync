@@ -346,7 +346,6 @@ func TestRunServesCAMode(t *testing.T) {
 	t.Parallel()
 	f := newFakeSystem(t)
 	addr, stop := startRun(t, f, InstallOptions{CA: true})
-	defer stop()
 	chain, _ := loadChain(serverPEMPath(f.data))
 	ca, _ := x509.ParseCertificate(chain.Certificate[1])
 	roots := x509.NewCertPool()
@@ -356,6 +355,16 @@ func TestRunServesCAMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	conn.Close()
+	// Run has ended all its goroutines when it returns: a loop still inside a database call kept meta.db open, and
+	// its WAL files were removed after the test's TempDir cleanup had started (TempDir cleanup: directory not empty).
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(filepath.Join(f.data, VarDir, "meta.db"+ext)); err == nil {
+			t.Errorf("meta.db%s left after Run returned", ext)
+		}
+	}
 }
 
 // The first certificate check's failure reaches the Web Push loop: with the state set before the loop looks, the alert
