@@ -1175,6 +1175,22 @@
         e.preventDefault();
         ask(rt("js.discardLeave"), rt("js.discardOk"), () => { location.href = a.href; });
       }));
+      // the notification panel (it sits outside the header and is redrawn by the live feed, so the listener is on the
+      // document) and the logout button are ways out of the header too
+      if (!dlg) {
+        document.addEventListener("click", (e) => {
+          const a = e.target.closest && e.target.closest("#notif a[href]");
+          if (!a || !dirty() || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          ask(rt("js.discardLeave"), rt("js.discardOk"), () => { location.href = a.href; });
+        });
+        const lo = $('form[action="/logout"]');
+        if (lo) lo.addEventListener("submit", (e) => {
+          if (!dirty() || e.defaultPrevented) return;
+          e.preventDefault();
+          ask(rt("js.discardLeave"), rt("js.discardOk"), () => lo.submit());
+        });
+      }
     }
     if (dlg && box.dataset.saved !== undefined) {
       dlg.leave = () => { if (dirty()) ask(rt("js.discard"), rt("js.discardOk"), () => dlg.close()); else dlg.close(); };

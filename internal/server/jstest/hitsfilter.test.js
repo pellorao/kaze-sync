@@ -118,15 +118,23 @@ test("a link out of the rule box asks before it leaves with unsaved changes (dia
   const b = src.indexOf("if (dlg && box.dataset.saved !== undefined)", a);
   assert.ok(a > 0 && b > a, "the link handler of app.js was not found");
   const run = (dirty, dlg) => {
-    let handler = null, asked = null, sel = null;
+    let handler = null, asked = null, sel = null, docClick = null, submit = null, submitted = false;
+    const logout = { addEventListener: (t, f) => { submit = f; }, submit() { submitted = true; } };
+    const fakeDoc = { addEventListener: (t, f) => { docClick = f; } };
     const link = { href: "http://x/settings", addEventListener: (t, f) => { handler = f; } };
     const $$ = (s) => { sel = s; return [link]; };
-    const ask = (...x) => { asked = x; };
+    const asks = [];
+    const ask = (...x) => { asks.push(x); asked = asks[0]; };
     const loc = {};
-    new Function("$$", "dlg", "dirty", "ask", "rt", "location", "document", "box", "{" + src.slice(a, b))($$, dlg, () => dirty, ask, (k) => k, loc, {}, { dataset: { saved: "" } });
+    new Function("$$", "$", "dlg", "dirty", "ask", "rt", "location", "document", "box", "{" + src.slice(a, b))($$, () => logout, dlg, () => dirty, ask, (k) => k, loc, fakeDoc, { dataset: { saved: "" } });
     let prevented = false;
     handler({ defaultPrevented: false, button: 0, preventDefault() { prevented = true; } });
-    return { prevented, asked, loc, sel };
+    // the notification panel link (page only) and the logout form
+    const panel = { href: "http://x/folders/1" };
+    let pp = false, sp = false;
+    if (docClick) docClick({ target: { closest: (q) => (/#notif/.test(q) ? panel : null) }, defaultPrevented: false, button: 0, preventDefault() { pp = true; } });
+        if (submit) submit({ defaultPrevented: false, preventDefault() { sp = true; } });
+    return { prevented, asked, loc, sel, hasPage: !!docClick, pp, sp, get submitted() { return submitted; }, logoutAsked: asks[asks.length - 1], asks };
   };
   for (const dlg of [{}, null]) {
     const d = run(true, dlg);
@@ -138,5 +146,12 @@ test("a link out of the rule box asks before it leaves with unsaved changes (dia
     const c = run(false, dlg);
     assert.ok(!c.prevented && !c.asked, "clean: the link just works");
   }
+  const pg = run(true, null);
+  assert.ok(pg.hasPage && pg.pp && pg.sp, "page: panel link and logout are held when dirty");
+  pg.logoutAsked[2]();
+  assert.ok(pg.submitted, "yes on logout submits the form");
+  const pc = run(false, null);
+  assert.ok(!pc.pp && !pc.sp, "clean: panel link and logout just work");
+  assert.ok(!run(true, {}).hasPage, "in the dialog the document is not hooked");
   assert.match(run(true, null).sel, /\.bar a\[href\].*\.crumbs a\[href\]/, "settings page: header bar and breadcrumb");
 });
