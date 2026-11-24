@@ -28,6 +28,8 @@ class N {
     return null;
   }
   addEventListener(t, f) { this.handlers[t] = f; }
+  setAttribute(k, v) { (this.attrs || (this.attrs = {}))[k] = String(v); }
+  getAttribute(k) { return (this.attrs || {})[k] ?? null; }
   focus() { N.doc.activeElement = this; }
   setSelectionRange(s, e) { this.selectionStart = s; this.selectionEnd = e; }
   matches(sel) { return sel === "[data-hits-filter]" && !!this.isFilter; }
@@ -57,7 +59,7 @@ function setup() {
   const { preview } = run(doc, Parser, fetchFn, URLSearchParams, debounce, $, el, rt, ta, hitsBox, go, form, "");
   const settle = () => new Promise((r) => setImmediate(r));
   const refilter = () => hitsBox.handlers.input({ target: hitsBox.find("[data-hits-filter]") }); // the page's own handler
-  return { doc, hitsBox, pending, preview, refilter, flush: () => { const t = timer; timer = null; t(); }, settle };
+  return { go, doc, hitsBox, pending, preview, refilter, flush: () => { const t = timer; timer = null; t(); }, settle };
 }
 
 async function shown(s) { // the first preview: the box comes from the answer, hidden as the page draws it
@@ -97,4 +99,40 @@ test("a refresh keeps the caret where it was", async () => {
   s.pending.shift().answer(); await s.settle();
   assert.strictEqual(s.hitsBox.find("[data-hits-filter]"), f);
   assert.deepStrictEqual([f.value, f.selectionStart, f.selectionEnd], ["lg", 1, 1]);
+});
+
+test("the button is aria-disabled, not disabled, while the question is on its way: it keeps the focus", async () => {
+  const s = setup();
+  s.go.focus();
+  const p = s.preview.ask();
+  assert.strictEqual(s.go.getAttribute("aria-disabled"), "true");
+  assert.notStrictEqual(s.go.disabled, true, "a disabled button drops the focus to the body");
+  assert.strictEqual(s.doc.activeElement, s.go);
+  s.pending.shift().answer(); await p;
+  assert.strictEqual(s.go.getAttribute("aria-disabled"), "false");
+  assert.strictEqual(s.doc.activeElement, s.go);
+});
+
+test("the link to the settings in a rule dialog asks before it leaves with unsaved changes", () => {
+  const a = src.indexOf("// the link to the settings is a third way out");
+  const b = src.indexOf("dlg.addEventListener(\"cancel\"", a);
+  assert.ok(a > 0 && b > a, "the link handler of app.js was not found");
+  const run = (dirty) => {
+    let handler = null, asked = null;
+    const link = { href: "http://x/settings", addEventListener: (t, f) => { handler = f; } };
+    const $$ = () => [link];
+    const ask = (...x) => { asked = x; };
+    const loc = {};
+    new Function("$$", "dlg", "dirty", "ask", "rt", "location", src.slice(a, b))($$, {}, () => dirty, ask, (k) => k, loc);
+    let prevented = false;
+    handler({ defaultPrevented: false, button: 0, preventDefault() { prevented = true; } });
+    return { prevented, asked, loc };
+  };
+  const d = run(true);
+  assert.ok(d.prevented && d.asked, "dirty: the click is held and the question is put");
+  assert.strictEqual(d.loc.href, undefined, "not gone yet");
+  d.asked[2]();
+  assert.strictEqual(d.loc.href, "http://x/settings", "yes goes on");
+  const c = run(false);
+  assert.ok(!c.prevented && !c.asked, "clean: the link just works");
 });

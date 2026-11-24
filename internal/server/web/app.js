@@ -1110,7 +1110,7 @@
         const h = $("[data-hits]", hitsBox), n = h ? +h.dataset.hits : 0;
         go.className = "btn " + (shown === ta.value && n ? "danger" : "primary");
         go.textContent = shown === ta.value ? (n ? rt("js.saveDelete", { n }) : rt("common.save")) : (ta.value === saved0 ? rt("common.save") : rt("js.preview"));
-        go.disabled = false;
+        go.setAttribute("aria-disabled", "false");
       };
       const self = {
         edited() { // the box changed: an old preview is out of date
@@ -1120,7 +1120,7 @@
         },
         async ask() {
           const mine = ++asking, text = ta.value, old = $("[data-hits-filter]", hitsBox), filter = old ? old.value : "";
-          go.disabled = true;
+          go.setAttribute("aria-disabled", "true"); // not `disabled`: the button keeps the focus (design 4.8)
           let html;
           try {
             const r = await fetch(form.getAttribute("action") + "/preview", { method: "POST", body: new URLSearchParams({ rules: text, filter }), credentials: "same-origin" });
@@ -1156,6 +1156,7 @@
     hitsBox.addEventListener("input", (e) => { if (e.target.matches("[data-hits-filter]")) refilter(); });
     hitsBox.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-hits-filter]")) e.preventDefault(); }); // not a save
     go.addEventListener("click", (e) => {
+      if (go.getAttribute("aria-disabled") === "true") { e.preventDefault(); return; } // a question is on its way
       if (!preview.needed()) return;
       e.preventDefault();
       preview.ask();
@@ -1168,6 +1169,12 @@
     if (dlg && box.dataset.saved !== undefined) {
       const dirty = () => ta.value !== saved;
       dlg.leave = () => { if (dirty()) ask(rt("js.discard"), rt("js.discardOk"), () => dlg.close()); else dlg.close(); };
+      // the link to the settings is a third way out: it asks like Esc does, and goes on when the answer is yes
+      $$("a[href]", dlg).forEach((a) => a.addEventListener("click", (e) => {
+        if (!dirty() || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        ask(rt("js.discard"), rt("js.discardOk"), () => { location.href = a.href; });
+      }));
       dlg.addEventListener("cancel", (e) => { if (dirty()) { e.preventDefault(); dlg.leave(); } });
       dlg.addEventListener("close", () => {
         seq++; // a validation still under way would show errors of the discarded text
