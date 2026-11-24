@@ -4,6 +4,16 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.7.3 - 2026-11-25
+
+Patch release: Web UI fixes.
+
+### Fixed
+
+- The rule editor keeps keyboard focus on its Preview button while a preview is loading, instead of dropping it.
+- Leaving with unsaved edits asks first: the Settings link inside the rule editor, and the header and breadcrumb links on the Settings page (global rules), ask before discarding the edits. The question for these links now reads "Discard them and leave?".
+- Version history on a narrow screen shows the source device under the time, so the table no longer needs a sideways scroll.
+
 ## v0.7.2 - 2026-11-23
 
 Patch release: Web UI header bar and refresh flash fix.

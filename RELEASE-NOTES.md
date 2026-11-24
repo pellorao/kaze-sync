@@ -1,14 +1,14 @@
-# kaze-sync v0.7.2 release notes
+# kaze-sync v0.7.3 release notes
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## What this release is
 
-`v0.7.2` (released on 2026-11-23) fixes the Web UI header bar, which showed a gap on its right when the page had no scrollbar, and the white first frame on refresh. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.2-linux-amd64.tar.gz`, `kaze-sync-0.7.2-windows-amd64.zip`, `kaze-sync-server-0.7.2-linux-amd64.sh`, `kaze-sync-client-0.7.2-linux-amd64.sh`, `kaze-sync-client-0.7.2-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.2`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
+`v0.7.3` (released on 2026-11-25) fixes three Web UI problems: the rule editor losing keyboard focus on its Preview button, unsaved rule edits being discarded without a question when leaving through the Settings page links, and the version history table needing a sideways scroll on narrow screens. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.3-linux-amd64.tar.gz`, `kaze-sync-0.7.3-windows-amd64.zip`, `kaze-sync-server-0.7.3-linux-amd64.sh`, `kaze-sync-client-0.7.3-linux-amd64.sh`, `kaze-sync-client-0.7.3-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.3`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
 
 ## Highlights
 
-- Fix: the header bar spans the full page width when the page does not scroll, and a refreshed page starts dark instead of white. Server-side Web UI change only; details in the [changelog](CHANGELOG.md).
+- Fix: the rule editor keeps focus on its Preview button; leaving the Settings page or the rule editor with unsaved rule edits asks first; the version history fits narrow screens. Server-side Web UI change only; details in the [changelog](CHANGELOG.md).
 
 ## Upgrading
 
