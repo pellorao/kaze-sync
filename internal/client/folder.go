@@ -633,7 +633,7 @@ func (f *Folder) scan(ctx context.Context, dirs []string, rep *Report) error {
 		if have && row.Size == e.Size && row.MtimeNs == e.MtimeNs && row.Link == e.IsLink && f.execKept(row, e) {
 			continue
 		}
-		if age := now - e.MtimeNs; age >= 0 && age < int64(f.Stable) {
+		if now-e.MtimeNs < int64(f.Stable) { // includes a future mtime: wait until mtime + Stable (design 2.3)
 			end := time.Unix(0, e.MtimeNs).Add(f.Stable)
 			if f.youngFiles == nil {
 				f.youngFiles = map[string]time.Time{}

@@ -72,3 +72,25 @@ func TestIdleBodyDoesNotCountTheConsumersTime(t *testing.T) {
 		t.Fatalf("read after the pause: %q %v", buf, err)
 	}
 }
+
+// A server that sends the headers of a JSON reply and then stalls ends the call at the deadline.
+func TestJSONBodyStallTimesOut(t *testing.T) {
+	old := responseTimeout
+	responseTimeout = 30 * time.Millisecond
+	defer func() { responseTimeout = old }()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	a := &API{Base: srv.URL, HC: srv.Client()}
+	var out map[string]any
+	start := time.Now()
+	if err := a.json(context.Background(), "held", struct{}{}, &out); err == nil {
+		t.Fatal("stalled body accepted")
+	}
+	if d := time.Since(start); d > 90*time.Millisecond {
+		t.Errorf("took %v", d)
+	}
+}

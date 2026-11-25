@@ -121,8 +121,8 @@ func exportFile(blobs *blobstore.Store, root string, r *fileRow) (err error) {
 	}
 	// Write beside the target and rename once the hash matches: a bad export leaves an earlier file in place.
 	tmp := dst + ".export-tmp"
-	os.Remove(tmp) // never open through a leftover link
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	os.Remove(tmp)                                                      // never open through a leftover link
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode) // O_EXCL never follows a link raced in after the Remove
 	if err != nil {
 		return err
 	}

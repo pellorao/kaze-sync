@@ -35,6 +35,7 @@ type rule struct {
 var rules = []rule{
 	{name: "user note", re: regexp.MustCompile(`用户 ?20[0-9]{2}-`)},
 	{name: "local path", re: regexp.MustCompile(`(~|\$HOME|\$\{HOME\}|/home/[a-z_][a-z0-9_-]*)/project[s]\b`)},
+	{name: "local path", re: regexp.MustCompile(`[A-Za-z]:[\\/]Users[\\/][^\\/\s]+[\\/]project[s]\b`)},
 	{name: "private project", re: regexp.MustCompile(`(?i)\bstrat[a]\b|qwen-strat[a]|kaze-worksho[p]`)},
 	{name: "private project", re: regexp.MustCompile(`\bAR[W]\b|release-v[m]\.mjs|restore-chec[k]\.py`)},
 	{name: "internal task name", re: regexp.MustCompile(`(^|[^/.\w-])(kaze-sync/[a-z][a-z0-9-]*)`), ok: taskNameHit},

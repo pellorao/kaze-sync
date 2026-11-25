@@ -83,6 +83,7 @@ func (f *Folder) fetchBatch(ctx context.Context, jobs []*fetchJob) []*fetchJob {
 	var panicked any
 	sem := make(chan struct{}, ioWorkers)
 	used := map[string]bool{}
+	nextSuffix := map[string]int{} // base name -> the last suffix number taken (0: only the bare name)
 	pbuf := make([]byte, proto.BlockSize)
 	for i, j := range jobs {
 		if rerr == nil {
@@ -106,9 +107,15 @@ func (f *Folder) fetchBatch(ctx context.Context, jobs []*fetchJob) []*fetchJob {
 		}
 		// Two files of one directory with the same content would share a temporary name.
 		suffix, tmp := "", pp.Key(path.Dir(j.e.Path))+"/"+j.e.Hash.String()[:16]
-		for n := 2; used[tmp+suffix]; n++ {
+		n := nextSuffix[tmp]
+		if n > 0 {
 			suffix = "-" + strconv.Itoa(n)
 		}
+		for used[tmp+suffix] {
+			n = max(n, 1) + 1
+			suffix = "-" + strconv.Itoa(n)
+		}
+		nextSuffix[tmp] = n
 		used[tmp+suffix] = true
 		sem <- struct{}{}
 		wg.Add(1)

@@ -56,20 +56,6 @@ func rootWC(q interface {
 	return out, err
 }
 
-// folderLocks lists the exclusive settings of a folder.
-func folderLocks(q interface {
-	Query(string, ...any) (*sql.Rows, error)
-}, folder int64) ([]lockRow, error) {
-	all, err := folderWC(q, folder)
-	out := all[:0]
-	for _, l := range all {
-		if l.Mode == proto.ModeExclusive {
-			out = append(out, l)
-		}
-	}
-	return out, err
-}
-
 // ruleFor is the setting that governs key k: the longest path that covers it; the root is single without a row.
 func ruleFor(rules []lockRow, k string) lockRow {
 	best := lockRow{Mode: proto.ModeSingle}

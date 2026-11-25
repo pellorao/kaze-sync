@@ -90,6 +90,9 @@ func main() {
 	if *base == "" {
 		fail(errors.New("no server: give -url or set KAZE_STATUS_URL"))
 	}
+	if !strings.HasPrefix(strings.ToLower(*base), "https://") { // the password goes in the login form
+		fail(errors.New("-url must start with https://: the password is sent in the login request"))
+	}
 	pw, err := readPassword(*pwfile)
 	if err != nil {
 		fail(err)
