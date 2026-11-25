@@ -254,6 +254,10 @@ func (s *Server) writectlHandler(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.uiBump() // the new-folder reminder of the notification bar goes
-	http.Redirect(w, r, back+"?dir="+url.QueryEscape(strings.Trim(r.FormValue("dir"), "/")), http.StatusSeeOther)
+	back += "?dir=" + url.QueryEscape(strings.Trim(r.FormValue("dir"), "/"))
+	if r.FormValue("deleted") != "" { // keep "show deleted" on
+		back += "&deleted=1"
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil
 }

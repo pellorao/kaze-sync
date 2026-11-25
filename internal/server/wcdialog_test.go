@@ -177,3 +177,32 @@ func TestWriteControlRefusesFreeForFile(t *testing.T) {
 }
 
 func urlValues(path, mode string) url.Values { return url.Values{"path": {path}, "mode": {mode}} }
+
+// Saving a write control returns to the listing the user was looking at: "show deleted" stays on, so the dialog form
+// carries it and the redirect repeats it.
+func TestWCSaveKeepsShowDeleted(t *testing.T) {
+	t.Parallel()
+	l := newLockEnv(t)
+	_, page := l.get(l.web, "/folders/"+itoa(l.f)+"?deleted=1")
+	form := regexp.MustCompile(`(?s)<dialog id="dlg-wc".*?</dialog>`).FindString(page)
+	if !strings.Contains(form, `name="deleted" value="1"`) {
+		t.Errorf("dialog form does not carry the switch: %s", form)
+	}
+	_, page = l.get(l.web, "/folders/"+itoa(l.f))
+	if form = regexp.MustCompile(`(?s)<dialog id="dlg-wc".*?</dialog>`).FindString(page); strings.Contains(form, `name="deleted"`) {
+		t.Error("switch carried although off")
+	}
+	for _, c := range []struct {
+		deleted string
+		want    string
+	}{{"1", "?dir=sub&deleted=1"}, {"", "?dir=sub"}} {
+		resp, err := l.web.PostForm(l.ts.URL+"/folders/"+itoa(l.f)+"/writectl", url.Values{"path": {"sub"}, "mode": {"single"}, "dir": {"sub"}, "deleted": {c.deleted}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := resp.Header.Get("Location"); got != "/folders/"+itoa(l.f)+c.want {
+			t.Errorf("deleted=%q: returned to %q", c.deleted, got)
+		}
+	}
+}
