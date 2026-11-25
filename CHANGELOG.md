@@ -4,10 +4,14 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
-## Unreleased
+## v0.7.4 - 2026-11-25
+
+Patch release: login hardening and Web UI fixes.
 
 ### Fixed
 
+- The bell panel links and logout ask before dropping unsaved rule edits; the overview shows "unreported" for devices without a status; the error buttons open the notification panel and Tab enters it, and cancelling the settings leave question puts the focus on the bell.
+- The server no longer waits for a running garbage collection at shutdown (only for its own loops).
 - The login form no longer lets an unauthenticated client hold a connection: its body is capped at 4 KiB and must arrive within 10 seconds.
 
 ## v0.7.3 - 2026-11-25
