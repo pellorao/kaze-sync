@@ -222,6 +222,15 @@ func releaseExclusive(tx *sql.Tx, device, folder int64) (int64, error) {
 	return res.RowsAffected()
 }
 
+// keepDeleted is the query part that keeps the folder page's "show deleted" switch on after a form there was saved:
+// its forms carry the switch as a hidden field.
+func keepDeleted(r *http.Request) string {
+	if r.FormValue("deleted") != "" {
+		return "&deleted=1"
+	}
+	return ""
+}
+
 // writectlHandler sets, moves or removes a setting (POST /folders/{id}/writectl; fields path, mode, device). Any save
 // confirms the folder's write rules (design 2.8.11).
 func (s *Server) writectlHandler(w http.ResponseWriter, r *http.Request) error {
@@ -255,9 +264,6 @@ func (s *Server) writectlHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.uiBump() // the new-folder reminder of the notification bar goes
 	back += "?dir=" + url.QueryEscape(strings.Trim(r.FormValue("dir"), "/"))
-	if r.FormValue("deleted") != "" { // keep "show deleted" on
-		back += "&deleted=1"
-	}
-	http.Redirect(w, r, back, http.StatusSeeOther)
+	http.Redirect(w, r, back+keepDeleted(r), http.StatusSeeOther)
 	return nil
 }

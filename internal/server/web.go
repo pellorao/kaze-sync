@@ -908,6 +908,8 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 	}
 	if n := s.deleteHits(hits); n > 0 {
 		back += "&deleted=" + strconv.Itoa(n)
+	} else {
+		back += keepDeleted(r)
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil

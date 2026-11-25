@@ -340,9 +340,9 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if fromList {
-		http.Redirect(w, r, back+"?dir="+url.QueryEscape(dir)+"&ok=restored", http.StatusSeeOther)
+		http.Redirect(w, r, back+"?dir="+url.QueryEscape(dir)+"&ok=restored"+keepDeleted(r), http.StatusSeeOther)
 	} else {
-		http.Redirect(w, r, back+"?dir="+url.QueryEscape(dir)+"&file="+url.QueryEscape(p)+"&rv="+strconv.FormatInt(created, 10), http.StatusSeeOther)
+		http.Redirect(w, r, back+"?dir="+url.QueryEscape(dir)+"&file="+url.QueryEscape(p)+"&rv="+strconv.FormatInt(created, 10)+keepDeleted(r), http.StatusSeeOther)
 	}
 	return nil
 }
@@ -364,7 +364,7 @@ func (s *Server) restoreDir(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	slog.Info("restore", "folder", f.Name, "path", p, "at", at, "restored", restored, "failed", failed)
-	http.Redirect(w, r, fmt.Sprintf("%s?dir=%s&restored=%d&failed=%d", back, url.QueryEscape(dir), restored, failed), http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("%s?dir=%s&restored=%d&failed=%d%s", back, url.QueryEscape(dir), restored, failed, keepDeleted(r)), http.StatusSeeOther)
 	return nil
 }
 

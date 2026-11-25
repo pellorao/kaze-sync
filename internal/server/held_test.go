@@ -366,3 +366,47 @@ func TestGroupDecisionShowsWaiting(t *testing.T) {
 		t.Error("the group is still shown after the device reported")
 	}
 }
+
+// The pages that send the user back to the folder keep "show deleted" on: the forms carry it and each redirect repeats it.
+func TestFolderPostsKeepShowDeleted(t *testing.T) {
+	t.Parallel()
+	l, it := heldEnv(t)
+	l.heldReport(l.tb, l.f, it)
+	base := "/folders/" + itoa(l.f)
+	r1 := l.apiCommit(l.ta, l.f, l.op("r.txt", 0, "a"))
+	l.apiCommit(l.ta, l.f, l.op("r.txt", r1[0].Seq, "b")) // a version to restore
+	redirect := func(path string, form url.Values) string {
+		form.Set("deleted", "1")
+		resp, err := l.web.PostForm(l.ts.URL+base+path, form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.Header.Get("Location")
+	}
+	for name, loc := range map[string]string{
+		"resolve":     redirect("/resolve", url.Values{"device": {itoa(l.b)}, "dir": {"d"}}),
+		"restore-dir": redirect("/restore-dir", url.Values{"path": {"d"}, "dir": {"d"}, "time": {"2020-01-01 00:00"}}),
+		"restore":     redirect("/restore", url.Values{"path": {"r.txt"}, "dir": {"d"}}),
+		"rules":       redirect("/rules", url.Values{"rules": {"*.tmp"}}),
+	} {
+		u, _ := url.Parse(loc)
+		if u == nil || u.Query().Get("deleted") != "1" {
+			t.Errorf("%s returned to %q", name, loc)
+		}
+	}
+	_, on := l.get(l.web, base+"?deleted=1&held="+itoa(l.b))
+	_, off := l.get(l.web, base+"?held="+itoa(l.b))
+	for _, id := range []string{`action="` + base + `/resolve"`, `action="` + base + `/restore-dir"`, `action="` + base + `/rules"`, `id="f-restore-last"`} {
+		for pg, want := range map[string]bool{on: true, off: false} {
+			i := strings.Index(pg, id)
+			j := strings.Index(pg[i:], "</form>")
+			if i < 0 || j < 0 {
+				t.Fatalf("no form %s", id)
+			}
+			if has := strings.Contains(pg[i:i+j], `name="deleted" value="1"`); has != want {
+				t.Errorf("form %s: carries the switch = %v, want %v", id, has, want)
+			}
+		}
+	}
+}

@@ -37,7 +37,7 @@
 {{if not .Groups}}<p class="muted">{{t "dlg.held.none"}}</p>{{end}}
 {{if and .Groups (not .Online)}}<p class="note">{{icon "info"}}<span>{{t "dlg.held.offline" "device" .Device}}</span></p>{{end}}
 {{range $gi, $_ := .Groups}}<form method="post" action="/folders/{{$.Folder.ID}}/resolve" class="held-grp">
-<button class="sr" tabindex="-1" aria-hidden="true"></button><input type="hidden" name="device" value="{{$.HeldView.DeviceID}}"><input type="hidden" name="dir" value="{{$.Dir}}"><input type="hidden" name="scope" value="{{.Scope}}"><input type="hidden" name="seen" value="{{$.HeldView.Seen}}">
+<button class="sr" tabindex="-1" aria-hidden="true"></button><input type="hidden" name="device" value="{{$.HeldView.DeviceID}}">{{if $.Deleted}}<input type="hidden" name="deleted" value="1">{{end}}<input type="hidden" name="dir" value="{{$.Dir}}"><input type="hidden" name="scope" value="{{.Scope}}"><input type="hidden" name="seen" value="{{$.HeldView.Seen}}">
 <div class="held-h"><span class="mono">/{{.Path}}</span><span class="muted">{{t "held.n" "n" .Total}} · {{heldWhy .Reason .Other}}</span></div>
 {{if and .Total (eq .Decided .Total)}}<p class="note" data-waiting>{{icon "info"}}<span>{{t "dlg.held.groupWaiting" "device" $.HeldView.Device}}</span></p>{{end}}
 <div class="held-acts"><button class="btn sm" name="action" value="discard"{{if and .Total (eq .Decided .Total)}} disabled{{end}}>{{t "dlg.held.allDiscard"}}</button><button class="btn sm danger" name="action" value="overwrite"{{if and .Total (eq .Decided .Total)}} disabled{{end}} data-confirm="{{t "dlg.held.allOverwriteAsk" "n" .Total}}">{{t "dlg.held.allOverwrite"}}</button>
@@ -75,7 +75,7 @@
 
 {{define "dialogs"}}
 <dialog id="dlg-restore" class="dlg restore" data-folder-name="{{.Folder.Name}}" data-keep-days="{{.KeepDays}}"{{if eq .Open "dlg-restore"}} data-autoopen{{end}} aria-labelledby="rs-t"><form method="post" action="/folders/{{.Folder.ID}}/restore-dir">
-<input type="hidden" name="path" value="{{.Scope}}"><input type="hidden" name="dir" value="{{.Dir}}">
+<input type="hidden" name="path" value="{{.Scope}}"><input type="hidden" name="dir" value="{{.Dir}}">{{if .Deleted}}<input type="hidden" name="deleted" value="1">{{end}}
 <div class="dlg-h"><h3 id="rs-t">{{t "rs.title"}}</h3></div>
 <div class="dlg-b">
 <div class="field"><span class="lbl">{{t "rs.scope"}}</span><div class="scope">{{icon "folder"}}<span data-fill="scope">{{.Folder.Name}}{{if .Scope}} / {{.Scope}}{{end}}</span></div></div>
@@ -115,7 +115,7 @@
 
 {{template "held-dialog" .}}
 
-<dialog id="dlg-rules" class="dlg wide"{{if eq .Open "dlg-rules"}} data-autoopen{{end}} aria-labelledby="ru-t"><form method="post" action="/folders/{{.Folder.ID}}/rules">
+<dialog id="dlg-rules" class="dlg wide"{{if eq .Open "dlg-rules"}} data-autoopen{{end}} aria-labelledby="ru-t"><form method="post" action="/folders/{{.Folder.ID}}/rules">{{if .Deleted}}<input type="hidden" name="deleted" value="1">{{end}}
 <div class="dlg-h">{{icon "rules"}}<h3 id="ru-t">{{t "ru.title" "name" .Folder.Name}}</h3></div>
 <div class="dlg-b">
 <div class="field">
@@ -144,7 +144,7 @@
 </tr>{{else}}<tr><td colspan="4" class="muted">{{t "ver.none"}}</td></tr>{{end}}
 </tbody></table></div>
 {{range .Versions}}{{if not .Current}}<form method="post" action="/folders/{{$.Folder.ID}}/restore" class="ask" id="ask-{{.ID}}" role="group" aria-labelledby="ask-q-{{.ID}}" hidden><span class="q" id="ask-q-{{.ID}}">{{time .Time}} - {{t "ver.ask"}}</span><span class="acts"><button type="button" class="btn sm" data-ask-cancel="{{.ID}}">{{t "common.cancel"}}</button> <button class="btn sm primary">{{t "common.restore"}}</button></span>
-<input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}"></form>{{end}}{{end}}
+<input type="hidden" name="version" value="{{.ID}}"><input type="hidden" name="dir" value="{{$.Dir}}">{{if $.Deleted}}<input type="hidden" name="deleted" value="1">{{end}}</form>{{end}}{{end}}
 </div>
 <div class="dlg-f"><button type="button" class="btn" data-close>{{t "common.close"}}</button></div>
 </dialog>{{end}}
@@ -161,6 +161,6 @@
 </dialog>
 
 <form id="f-restore-last" method="post" action="/folders/{{.Folder.ID}}/restore" hidden data-confirm="{{t "fo.restoreLastConfirm"}}" data-confirm-ok="{{t "common.restore"}}">
-<input type="hidden" name="path" value=""><input type="hidden" name="dir" value="{{.Dir}}"></form>
+<input type="hidden" name="path" value=""><input type="hidden" name="dir" value="{{.Dir}}">{{if .Deleted}}<input type="hidden" name="deleted" value="1">{{end}}</form>
 <form id="f-del-folder" method="post" action="/folders/{{.Folder.ID}}/delete" hidden data-confirm="{{t "fo.delConfirm" "name" .Folder.Name}}" data-confirm-ok="{{t "common.delete"}}" data-danger></form>
 {{end}}

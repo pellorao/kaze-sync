@@ -230,7 +230,7 @@ func (s *Server) resolveHandler(w http.ResponseWriter, r *http.Request) error {
 	if len(acts) > 0 {
 		s.broadcast() // wakes the device's poll and the open pages
 	}
-	http.Redirect(w, r, "/folders/"+strconv.FormatInt(f.ID, 10)+"?dir="+url.QueryEscape(strings.TrimSpace(r.FormValue("dir")))+"&held="+strconv.FormatInt(devID, 10), http.StatusSeeOther)
+	http.Redirect(w, r, "/folders/"+strconv.FormatInt(f.ID, 10)+"?dir="+url.QueryEscape(strings.TrimSpace(r.FormValue("dir")))+"&held="+strconv.FormatInt(devID, 10)+keepDeleted(r), http.StatusSeeOther)
 	return nil
 }
 
