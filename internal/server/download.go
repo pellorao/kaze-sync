@@ -75,7 +75,7 @@ func (s *Server) devicePackage(w http.ResponseWriter, r *http.Request, _ device)
 }
 
 // adminDownload serves a client installer of dl/ as it is to a signed-in admin, so that an enrolled device can be
-// upgraded from the browser (design 9.5 "管理页下载"). A request without a session is a failed authentication, like
+// upgraded from the browser (design 9.5, admin-page download). A request without a session is a failed authentication, like
 // a wrong enrollment code; a session is not subject to the lockout, as on the other admin pages.
 func (s *Server) adminDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")

@@ -148,6 +148,13 @@ func (a *API) json(ctx context.Context, path string, req, out any) error {
 	if err != nil {
 		return err
 	}
+	if path != "poll" { // a poll hangs on purpose and has its own deadline
+		// The headers wait is capped by the transport; this caps the whole call, so that a server that sends the
+		// headers and then stalls cannot hold the folder busy for ever.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 2*responseTimeout)
+		defer cancel()
+	}
 	return a.do(ctx, path, bytes.NewReader(b), "application/json", out)
 }
 

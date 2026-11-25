@@ -80,3 +80,20 @@ func TestCpufix4FreeFileNotRecorded(t *testing.T) {
 		t.Fatalf("free file recorded in unsentFiles: %v", a.f.unsentFiles)
 	}
 }
+
+// A file whose mtime is ahead of the client clock waits until mtime + Stable like a young one (design 2.3).
+func TestFutureMtimeWaits(t *testing.T) {
+	t.Parallel()
+	a, _ := cpufix3Pair(t, []proto.WCRule{{Path: "d/f.txt", Mode: proto.ModeSingle}})
+	a.put("d/f.txt", []byte("zero"))
+	a.sync()
+	now := time.Unix(0, 5_000_000_000_000)
+	a.f.Now = func() time.Time { return now }
+	a.f.Stable = 5 * time.Second
+	a.put("d/f.txt", []byte("one"))
+	a.fs.SetMeta("d/f.txt", now.Add(time.Hour).UnixNano(), false)
+	a.scanHint("d")
+	if !a.f.unsentFiles["d/f.txt"] {
+		t.Fatalf("future-dated file not held back: %v", a.f.unsentFiles)
+	}
+}

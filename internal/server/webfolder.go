@@ -188,15 +188,6 @@ func decorate(t translator, entries []browseEntry, dir string, notes []notice) [
 	return entries
 }
 
-func hasTag(tags []entryTag, text string) bool {
-	for _, t := range tags {
-		if t.Text == text {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) folderPageH(w http.ResponseWriter, r *http.Request) error {
 	return s.folderPage(w, r, nil)
 }

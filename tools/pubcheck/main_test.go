@@ -19,6 +19,7 @@ func TestScanTextHits(t *testing.T) {
 		{j("不碰 `~/", "projects` 的真实数据"), "local path"},
 		{j("see $HOME/", "projects/x"), "local path"},
 		{j("登记在 /home/alice/", "projects/.downloads"), "local path"},
+		{j(`C:\Users\alice\`, `projects\x`), "local path"},
 		{j("避开 Str", "ata 运行时"), "private project"},
 		{j("a ", "qwen-str", "ata run"), "private project"},
 		{j("kaze-work", "shop"), "private project"},
