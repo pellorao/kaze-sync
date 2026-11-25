@@ -1,14 +1,14 @@
-# kaze-sync v0.7.4 发布说明
+# kaze-sync v0.7.5 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.7.4` (发布于 2026-11-25) 加固登录表单 (未认证的客户端不能再用过慢或过大的请求体占住连接: 上限 4 KiB, 10 秒) 并修复管理页若干细节 (通知栏链接和退出登录丢弃未保存的规则修改前先询问, 没有状态的设备显示 "未上报", 通知栏焦点). 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.4-linux-amd64.tar.gz`, `kaze-sync-0.7.4-windows-amd64.zip`, `kaze-sync-server-0.7.4-linux-amd64.sh`, `kaze-sync-client-0.7.4-linux-amd64.sh`, `kaze-sync-client-0.7.4-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.4` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
+`v0.7.5` (发布于 2026-11-25) 修复文件夹页的 "显示已删除" 开关: 保存写入控制, 处理或恢复文件, 保存规则之后保持开启. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.5-linux-amd64.tar.gz`, `kaze-sync-0.7.5-windows-amd64.zip`, `kaze-sync-server-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.5` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
 
 ## 主要更新
 
-- 修复: 登录表单请求体上限 4 KiB 且 10 秒内收完; 通知栏链接和退出登录的未保存修改询问; 通知栏焦点; 服务端关闭时不再等待正在运行的垃圾回收. 只改服务端, 详见[更新日志](CHANGELOG.zh-CN.md).
+- 修复: "显示已删除" 开关在保存写入控制, 处理, 恢复和保存规则后保持开启; 保存规则的删除数量不再与开关共用参数. 只改服务端, 详见[更新日志](CHANGELOG.zh-CN.md).
 
 ## 升级
 

@@ -4,6 +4,14 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.7.5 - 2026-11-25
+
+Patch release: Web UI fix.
+
+### Fixed
+
+- The "show deleted" switch on a folder page stays on after saving a write control, resolving or restoring a file, and saving rules. A rules save that removes files reports the removed count separately from the switch, so a save with no removals no longer claims files were deleted.
+
 ## v0.7.4 - 2026-11-25
 
 Patch release: login hardening and Web UI fixes.

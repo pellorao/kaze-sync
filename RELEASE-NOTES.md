@@ -1,14 +1,14 @@
-# kaze-sync v0.7.4 release notes
+# kaze-sync v0.7.5 release notes
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## What this release is
 
-`v0.7.4` (released on 2026-11-25) hardens the login form (an unauthenticated client can no longer hold a connection with a slow or oversized body: 4 KiB cap, 10 seconds) and fixes Web UI details (questions before the bell panel links and logout drop unsaved rule edits, "unreported" for devices without a status, notification panel focus). For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.4-linux-amd64.tar.gz`, `kaze-sync-0.7.4-windows-amd64.zip`, `kaze-sync-server-0.7.4-linux-amd64.sh`, `kaze-sync-client-0.7.4-linux-amd64.sh`, `kaze-sync-client-0.7.4-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.4`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
+`v0.7.5` (released on 2026-11-25) fixes the "show deleted" switch on the folder page, which now stays on after saving a write control, resolving or restoring a file, and saving rules. For the full overview of kaze-sync's features, see the [user manual](docs/manuals/user-manual.md), the [changelog](CHANGELOG.md), or the `v0.1.0` release notes in the Git tag `v0.1.0`. The prebuilt packages and installers (`kaze-sync-0.7.5-linux-amd64.tar.gz`, `kaze-sync-0.7.5-windows-amd64.zip`, `kaze-sync-server-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-windows-amd64-setup.exe`, `SHA256SUMS`, x86-64 only) are on the [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) page; check them with `sha256sum -c SHA256SUMS` ([user manual, section 2.1](docs/manuals/user-manual.md#21-download-and-verify-the-server-package)). Identify a build with `kaze-syncd --version` and `kaze-syncc --version` and by the Git tag `v0.7.5`. The Windows installer is not code-signed: SmartScreen shows a warning, see the user manual.
 
 ## Highlights
 
-- Fix: login form body capped at 4 KiB and 10 seconds; unsaved-edit questions for the bell panel links and logout; notification panel focus; server shutdown no longer waits for a running garbage collection. Server-side change only; details in the [changelog](CHANGELOG.md).
+- Fix: the "show deleted" switch stays on after write-control, resolve, restore and rules saves; the rules-save removal count no longer shares a parameter with the switch. Server-side change only; details in the [changelog](CHANGELOG.md).
 
 ## Upgrading
 
