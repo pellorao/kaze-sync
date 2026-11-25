@@ -386,7 +386,7 @@ func flashText(t translator, r *http.Request) string {
 	case "saved":
 		return t.T("flash.saved")
 	case "rules":
-		if n, err := strconv.Atoi(r.FormValue("deleted")); err == nil && n > 0 {
+		if n, err := strconv.Atoi(r.FormValue("removed")); err == nil && n > 0 {
 			return t.T("flash.rulesDeleted", "n", n)
 		}
 		return t.T("flash.rules")
@@ -907,10 +907,9 @@ func (s *Server) saveRules(w http.ResponseWriter, r *http.Request, page pageFn, 
 		return err
 	}
 	if n := s.deleteHits(hits); n > 0 {
-		back += "&deleted=" + strconv.Itoa(n)
-	} else {
-		back += keepDeleted(r)
+		back += "&removed=" + strconv.Itoa(n)
 	}
+	back += keepDeleted(r)
 	http.Redirect(w, r, back, http.StatusSeeOther)
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -408,5 +409,32 @@ func TestFolderPostsKeepShowDeleted(t *testing.T) {
 				t.Errorf("form %s: carries the switch = %v, want %v", id, has, want)
 			}
 		}
+	}
+}
+
+// The notice after a rules save talks about files the server removed only when it removed some; the "show deleted"
+// switch (deleted=1) is a different thing.
+func TestRulesFlashSeparatesRemovedFromShowDeleted(t *testing.T) {
+	t.Parallel()
+	l := newLockEnv(t)
+	base := "/folders/" + itoa(l.f)
+	resp, err := l.web.PostForm(l.ts.URL+base+"/rules", url.Values{"rules": {"*.tmp"}, "deleted": {"1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "deleted=1") || strings.Contains(loc, "removed=") {
+		t.Fatalf("returned to %q", loc)
+	}
+	_, page := l.get(l.web, loc)
+	toast := regexp.MustCompile(`(?s)<div class="toast".*?</div>`)
+	_, plain := l.get(l.web, base+"?ok=rules")
+	if got := toast.FindString(page); got == "" || got != toast.FindString(plain) {
+		t.Errorf("notice after a save without hits: %s", got)
+	}
+	_, page = l.get(l.web, base+"?ok=rules&removed=3&deleted=1")
+	if t3 := toast.FindString(page); !strings.Contains(t3, "3") || !strings.Contains(t3, "删") {
+		t.Errorf("notice with 3 removed: %s", t3)
 	}
 }
