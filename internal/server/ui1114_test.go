@@ -24,6 +24,21 @@ func TestDialogScript(t *testing.T) {
 	}
 }
 
+// Keyboard focus around the notification panel (notif-focus): a cancelled leave question and the error buttons that open the
+// panel; the behaviour is tested with node's built-in runner, like the dialogs.
+func TestNotifFocusScript(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	cmd := exec.Command(node, "--test", "notiffocus.test.js")
+	cmd.Dir = "jstest"
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
 // A folder name in the overview wraps (a long one is cut anywhere) but never shrinks below about eight characters: a short
 // name is not set one letter to a line on a narrow screen (ui1114 D1; `overflow-wrap: anywhere` alone lets the column
 // shrink to one letter).

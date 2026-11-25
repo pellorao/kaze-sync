@@ -146,16 +146,22 @@
     cf.showModal();
   });
   // ask puts a question to the shared confirmation dialog and runs yes() on the button (label ok)
-  function ask(msg, ok, yes) {
-    pending = { run: yes };
+  function ask(msg, ok, yes, no) { // no: runs when the dialog closes without the button (Cancel, Esc)
+    pending = { run: yes, no };
     $("#cf-msg").textContent = msg;
     const b = $("#cf-ok");
     b.textContent = ok;
     b.className = "btn danger";
     cf.showModal();
   }
+  if (cf) cf.addEventListener("close", () => {
+    const p = pending;
+    pending = null;
+    if (p && p.no) p.no();
+  });
   if (cf) $("#cf-ok").addEventListener("click", () => {
     const p = pending;
+    pending = null; // an answered question is not a cancelled one
     cf.close();
     if (!p) return;
     if (p.run) { p.run(); return; }
@@ -461,7 +467,9 @@
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-notif]");
     if (!b || !notif) return;
-    notif.showPopover();
+    // source: the button becomes the panel's invoker, so Tab goes from the button into the panel (without it the focus
+    // walks on through the page behind the panel)
+    notif.showPopover({ source: b });
     const g = b.dataset.notif && document.getElementById(b.dataset.notif);
     if (g) g.scrollIntoView({ block: "start" });
   });
@@ -1182,7 +1190,9 @@
           const a = e.target.closest && e.target.closest("#notif a[href]");
           if (!a || !dirty() || e.defaultPrevented || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
-          ask(rt("js.discardLeave"), rt("js.discardOk"), () => { location.href = a.href; });
+          // showModal() closed the auto popover the link was in, so the browser has no link to give the focus back
+          // to: on cancel it goes to the bell, whose panel opens again with the key that brought the focus here
+          ask(rt("js.discardLeave"), rt("js.discardOk"), () => { location.href = a.href; }, () => { const bell = $('[popovertarget="notif"]'); if (bell) bell.focus(); });
         });
         const lo = $('form[action="/logout"]');
         if (lo) lo.addEventListener("submit", (e) => {
