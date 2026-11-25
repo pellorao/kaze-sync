@@ -4,6 +4,12 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+
+- The login form no longer lets an unauthenticated client hold a connection: its body is capped at 4 KiB and must arrive within 10 seconds.
+
 ## v0.7.3 - 2026-11-25
 
 Patch release: Web UI fixes.

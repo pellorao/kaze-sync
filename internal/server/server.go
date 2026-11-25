@@ -67,6 +67,8 @@ type Server struct {
 
 	// PollTimeout is how long a poll hangs without news.
 	PollTimeout time.Duration
+	// loginBodyTimeout bounds how long a login form body may take to arrive.
+	loginBodyTimeout time.Duration
 
 	// EventGap is the shortest time between two pushes on /events (design 4.1).
 	EventGap time.Duration
@@ -164,7 +166,7 @@ func newServer(db *sql.DB, varDir string, blobs *blobstore.Store, now func() tim
 	return &Server{
 		vapid: vapid, jwts: map[string]jwtCache{}, pkeys: map[string]*pushKey{}, pushOffline: map[int64]int{}, gcFailed: MetaString(db, "last_gc_err") != "",
 		resources: resources.New(),
-		boot:      randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, EventGap: 5 * time.Second,
+		boot:      randomBase32(8), db: db, varDir: varDir, fdbs: map[int64]*sql.DB{}, blobs: blobs, now: now, tmpl: map[string]map[string]*template.Template{}, PollTimeout: proto.PollTimeoutS * time.Second, loginBodyTimeout: loginBodyTimeoutDefault, EventGap: 5 * time.Second,
 		stats: map[int64]folderStat{}, uiCh: make(chan struct{}), evDone: make(chan struct{}),
 		sessions: map[string]time.Time{}, codes: map[[32]byte]pendingCode{}, fails: map[string]*failure{},
 		reports: map[int64]*report{}, notify: make(chan struct{}),

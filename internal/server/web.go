@@ -404,11 +404,21 @@ func flashText(t translator, r *http.Request) string {
 	return t.T("flash.restoredN", "n", n)
 }
 
+// loginBodyMax caps the login form; loginBodyTimeoutDefault bounds how long its body may take to arrive.
+const (
+	loginBodyMax            = 4 << 10
+	loginBodyTimeoutDefault = 10 * time.Second
+)
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if s.locked(r) {
 		http.Error(w, "too many failures", http.StatusTooManyRequests)
 		return
 	}
+	// The listener has no body read timeout (sync uploads are long), so bound the unauthenticated form here.
+	rc := http.NewResponseController(w)
+	rc.SetReadDeadline(time.Now().Add(s.loginBodyTimeout))
+	r.Body = http.MaxBytesReader(w, r.Body, loginBodyMax)
 	if !s.checkAdminPassword(r.FormValue("password")) {
 		s.authFailed(r, "admin password")
 		t := trOf(r)
