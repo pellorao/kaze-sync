@@ -86,8 +86,8 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text.trim());
     if (!m) return null;
     const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
-    const g = new Date(guess); // every field must come back as typed: 24:00, 02-30 and 12:60 would roll over into another time
-    if (g.getUTCMonth() !== +m[2] - 1 || g.getUTCDate() !== +m[3] || g.getUTCHours() !== +m[4] || g.getUTCMinutes() !== +m[5] || g.getUTCSeconds() !== +(m[6] || 0)) return null;
+    const normalized = new Date(guess); // every field must come back as typed: 24:00, 02-30 and 12:60 would roll over into another time
+    if (normalized.getUTCMonth() !== +m[2] - 1 || normalized.getUTCDate() !== +m[3] || normalized.getUTCHours() !== +m[4] || normalized.getUTCMinutes() !== +m[5] || normalized.getUTCSeconds() !== +(m[6] || 0)) return null;
     return fromWall(guess, zone);
   }
   const utc = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
