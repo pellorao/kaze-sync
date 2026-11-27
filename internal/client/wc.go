@@ -518,7 +518,7 @@ func (f *Folder) Resolve(ctx context.Context, act proto.Action) error {
 		return f.failNote(p, "local", errLocalChanged)
 	}
 	if act.Action == ActDiscard {
-		err = f.discard(ctx, h, serr == nil, act.Save)
+		err = f.discard(ctx, h, serr == nil, act)
 	} else {
 		err = f.uploadHeld(ctx, h, st, act)
 	}
@@ -588,14 +588,23 @@ func (f *Folder) uploadHeld(ctx context.Context, h heldRow, st cfs.Entry, act pr
 }
 
 // discard sets the local version of the held path aside (or removes it) and takes the server's.
-func (f *Folder) discard(ctx context.Context, h heldRow, exists, save bool) error {
+func (f *Folder) discard(ctx context.Context, h heldRow, exists bool, act proto.Action) error {
 	res, err := f.probe(ctx, false, h.Path)
 	if err != nil {
 		return err
 	}
 	cur := res[0].Current
+	if act.Expect != nil { // the server version must still be the one the user saw (0: the server has no entry)
+		var seq int64
+		if cur != nil {
+			seq = cur.Seq
+		}
+		if seq != *act.Expect {
+			return errServerChanged
+		}
+	}
 	if exists {
-		if st, _ := f.FS.Stat(h.Path); save || st.IsDir {
+		if st, _ := f.FS.Stat(h.Path); act.Save || st.IsDir {
 			err = f.saveAway(h.Path)
 		} else {
 			err = f.FS.Remove(h.Path)

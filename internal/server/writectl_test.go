@@ -194,3 +194,17 @@ func TestMigrateLocksToWritectl(t *testing.T) {
 		t.Fatal("no default window")
 	}
 }
+
+// A server clock that went back puts the write in the future: the window has passed, no owner is shown as active.
+func TestActiveOwnerAfterClockRollback(t *testing.T) {
+	t.Parallel()
+	l := newLockEnv(t)
+	l.apiCommit(l.ta, l.f, l.wcOp("repo/a", 0, 0, "1"))
+	if n := len(l.s.activeOwners(l.f, nil)); n != 1 {
+		t.Fatalf("owners right after the write = %d, want 1", n)
+	}
+	l.clk.Add(-time.Hour)
+	if o := l.s.activeOwners(l.f, nil); len(o) != 0 {
+		t.Fatalf("owners after the clock went back: %+v", o)
+	}
+}

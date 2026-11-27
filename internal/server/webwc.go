@@ -135,7 +135,8 @@ func (s *Server) activeOwners(folder int64, rules []lockRow) map[string]ownerNow
 			continue
 		}
 		seen[rule.key] = true // the latest write of the scope decides
-		if until := created + window; until > now {
+		// created > now (the clock went back) means the window has passed, as in inWindow
+		if until := created + window; created <= now && until > now {
 			out[rule.key] = ownerNow{rule.Path, dev, until}
 		}
 	}
