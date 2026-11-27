@@ -5,6 +5,10 @@
 //	go run ./tools/adminstatus -url https://HOST:PORT [-fp sha256:HEX | -ca CA.pem] [-pwfile FILE] [-expect VERSION] [-json]
 //	go run ./tools/adminstatus -setup           # store the password in the password file (read from stdin)
 //	go run ./tools/adminstatus -rename OLD=NEW  # rename a device (design 2.5), then print the state as above
+//	go run ./tools/adminstatus -resolve -folder F -device D (-scope S | -path P) -action discard|overwrite|upload [-save=false] [-yes] [-wait 60s]
+//	                                            # decide the changes a device holds (design 2.8.11); a dry run unless -yes
+//
+// The report also lists what the bell shows (errors and warnings), so an operator can name them to the user.
 //
 // The password is read only from the password file (default $XDG_CONFIG_HOME/kaze-sync/admin-password, which must
 // be a regular file readable by its owner only) and is never printed, put on a command line or logged. -url, -fp
@@ -65,6 +69,7 @@ type report struct {
 	PushMode      string   `json:"push_mode"`
 	PushAvailable bool     `json:"push_available"`
 	Subs          []sub    `json:"subs"`
+	Notices       []notice `json:"notices"`
 	Problems      []string `json:"problems"`
 }
 
@@ -78,7 +83,17 @@ func main() {
 		asJSON = flag.Bool("json", false, "print JSON")
 		setup  = flag.Bool("setup", false, "read the password from stdin and store it in -pwfile (mode 0600)")
 		rename = flag.String("rename", "", "rename a device first: OLD=NEW")
+		o      resolveOpts
 	)
+	flag.BoolVar(&o.On, "resolve", false, "decide held changes (needs -folder, -device, -action and -scope or -path); a dry run unless -yes")
+	flag.StringVar(&o.Folder, "folder", "", "-resolve: folder id or name")
+	flag.StringVar(&o.Device, "device", "", "-resolve: device id or name")
+	flag.StringVar(&o.Scope, "scope", "", "-resolve: the held scope (e.g. d:PROJ-X, or its path as the dialog shows it): the action covers every held change in it")
+	flag.StringVar(&o.Path, "path", "", "-resolve: a held path, or a directory (every held change under it), decided row by row")
+	flag.StringVar(&o.Action, "action", "", "-resolve: discard, overwrite or upload (upload only with -path)")
+	flag.BoolVar(&o.Save, "save", true, "-resolve discard: keep the local copy in .syncsaved (-save=false deletes it)")
+	flag.BoolVar(&o.Yes, "yes", false, "-resolve: submit the decision (without it only print what would be decided)")
+	flag.DurationVar(&o.Wait, "wait", time.Minute, "-resolve -yes: how long to wait for the device to carry the decision out")
 	flag.Parse()
 	if *setup {
 		if err := storePassword(*pwfile, os.Stdin); err != nil {
@@ -101,9 +116,15 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if o.On && (*asJSON || *rename != "") {
+		fail(errors.New("-resolve cannot be combined with -json or -rename"))
+	}
 	rep, err := collect(c, strings.TrimRight(*base, "/"), pw, *rename)
 	if err != nil {
 		fail(err)
+	}
+	if o.On {
+		os.Exit(runResolve(c, strings.TrimRight(*base, "/"), rep, o, os.Stdout))
 	}
 	check(rep, *expect)
 	if *asJSON {
@@ -339,7 +360,7 @@ var (
 
 // parseOverview reads the server version and the device table from the overview page.
 func parseOverview(page string) *report {
-	rep := &report{Devices: []device{}, Subs: []sub{}, Problems: []string{}}
+	rep := &report{Devices: []device{}, Subs: []sub{}, Notices: parseNotices(page), Problems: []string{}}
 	if m := verRe.FindStringSubmatch(page); m != nil {
 		rep.ServerVersion = html.UnescapeString(m[1])
 	}
@@ -400,6 +421,7 @@ func printReport(rep *report) {
 		}
 		fmt.Printf("  %s %s gone=%v %s\n", s.ID, s.Browser, s.Gone, last)
 	}
+	printNotices(os.Stdout, rep.Notices)
 	if len(rep.Problems) == 0 {
 		fmt.Println("result: OK")
 		return
