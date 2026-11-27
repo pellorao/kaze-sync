@@ -366,3 +366,29 @@ func TestChmodOnlyIsSynced(t *testing.T) {
 		t.Fatalf("the downloaded bit came back as a change: %+v", rep)
 	}
 }
+
+// A discard decided against an older server version is refused: the user did not review the newer one.
+func TestDiscardStaleServerVersion(t *testing.T) {
+	t.Parallel()
+	_, _, g1, g2, _ := pair(t)
+	g1.put("doc.txt", []byte("base"))
+	g1.scan()
+	g2.sync()
+	g1.put("doc.txt", []byte("from one"))
+	g2.put("doc.txt", []byte("from two"))
+	g1.sync()
+	g2.sync()
+	act := overwriteAct(t, g2.f, "doc.txt")
+	act.Action, act.Save = ActDiscard, true
+	stale := *act.Expect - 1
+	act.Expect = &stale
+	if err := g2.f.Resolve(context.Background(), act); err == nil {
+		t.Fatal("a discard against a stale server version was carried out")
+	}
+	if got, _ := g2.read("doc.txt"); got != "from two" {
+		t.Fatalf("local file after the refused discard = %q", got)
+	}
+	if rows, _ := g2.f.DB.held(); len(rows) != 1 {
+		t.Fatalf("held after the refused discard: %+v", rows)
+	}
+}

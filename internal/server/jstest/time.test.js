@@ -68,3 +68,13 @@ test("a zone the browser does not know falls back to the browser's, in the heade
   p.api.renderTimes();
   assert.strictEqual(p.h.textContent, "(" + Intl.DateTimeFormat().resolvedOptions().timeZone + ")");
 });
+
+// parseLocal (web/app.js) takes only a time whose fields come back as typed: 24:00 or 12:60 would roll over.
+test("parseLocal rejects out-of-range fields", () => {
+  const a = src.indexOf("function parseLocal"), b = src.indexOf("const utc =");
+  assert.ok(a > 0 && b > a, "parseLocal was not found");
+  const parse = new Function("fromWall", src.slice(a, b) + "\nreturn parseLocal;")((w) => w);
+  for (const bad of ["2026-11-03 24:00", "2026-11-03 12:60", "2026-11-03 12:00:60", "2026-02-30 10:00", "2026-13-01 10:00"]) assert.strictEqual(parse(bad, "UTC"), null, bad);
+  assert.strictEqual(parse("2026-11-03 23:59:59", "UTC"), Date.UTC(2026, 10, 3, 23, 59, 59));
+  assert.strictEqual(parse("2026-11-03T22:48", "UTC"), Date.UTC(2026, 10, 3, 22, 48));
+});

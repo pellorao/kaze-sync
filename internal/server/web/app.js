@@ -86,7 +86,8 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text.trim());
     if (!m) return null;
     const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
-    if (new Date(guess).getUTCMonth() !== +m[2] - 1) return null;
+    const g = new Date(guess); // every field must come back as typed: 24:00, 02-30 and 12:60 would roll over into another time
+    if (g.getUTCMonth() !== +m[2] - 1 || g.getUTCDate() !== +m[3] || g.getUTCHours() !== +m[4] || g.getUTCMinutes() !== +m[5] || g.getUTCSeconds() !== +(m[6] || 0)) return null;
     return fromWall(guess, zone);
   }
   const utc = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
@@ -485,6 +486,7 @@
   let es = null, lastGen = null, dirty = false;
   const busy = () => !!$("dialog[open]") || menu.matches(":popover-open");
   function flush() { if (dirty) refresh(); }
+  document.addEventListener("close", (e) => { if (e.target.tagName === "DIALOG") flush(); }, true); // an update held back while a dialog was open comes now
   // The decision dialog stays open while a device carries out the decisions it was given: it takes the new list in
   // place as long as the user has not started choosing rows.
   async function refreshHeld() {
@@ -919,6 +921,7 @@
     });
     steps.forEach((b) => b.addEventListener("click", () => { if (T) stepChange(+b.dataset.step, false); })); // the buttons may cross days
     input.addEventListener("input", () => {
+      go.disabled = true; // the preview on the screen may no longer belong to the text: stale() decides again once typing rests
       clearTimeout(typeT);
       typeT = setTimeout(() => { setSel(parseLocal(input.value, zone), true); commit(); }, TYPE_WAIT); // a full date and time: both lines go there
     });
@@ -929,6 +932,7 @@
     form.addEventListener("submit", (e) => { // the server reads UTC: send the time the person typed as UTC
       const ms = parseLocal(input.value, zone);
       if (ms === null) { e.preventDefault(); setSel(null, true); commit(); return; }
+      if (keyOf(ms) + "|" + flt() !== shown) { e.preventDefault(); setSel(ms, true); commit(); return; } // typed after the preview: show it first
       input.value = utc(ms);
     });
     rd.addEventListener("close", () => { abort(); clearTimeout(waitT); clearTimeout(typeT); clearTimeout(filterT); });
