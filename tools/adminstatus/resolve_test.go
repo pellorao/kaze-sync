@@ -290,6 +290,7 @@ func TestResolveRefusals(t *testing.T) {
 	}{
 		{"no action", func(o *resolveOpts, _ *fakeServer) { o.Action = "" }, "needs -folder, -device and -action", 2},
 		{"no scope or path", func(o *resolveOpts, _ *fakeServer) { o.Scope = "" }, "never decides everything", 2},
+		{"root path", func(o *resolveOpts, _ *fakeServer) { o.Scope, o.Path = "", "/" }, "would select every held change", 2},
 		{"bad action", func(o *resolveOpts, _ *fakeServer) { o.Action = "delete" }, "must be discard, overwrite or upload", 2},
 		{"upload of a scope", func(o *resolveOpts, _ *fakeServer) { o.Action = "upload" }, "row by row", 2},
 		{"unknown folder", func(o *resolveOpts, _ *fakeServer) { o.Folder = "nope" }, `no folder named "nope"`, 2},

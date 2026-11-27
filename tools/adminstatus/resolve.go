@@ -114,6 +114,8 @@ func (o resolveOpts) validate() error {
 		return errors.New("-resolve needs -folder, -device and -action")
 	case o.Scope == "" && o.Path == "":
 		return errors.New("-resolve needs -scope or -path (it never decides everything a device holds)")
+	case o.Scope == "" && strings.Trim(o.Path, "/") == "":
+		return errors.New("-path / would select every held change: give a path below the root, or -scope")
 	case o.Action != "discard" && o.Action != "overwrite" && o.Action != "upload":
 		return errors.New("-action must be discard, overwrite or upload")
 	case o.Action == "upload" && o.Path == "":
