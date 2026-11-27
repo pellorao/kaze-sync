@@ -146,17 +146,20 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 ## 用脚本检查服务器状态
 
-`go run ./tools/adminstatus` 以管理员身份登录 Web UI (`POST /login`, 与浏览器相同), 取总览页和 `/push/subscriptions`, 打印服务端版本, 各设备的在线状态, 最近连接, 客户端版本, "版本过旧" 标记, 以及通知 (Web Push) 的证书模式和各订阅的状态; 给自动化 (定期巡检) 用, 不必开浏览器.
+`go run ./tools/adminstatus` 以管理员身份登录 Web UI (`POST /login`, 与浏览器相同), 取总览页和 `/push/subscriptions`, 打印服务端版本, 各设备的在线状态, 最近连接, 客户端版本, "版本过旧" 标记, 以及通知 (Web Push) 的证书模式和各订阅的状态, 并列出铃铛里当前的错误与警告 (总览页的通知框; `-json` 里是 `notices`, 折叠的一行带它折叠的各条; 只列出, 不计入下面的检查项, 不改变退出码); 给自动化 (定期巡检) 用, 不必开浏览器.
 
 ```
 go run ./tools/adminstatus -setup                      # 一次: 从标准输入读密码, 存入 ~/.config/kaze-sync/admin-password (0600)
 go run ./tools/adminstatus -url https://HOST:PORT [-ca CA.pem | -fp sha256:HEX] [-expect 0.4.0] [-json] [-rename OLD=NEW]
+go run ./tools/adminstatus -resolve -folder F -device D (-scope S | -path P) -action discard|overwrite|upload [-save=false] [-yes] [-wait 60s]
 ```
 
 - 密码只从密码文件读 (`-pwfile` 改路径; 文件必须是普通文件且权限为 0600, 否则拒绝), 不进命令行, 环境变量, 输出或日志. `-setup` 在终端上关闭回显.
 - 证书: 本地 CA 模式用 `-ca` 给出 `kaze-syncd ca --export -` 导出的 CA 证书; 自签名用 `-fp` 钉住证书指纹; 都不给则按系统信任库. `-url`, `-fp`, `-ca` 也可由 `KAZE_STATUS_URL`, `KAZE_STATUS_FP`, `KAZE_STATUS_CA` 提供.
 - 检查项 (任何一项不过则退出码 1 并在结果里列出): 设备离线, 设备被标 "版本过旧", `-expect` 给出时服务端或任一设备版本不符, 通知接口读不出, 订阅失效 (`gone`) 或最近一次推送状态不是 2xx. 无法登录或读取为退出码 2 (密码错误会计入登录失败锁定, 脚本不重试).
 - `-rename OLD=NEW`: 登录后先把总览上名为 `OLD` 的设备改名为 `NEW` (与设备页的 "设备改名" 同一个表单, design 2.5), 再按上面检查并打印; 名字不合规或重名时退出码 2, 并给出页面上的错误. 给不开浏览器又不能把密码交给别人的场合用 (例如由自动化代管理员改名).
+- `-resolve`: 替设备处理它冻结的待处理改动 (写入控制, design 2.8.11), 即铃铛里 "Handle..." 那条的对话框. 提交的是对话框同一个表单 (`POST /folders/{id}/resolve`), 服务端没有第二个入口. `-folder` 是文件夹 id 或铃铛里显示的名字, `-device` 是设备名或 id, `-action` 是 `discard`, `overwrite` 或 `upload`. 范围二选一: `-scope` 给待处理范围 (如 `d:PROJ-X`, 或对话框里显示的路径 `/proj-x`), 动作对该范围内服务端自读页面起没变过的全部改动生效 (对话框的整范围按钮, 没有整范围的 `upload`); `-path` 给一个文件或目录, 只对其下的改动逐行处理 (`upload` 只能这样用, 且该行的上传在页面上要可选). 两项都不给就拒绝: 不会一次决定设备的全部待处理. 对话框只画了一部分行 (按目录折叠或超过行数上限) 的范围不接受 `-path`, 改用 `-scope`. `-save` 默认开, 丢弃时本地副本移到 `.syncsaved` (与对话框的勾选框一致), `-save=false` 则直接删除.
+- `-resolve` 默认只预演: 打印会处理的范围, 动作和路径 (最多 20 条), 不提交. 加 `-yes` 才提交, 之后每 2 秒重读对话框和铃铛, 最多等 `-wait` (默认 60 秒), 等设备执行并上报, 直到条目消失. 退出码 0: 条目已消失 (或只是预演); 1: 没有匹配的改动, 或超时后条目还在 (设备离线或还没执行时报 "decision accepted", 决定留在服务端内存里, 设备回来会执行; 服务端重启则丢失, 需再提交); 2: 参数不对或服务端拒绝. 不与 `-json`, `-rename` 同用. 决定的是用户的数据: 只在用户批准后加 `-yes`.
 - 自签名证书模式下 Web Push 本来就不可用, 只显示 `available=false`, 不算问题. `-setup` 的关回显只在有 `stty` 的系统上生效. 页面改版会使解析失败: 找不到服务端版本或设备时报告为问题, 不静默通过.
 
 ## 客户端状态快照 (诊断)
