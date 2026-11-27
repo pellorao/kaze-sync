@@ -1,14 +1,14 @@
-# kaze-sync v0.7.5 发布说明
+# kaze-sync v0.7.6 发布说明
 
 [English](RELEASE-NOTES.md) | [简体中文](RELEASE-NOTES.zh-CN.md)
 
 ## 这是什么版本
 
-`v0.7.5` (发布于 2026-11-25) 修复文件夹页的 "显示已删除" 开关: 保存写入控制, 处理或恢复文件, 保存规则之后保持开启. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.5-linux-amd64.tar.gz`, `kaze-sync-0.7.5-windows-amd64.zip`, `kaze-sync-server-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-linux-amd64.sh`, `kaze-sync-client-0.7.5-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.5` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
+`v0.7.6` (发布于 2026-11-28) 汇集跟进修复: 丢弃被挂起文件前核对用户看到的服务端版本, 未来的修改时间等满稳定期再处理, 客户端 JSON 调用有整体期限, 管理页恢复时间输入更严格. 完整功能介绍请参阅[用户手册](docs/manuals/user-manual.zh-CN.md), [更新日志](CHANGELOG.zh-CN.md), 或 Git tag `v0.1.0` 里的 `v0.1.0` 发布说明. 预编译包与安装包 (`kaze-sync-0.7.6-linux-amd64.tar.gz`, `kaze-sync-0.7.6-windows-amd64.zip`, `kaze-sync-server-0.7.6-linux-amd64.sh`, `kaze-sync-client-0.7.6-linux-amd64.sh`, `kaze-sync-client-0.7.6-windows-amd64-setup.exe`, `SHA256SUMS`, 仅限 x86-64) 在 [GitHub Releases](https://github.com/pellorao/kaze-sync/releases) 页面, 用 `sha256sum -c SHA256SUMS` 校验 ([用户手册 2.1 节](docs/manuals/user-manual.zh-CN.md#21-下载并校验服务端发布包)). 用 `kaze-syncd --version` 和 `kaze-syncc --version` 以及 Git tag `v0.7.6` 识别构建. Windows 安装程序没有代码签名, SmartScreen 会显示警告, 见用户手册.
 
 ## 主要更新
 
-- 修复: "显示已删除" 开关在保存写入控制, 处理, 恢复和保存规则后保持开启; 保存规则的删除数量不再与开关共用参数. 只改服务端, 详见[更新日志](CHANGELOG.zh-CN.md).
+- 修复: 丢弃前核对用户看到的服务端版本; 未来的修改时间等到该时间加稳定等待之后再处理; 客户端 JSON 调用有期限; 时钟回拨后独占所有者窗口结束; 恢复时间输入拒绝进位的值, 输入时恢复按钮禁用; adminstatus 只接受 https. 涉及客户端, 服务端与管理页, 详见[更新日志](CHANGELOG.zh-CN.md).
 
 ## 升级
 

@@ -4,6 +4,19 @@
 
 Notable changes to kaze-sync are grouped by release below; versions follow `vMAJOR.MINOR.PATCH`.
 
+## v0.7.6 - 2026-11-28
+
+Patch release: follow-up fixes to the client, the server and the Web UI.
+
+### Fixed
+
+- Discarding a held file's local version checks that the server version is still the one the user saw, and otherwise refuses instead of overwriting the newer one.
+- A file whose modification time is in the future is picked up once that time plus the stable wait has passed, instead of immediately.
+- JSON calls from the client have an overall deadline, so a server that sends headers and then stalls cannot keep a folder busy for ever.
+- The temporary names of same-content files in one directory are chosen without rescanning, and the server's export writes its temporary file exclusively (never through a link).
+- The owner window of an exclusive folder ends when the server clock has gone back; the Web UI restore time field rejects values that roll over (24:00, 02-30, 12:60), the restore button is disabled while typing, and a refresh held back by an open dialog is applied when the dialog closes.
+- `tools/adminstatus` refuses a non-https URL, since the password is sent in the login request.
+
 ## v0.7.5 - 2026-11-25
 
 Patch release: Web UI fix.
