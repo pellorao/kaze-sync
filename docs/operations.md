@@ -130,7 +130,7 @@ kaze-syncd export DIR [--data DIR] [--folder NAME|ID] [--at "2026-11-02 12:00[:0
 
 每次发布在 tag 对应的源码根目录运行 `go run ./tools/release`, 按 `internal/version/VERSION` 生成 `dist/vX.Y.Z/` (Git 忽略): `kaze-sync-X.Y.Z-linux-amd64.tar.gz` 含服务端与客户端, `kaze-sync-X.Y.Z-windows-amd64.zip` 含客户端及无窗口 agent, 以及三个安装程序 (设计 9.5): `kaze-sync-server-X.Y.Z-linux-amd64.sh` (服务端, 随带两个客户端安装包), `kaze-sync-client-X.Y.Z-linux-amd64.sh`, `kaze-sync-client-X.Y.Z-windows-amd64-setup.exe`, 另附 `SHA256SUMS` (含全部五个文件). 构建顺序是先客户端二进制, 再客户端安装包, 最后服务端安装程序; 安装程序同样可重现. 发版测试检查 agent exe 的 PE 子系统为 2, 并在 dash 下用假载荷跑 sh 外壳. 使用本机 Go 工具链与已缓存模块, 缺依赖即停止, 不联网下载; 首次运行 `go run` 本身也可设置 `GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off`.
 构建固定 `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=false` 和链接参数, 归档按文件名排序并固定时间戳及权限; 同一源码与同一 Go 工具链可重编后比对 `SHA256SUMS` (校验用 `sha256sum -c SHA256SUMS`). 旧 tag 可用 `go run ./tools/release -source <源码目录> -out <产物目录>` 补包.
-命令最后仅打印带 `--verify-tag` 的 `gh release create` 上传命令, 不执行; 维护者核对后将包与校验和上传到公开 GitHub 仓库的 Releases, 本地 `dist/` 不提交. 部署使用这次打包的二进制.
+命令最后仅打印带 `--verify-tag` 的 `gh release create` 上传命令, 不执行, 并删掉按版本号排在最新两版之前的 `dist/vX.Y.Z` (只在用默认输出目录时; 用 `gh release view` 查到 GitHub 上没有对应 release 的版本保留并提示, 查不到 (无 `gh`, 无网络) 也保留); 维护者核对后将包与校验和上传到公开 GitHub 仓库的 Releases, 本地 `dist/` 不提交. 部署使用这次打包的二进制.
 
 ## 升级
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +84,24 @@ func TestArchiveReproducible(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestPruneDist(t *testing.T) {
+	dist := t.TempDir()
+	for _, n := range []string{"v0.7.1", "v0.7.4", "v0.7.5", "v0.7.10", "v0.7.9", "notes", ".release-x"} {
+		if err := os.MkdirAll(filepath.Join(dist, n), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneDist(dist, 2, func(tag string) bool { return tag != "v0.7.4" })
+	var got []string
+	entries, _ := os.ReadDir(dist)
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	want := ".release-x notes v0.7.10 v0.7.4 v0.7.9"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("got %v, want %s", got, want)
 	}
 }

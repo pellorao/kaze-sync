@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,6 +45,7 @@ func release(source, out string) error {
 	if !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`).MatchString(version) {
 		return fmt.Errorf("invalid VERSION: %q", version)
 	}
+	prune := out == ""
 	if out == "" {
 		out = filepath.Join(source, "dist", "v"+version)
 	}
@@ -157,7 +159,64 @@ func release(source, out string) error {
 		fmt.Print(" ", shellQuote(filepath.Join(out, name)))
 	}
 	fmt.Println()
+	if prune {
+		pruneDist(filepath.Dir(out), 2, func(tag string) bool { return onGitHub(source, tag) })
+	}
 	return nil
+}
+
+var distDirRE = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
+
+// pruneDist removes all but the newest keep dist/vX.Y.Z directories, except
+// those whose release is not on GitHub (published reports whether it is):
+// those are kept and named so the maintainer can upload them first.
+func pruneDist(dist string, keep int, published func(tag string) bool) {
+	entries, err := os.ReadDir(dist)
+	if err != nil {
+		return
+	}
+	type ver struct {
+		name string
+		n    [3]int
+	}
+	var vs []ver
+	for _, e := range entries {
+		m := distDirRE.FindStringSubmatch(e.Name())
+		if m == nil || !e.IsDir() {
+			continue
+		}
+		v := ver{name: e.Name()}
+		for i := range v.n {
+			v.n[i], _ = strconv.Atoi(m[i+1])
+		}
+		vs = append(vs, v)
+	}
+	sort.Slice(vs, func(i, j int) bool {
+		for k := range vs[i].n {
+			if vs[i].n[k] != vs[j].n[k] {
+				return vs[i].n[k] > vs[j].n[k]
+			}
+		}
+		return false
+	})
+	for i := keep; i < len(vs); i++ {
+		if !published(vs[i].name) {
+			fmt.Printf("Kept dist/%s: no GitHub release found (upload it, then delete the directory)\n", vs[i].name)
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dist, vs[i].name)); err != nil {
+			fmt.Fprintln(os.Stderr, "release: prune:", err)
+			continue
+		}
+		fmt.Println("Removed old dist/" + vs[i].name)
+	}
+}
+
+// onGitHub reports whether the release for tag exists; any failure (no gh, no network) counts as no.
+func onGitHub(source, tag string) bool {
+	cmd := exec.Command("gh", "release", "view", tag)
+	cmd.Dir = source
+	return cmd.Run() == nil
 }
 
 func goBuild(source, stage, target, pkg, name, ldflags string) error {
